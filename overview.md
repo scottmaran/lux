@@ -18,16 +18,18 @@ Additionally, the agent may then be able to leverage this logging itself.
 and can optionally expose those logs back to the agent as read‑only evidence.
 - Scope: verifiable local side effects and interactions; not a full reconstruction of model
 reasoning.
-- Signals to capture: process exec events (cmdline, uid/gid, PID/PPID), filesystem changes
-including metadata (write/rename/unlink/chmod/chown/xattr/utime), network egress metadata (dest/
-protocol/port), local IPC connection metadata (endpoint + PID), and stdout/stderr (plus stdin if
-interactive).
+- Signals to capture: 
+    - process exec events (cmdline, uid/gid, PID/PPID)
+    - filesystem changes including metadata (write/rename/unlink/chmod/chown/xattr/utime)
+    - network egress metadata (dest/protocol/port)
+    - local IPC connection metadata (endpoint + PID)
+    - stdout/stderr (plus stdin if interactive)
 - Correlation: tag the root agent process with a session ID, inherit it across the PID tree, and
 build a timeline by timestamp + PID to associate file/network/IPC events with the originating
 process.
-- Storage: logs written to a protected sink the agent cannot modify (read‑only to agent), with
-clear session boundaries.
-- Explicit exclusions (for now): file reads, env‑var mutation logging, and payload content for
+- Storage: logs written to a host sink outside the VM; the agent gets read-only access during the
+session, with clear session boundaries.
+- Explicit exclusions: file reads, env‑var mutation logging, and payload content for
 network/IPC.
 
 # Design doc
@@ -38,6 +40,16 @@ defined local scope (filesystem + processes + network + IPC + stdout/stderr).
 - Logs must be attributable to a single session with consistent timestamps, PID/PPID lineage, and a unique session
 ID.
 - The scope is “local state and interaction verifiability,” not full behavioral reconstruction or model reasoning.
+
+Threat model and trust boundary
+
+- Tamper-proofing is required against the agent user/container; the host is trusted.
+- Logs are stored on the host outside the VM; the agent sees a read-only view during the session.
+- Out of scope: host compromise and VM root.
+
+Platform scope (TODO)
+
+- Linux VM only; audit mechanism TBD.
 
 Process execution (exec)
 
@@ -57,7 +69,9 @@ permission/ownership transitions.
 Network egress
 
 - Log outbound connections with destination IP/port, protocol, and timestamp; record DNS lookups if available.
-- Optionally use an HTTP(S) proxy to log method + URL + status; payloads and response bodies are not required.
+- Use an HTTP(S) proxy to log method + URL + status for HTTP traffic; payloads and response bodies are not required.
+- For HTTPS without MITM, the proxy logs host/port only; raw connect metadata still provides coverage for non-HTTP
+protocols.
 - Network logging is for “remote side effects/requests,” not for full content capture.
 
 Local IPC/service interactions
@@ -83,7 +97,15 @@ Collection mechanics
 - Use kernel‑level audit sources to observe exec + file change + IPC/network events; user‑space file watchers are
 insufficient for attribution.
 - Correlate events by PID/PPID and session ID; map to agent‑visible actions in a single timeline.
-- Store logs in a protected sink where the agent cannot modify or delete them (read‑only to agent).
+- Store logs in a host sink outside the VM where the agent cannot modify or delete them (read-only to agent).
+
+Log schema contract (TODO)
+
+- Define schema_version, required fields, and event types for all log entries.
+
+Log ordering/merge rules (TODO)
+
+- Define deterministic ordering (per-writer sequence numbers, timestamps, and tie-breakers).
 
 Explicit non‑goals / exclusions
 
@@ -97,4 +119,5 @@ in‑memory computation).
 
   - Harness: runs the agent, captures stdio, assigns session ID, emits session‑level logs.
   - Collector: observes OS‑level events (exec, file changes, network, IPC).
-  - Sink: where logs are stored (protected VM volume, host directory, or remote append‑only store).
+  - Proxy: logs HTTP method/URL/status for HTTP traffic (no payloads).
+  - Sink: where logs are stored (host directory outside the VM).
