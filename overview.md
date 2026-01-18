@@ -3,24 +3,24 @@
 
 # Prompt 
 
-I want to create a containerization framework to produce auditable, structured, and tamper-resistant (within VM scope) logs for third-party AI agent software. This will include:
+I want to create a containerized harness to produce auditable, structured logs for third-party AI agent software. This will include:
   - Process tree: exec events with args/uid/gid when available.
   - Filesystem changes: writes/renames/unlinks plus metadata changes (chmod/chown/xattr/utime); reads excluded for noise.
-  - Network egress: destination/protocol/port; HTTP proxy for method/URL.
-  - Local IPC/service: connections to local daemons (e.g. Unix sockets/XPC/Mach/D‑Bus endpoints).
-  - Stdout/stderr: captured by the supervisor (pipes for non‑interactive, PTY for interactive).
+  - Network egress: destination/protocol/port; DNS lookups when available; HTTP(S) proxy for method/URL/status.
+  - Local IPC/service: connections to local daemons (e.g. Unix domain sockets, D-Bus).
+  - Stdout/stderr: captured by the harness (pipes for non-interactive, PTY for interactive).
 
-The agents will have read-only mount access to these logs during the session, which will allow the agents the option to leverage these logs during the session.
+Agents have read-only access to logs during the session and may use them.
 
 # Summary
 
-- Goal: build a wrapper/harness for third‑party agents that produces auditable, structured, and tamper-resistant (within VM scope) logs and exposes those logs back to the agent as read‑only evidence.
+- Goal: build a harness for third-party agents that produces auditable, structured logs and exposes those logs back to the agent as read-only evidence.
 - Scope: auditable local side effects and interactions; not a full reconstruction of model
 reasoning.
 - Signals to capture: 
     - process exec events (cmdline, uid/gid, PID/PPID)
     - filesystem changes including metadata (write/rename/unlink/chmod/chown/xattr/utime)
-    - network egress metadata (dest/protocol/port, HTTPS proxy, and DNS lookups)
+    - network egress metadata (dest/protocol/port, HTTP(S) proxy method/URL/status, and DNS lookups)
     - local IPC connection metadata (endpoint + PID)
     - stdout/stderr (plus stdin if interactive)
 - Correlation: tag the root agent process with a session ID, inherit it across the PID tree, and
@@ -34,15 +34,15 @@ network/IPC.
 # Design doc
 Scope and purpose
 
-- The wrapper must produce auditable, structured, and tamper-resistant (within VM scope) logs of an agent’s observable actions and side effects within a
+- The harness must produce auditable, structured logs of an agent's observable actions and side effects within a
 defined local scope (filesystem + processes + network + IPC + stdout/stderr).
 - Logs must be attributable to a single session with consistent timestamps, PID/PPID lineage, and a unique session
 ID.
-- The scope is “local state and interaction verifiability,” not full behavioral reconstruction or model reasoning.
+- The scope is local state and interaction auditability, not full behavioral reconstruction or model reasoning.
 
 Threat model and trust boundary
 
-- Tamper-resistannce (within VM scope) is required against the agent user/container; the host is trusted.
+- Tamper resistance within VM scope means the agent user/container cannot modify or delete logs; the host is trusted.
 - Logs are stored on the host outside the VM; the agent sees a read-only view during the session.
 - Out of scope: host compromise and VM root.
 
@@ -69,21 +69,21 @@ Network egress
 
 - Log outbound connections with destination IP/port, protocol, and timestamp; record DNS lookups if available.
 - Use an HTTP(S) proxy to log method + URL + status for HTTP traffic; payloads and response bodies are not required.
-- For HTTPS without MITM, the proxy logs host/port only; raw connect metadata still provides coverage for non-HTTP
-protocols.
-- Network logging is for “remote side effects/requests,” not for full content capture.
+- For HTTPS without MITM, the proxy logs host/port only and cannot see URL or status; raw connect metadata still
+provides coverage for non-HTTP protocols.
+- Network logging is for remote side effects/requests, not for full content capture.
 
 Local IPC/service interactions
 
 - Log local IPC connection attempts with endpoint identity and process attribution; this is metadata only, not
 payloads.
-- Explicitly target common Linux IPC mechanisms: Unix domain sockets, D‑Bus connections.
-- IPC logging records “who connected to what,” not “what was said.”
+- Explicitly target common Linux IPC mechanisms: Unix domain sockets, D-Bus connections.
+- IPC logging records who connected to what, not what was said.
 
 Stdout/stderr (and stdin when applicable)
 
-- The supervisor/wrapper launches the agent and owns its stdio file descriptors.
-- For non‑interactive sessions, capture stdout/stderr via pipes and log exact output bytes.
+- The harness launches the agent and owns its stdio file descriptors.
+- For non-interactive sessions, capture stdout/stderr via pipes and log exact output bytes.
 - For interactive sessions, allocate a PTY; capture stdout/stderr and user input (stdin) for full conversational logs.
 - Stdout/stderr are logged because they often contain results without any file writes.
 
@@ -114,5 +114,5 @@ in‑memory computation).
 
   - Harness: runs the agent, captures stdio, assigns session ID, emits session‑level logs.
   - Collector: observes OS‑level events (exec, file changes, network, IPC).
-  - Proxy: logs HTTP method/URL/status for HTTP traffic (no payloads).
+  - Proxy: logs method/URL/status for HTTP; for HTTPS without MITM, host/port only.
   - Sink: where logs are stored (host directory outside the VM).
