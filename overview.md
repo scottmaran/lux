@@ -3,25 +3,24 @@
 
 # Prompt 
 
-I want to wrap third-party agents to produce consistent, verifiable logs within an explicit scope. This will include:
-  - Process tree: exec events with args/uid/gid when available (note: args can be truncated by some auditors).
+I want to create a containerization framework to produce auditable, structured, and tamper-resistant (within VM scope) logs for third-party AI agent software. This will include:
+  - Process tree: exec events with args/uid/gid when available.
   - Filesystem changes: writes/renames/unlinks plus metadata changes (chmod/chown/xattr/utime); reads excluded for noise.
-  - Network egress: destination/protocol/port; optional HTTP proxy for method/URL.
+  - Network egress: destination/protocol/port; HTTP proxy for method/URL.
   - Local IPC/service: connections to local daemons (e.g. Unix sockets/XPC/Mach/D‑Bus endpoints).
   - Stdout/stderr: captured by the supervisor (pipes for non‑interactive, PTY for interactive).
 
-Additionally, the agent may then be able to leverage this logging itself.
+The agents will have read-only mount access to these logs during the session, which will allow the agents the option to leverage these logs during the session.
 
 # Summary
 
-- Goal: build a wrapper/harness for third‑party agents that produces consistent, verifiable logs
-and can optionally expose those logs back to the agent as read‑only evidence.
-- Scope: verifiable local side effects and interactions; not a full reconstruction of model
+- Goal: build a wrapper/harness for third‑party agents that produces auditable, structured, and tamper-resistant (within VM scope) logs and exposes those logs back to the agent as read‑only evidence.
+- Scope: auditable local side effects and interactions; not a full reconstruction of model
 reasoning.
 - Signals to capture: 
     - process exec events (cmdline, uid/gid, PID/PPID)
     - filesystem changes including metadata (write/rename/unlink/chmod/chown/xattr/utime)
-    - network egress metadata (dest/protocol/port)
+    - network egress metadata (dest/protocol/port, HTTPS proxy, and DNS lookups)
     - local IPC connection metadata (endpoint + PID)
     - stdout/stderr (plus stdin if interactive)
 - Correlation: tag the root agent process with a session ID, inherit it across the PID tree, and
@@ -35,7 +34,7 @@ network/IPC.
 # Design doc
 Scope and purpose
 
-- The wrapper must produce verifiable, structured logs of an agent’s observable actions and side effects within a
+- The wrapper must produce auditable, structured, and tamper-resistant (within VM scope) logs of an agent’s observable actions and side effects within a
 defined local scope (filesystem + processes + network + IPC + stdout/stderr).
 - Logs must be attributable to a single session with consistent timestamps, PID/PPID lineage, and a unique session
 ID.
@@ -43,7 +42,7 @@ ID.
 
 Threat model and trust boundary
 
-- Tamper-proofing is required against the agent user/container; the host is trusted.
+- Tamper-resistannce (within VM scope) is required against the agent user/container; the host is trusted.
 - Logs are stored on the host outside the VM; the agent sees a read-only view during the session.
 - Out of scope: host compromise and VM root.
 
@@ -78,18 +77,14 @@ Local IPC/service interactions
 
 - Log local IPC connection attempts with endpoint identity and process attribution; this is metadata only, not
 payloads.
-- Explicitly target common OS IPC mechanisms:
-    - Linux: Unix domain sockets, D‑Bus connections.
-    - macOS: XPC/Mach service connections.
-    - Windows: named pipes / RPC / ALPC.
+- Explicitly target common Linux IPC mechanisms: Unix domain sockets, D‑Bus connections.
 - IPC logging records “who connected to what,” not “what was said.”
 
 Stdout/stderr (and stdin when applicable)
 
 - The supervisor/wrapper launches the agent and owns its stdio file descriptors.
 - For non‑interactive sessions, capture stdout/stderr via pipes and log exact output bytes.
-- For interactive sessions, allocate a PTY; capture stdout/stderr and user input (stdin) for full conversational
-logs.
+- For interactive sessions, allocate a PTY; capture stdout/stderr and user input (stdin) for full conversational logs.
 - Stdout/stderr are logged because they often contain results without any file writes.
 
 Collection mechanics
