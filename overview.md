@@ -46,10 +46,6 @@ Threat model and trust boundary
 - Logs are stored on the host outside the VM; the agent sees a read-only view during the session.
 - Out of scope: host compromise and VM root.
 
-Platform scope (TODO)
-
-- Linux VM only; audit mechanism TBD.
-
 Process execution (exec)
 
 - Record every process start in the agent’s process tree with command line, executable path, uid/gid, parent PID, and
@@ -112,7 +108,7 @@ in‑memory computation).
 
 # Roles
 
-  - Harness: runs the agent, captures stdio, assigns session ID, emits session‑level logs.
-  - Collector: observes OS‑level events (exec, file changes, network, IPC).
-  - Proxy: logs method/URL/status for HTTP; for HTTPS without MITM, host/port only.
-  - Sink: where logs are stored (host directory outside the VM).
+- Harness: runs the agent, captures stdio, assigns session ID, emits session‑level logs.
+- Collector: observes OS‑level events (exec, file changes, network, IPC); requires privileged access to VM kernel audit sources.
+- Proxy: logs method/URL/status for HTTP; for HTTPS without MITM, host/port only.
+- Sink: where logs are stored (host directory outside the VM).
