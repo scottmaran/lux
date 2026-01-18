@@ -83,6 +83,13 @@ Stdout/stderr (and stdin when applicable)
 - For interactive sessions, allocate a PTY; capture stdout/stderr and user input (stdin) for full conversational logs.
 - Stdout/stderr are logged because they often contain results without any file writes.
 
+Audit mechanism (hybrid)
+
+- Use auditd (kernel audit subsystem) for exec + filesystem writes/renames/unlinks + metadata changes (chmod/chown/xattr/utime).
+- Use eBPF for network egress and local IPC connection metadata with PID attribution; capture DNS lookups when available.
+- Use HTTP(S) proxy for method/URL/status; for HTTPS without MITM, host/port only.
+- Emit separate audit and eBPF event streams and merge by timestamp + PID/PPID + session ID.
+
 Collection mechanics
 
 - Use kernel‑level audit sources to observe exec + file change + IPC/network events; user‑space file watchers are

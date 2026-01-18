@@ -26,9 +26,9 @@ Host OS
   - Has read-only access to logs for live inspection; no write access to the sink.
 
 - Collector container
-  - Subscribes to kernel audit sources (exec + file changes + metadata + network + IPC).
-  - Logs raw connect metadata and DNS lookups when available.
-  - Emits audit events with PID/PPID + timestamps.
+  - Runs auditd rules for exec + file changes + metadata changes.
+  - Runs eBPF programs for network egress + IPC connection metadata (plus DNS lookups when available).
+  - Emits audit and eBPF events with PID/PPID + timestamps.
 
 - Proxy container
   - Logs method/URL/status for HTTP; for HTTPS without MITM, host/port only.
@@ -63,7 +63,10 @@ Permission model inside agent container
 - Drop CAP_SYS_ADMIN and set no_new_privs to prevent remounting /logs as rw.
 
 Collector container mounts
-- /logs -> /vm/logs (rw, writes audit events)
+- /logs -> /vm/logs (rw, writes audit and eBPF events)
+- /sys/fs/bpf -> /sys/fs/bpf (rw, eBPF maps/programs)
+- /sys/kernel/tracing -> /sys/kernel/tracing (rw, tracefs if mounted here)
+- /sys/kernel/debug -> /sys/kernel/debug (rw, debugfs/tracefs access)
 
 Proxy container mounts
 - /logs -> /vm/logs (rw, writes HTTP logs)
@@ -71,7 +74,7 @@ Proxy container mounts
 ## Event flow
 1) Harness starts, creates session_id, writes session header to /logs.
 2) Harness creates the agent container with /logs mounted read-only and attaches to its stdio.
-3) Collector logs exec + file changes + metadata + network + IPC for the VM kernel, plus raw connect metadata and DNS lookups when available.
+3) Collector runs auditd for exec + file changes + metadata and eBPF for network + IPC (plus DNS lookups when available).
 4) Proxy logs method/URL/status for HTTP; for HTTPS without MITM, host/port only.
 5) Harness logs stdout/stderr in parallel; agent can read /logs during the session.
 6) Log merger (optional) correlates by PID/session_id into a unified timeline.
@@ -102,8 +105,12 @@ services:
     pid: "host"
     volumes:
       - /vm/logs:/logs:rw
+      - /sys/fs/bpf:/sys/fs/bpf:rw
+      - /sys/kernel/tracing:/sys/kernel/tracing:rw
+      - /sys/kernel/debug:/sys/kernel/debug:rw
     environment:
-      - COLLECTOR_OUTPUT=/logs/audit.jsonl
+      - COLLECTOR_AUDIT_OUTPUT=/logs/audit.jsonl
+      - COLLECTOR_EBPF_OUTPUT=/logs/ebpf.jsonl
 
   proxy:
     image: harness-proxy:latest
@@ -116,7 +123,9 @@ services:
 ## Notes
 - The agent should never run with write access to /logs; mount it read-only.
 - The harness needs container runtime access; treat it as trusted.
-- The collector needs elevated privileges to observe kernel events.
+- The collector needs privileged + pid: host with access to bpffs and tracefs/audit interfaces.
+- Ensure tracefs is mounted in the VM (commonly /sys/kernel/tracing or /sys/kernel/debug/tracing).
+- Only one audit daemon can consume audit events; the collector should be the sole audit consumer in the VM.
 - Trust boundary: the host is trusted; the agent container is untrusted; VM root is out of scope.
 - Host log export is the host-mounted ~/agent_harness/logs directory.
 - Enforce proxy use with firewall rules so the agent cannot bypass it.
