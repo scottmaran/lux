@@ -1,7 +1,7 @@
 # Agent Harness VM Layout (Option A: VM + Containers, Host Sink)
 
 ## Purpose
-- Provide a consistent local deployment that produces verifiable logs for third-party agents.
+- Provide a consistent local deployment that produces auditable, structured logs for third-party agents.
 - Keep the same log schema and harness behavior across local and enterprise installs.
 
 ## Topology (conceptual)
@@ -12,14 +12,14 @@ Host OS
       ├─ Harness container (orchestrates agent)
       ├─ Agent container (third-party agent)
       ├─ Collector container (OS audit)
-      └─ Proxy container (HTTP logging)
+      └─ Proxy container (HTTP(S) logging)
 ```
 
 ## Components and responsibilities
 - Harness container
   - Launches and attaches to the agent container, capturing stdout/stderr (PTY for interactive).
   - Writes session-level logs (session ID, stdout/stderr, optional stdin) to the host sink.
-  - Requires access to the container runtime (e.g., Docker socket) to create the agent container.
+  - Requires access to the VM container runtime socket (e.g., /var/run/docker.sock) to create the agent container.
 
 - Agent container
   - Runs the third-party agent.
@@ -27,10 +27,11 @@ Host OS
 
 - Collector container
   - Subscribes to kernel audit sources (exec + file changes + metadata + network + IPC).
+  - Logs raw connect metadata and DNS lookups when available.
   - Emits audit events with PID/PPID + timestamps.
 
 - Proxy container
-  - Logs HTTP method/URL/status for HTTP traffic (no payloads).
+  - Logs method/URL/status for HTTP; for HTTPS without MITM, host/port only.
   - Emits proxy logs to the host sink.
 
 - Log sink (storage)
@@ -44,7 +45,7 @@ Host directories
 
 VM mounts
 - /vm/workspace  -> host ~/agent_harness/workspace (rw)
-- /vm/logs       -> host ~/agent_harness/logs      (rw for harness/collector)
+- /vm/logs       -> host ~/agent_harness/logs      (rw for harness/collector/proxy)
 
 Agent container mounts
 - /work  -> /vm/workspace (rw for agent)
@@ -57,7 +58,7 @@ Harness container mounts
 
 Permission model inside agent container
 - Agent runs as uid 1001 with no write permission to /logs.
-- /logs owned by harness uid or root, mode 0750.
+- /logs owned by harness uid or root, mode 0755.
 - The agent user is not in the logs group.
 - Drop CAP_SYS_ADMIN and set no_new_privs to prevent remounting /logs as rw.
 
@@ -70,8 +71,8 @@ Proxy container mounts
 ## Event flow
 1) Harness starts, creates session_id, writes session header to /logs.
 2) Harness creates the agent container with /logs mounted read-only and attaches to its stdio.
-3) Collector logs exec + file changes + metadata + network + IPC for the VM kernel.
-4) Proxy logs HTTP method/URL/status for HTTP traffic.
+3) Collector logs exec + file changes + metadata + network + IPC for the VM kernel, plus raw connect metadata and DNS lookups when available.
+4) Proxy logs method/URL/status for HTTP; for HTTPS without MITM, host/port only.
 5) Harness logs stdout/stderr in parallel; agent can read /logs during the session.
 6) Log merger (optional) correlates by PID/session_id into a unified timeline.
 
@@ -116,5 +117,6 @@ services:
 - The agent should never run with write access to /logs; mount it read-only.
 - The harness needs container runtime access; treat it as trusted.
 - The collector needs elevated privileges to observe kernel events.
+- Trust boundary: the host is trusted; the agent container is untrusted; VM root is out of scope.
 - Host log export is the host-mounted ~/agent_harness/logs directory.
 - Enforce proxy use with firewall rules so the agent cannot bypass it.
