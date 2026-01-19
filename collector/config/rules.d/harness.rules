@@ -17,4 +17,4 @@
 -a always,exit -F arch=b64 -S renameat,renameat2,unlinkat,linkat,symlinkat -F dir=/work -k fs_change
 
 # Metadata changes in workspace (aarch64-compatible syscalls).
--a always,exit -F arch=b64 -S fchmod,fchmodat,fchmodat2,fchown,fchownat,setxattr,lsetxattr,fsetxattr,removexattr,lremovexattr,fremovexattr,utimensat -F dir=/work -k fs_meta
+-a always,exit -F arch=b64 -S fchmod,fchmodat,fchown,fchownat,setxattr,lsetxattr,fsetxattr,removexattr,lremovexattr,fremovexattr,utimensat -F dir=/work -k fs_meta
