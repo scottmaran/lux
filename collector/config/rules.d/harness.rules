@@ -1,0 +1,22 @@
+# Clear existing rules and set buffer.
+-D
+-b 8192
+-f 1
+-i
+
+# Enable auditing.
+-e 1
+
+# Exec events (attribution).
+-a always,exit -F arch=b64 -S execve,execveat -k exec
+
+# Workspace watch (writes + attribute changes).
+-w /vm/workspace -p wa -k fs_watch
+
+# Rename/unlink/link/symlink in workspace.
+-a always,exit -F arch=b64 -S rename,renameat,renameat2,unlink,unlinkat,link,linkat,symlink,symlinkat -F dir=/vm/workspace -k fs_change
+
+# Metadata changes in workspace.
+-a always,exit -F arch=b64 -S chmod,fchmod,fchmodat,chown,fchown,fchownat,lchown \
+  -S setxattr,lsetxattr,fsetxattr,removexattr,lremovexattr,fremovexattr \
+  -S utime,utimes,utimensat -F dir=/vm/workspace -k fs_meta

@@ -27,7 +27,7 @@ Host OS
 
 - Collector container
   - Runs auditd rules for exec + file changes + metadata changes.
-  - Runs eBPF programs for network egress + IPC connection metadata (plus DNS lookups when available).
+  - Runs Tracee (eBPF) for network egress + IPC connection metadata (plus DNS lookups when available).
   - Emits audit and eBPF events with PID/PPID + timestamps.
 
 - Proxy container
@@ -109,8 +109,9 @@ services:
       - /sys/kernel/tracing:/sys/kernel/tracing:rw
       - /sys/kernel/debug:/sys/kernel/debug:rw
     environment:
-      - COLLECTOR_AUDIT_OUTPUT=/logs/audit.jsonl
+      - COLLECTOR_AUDIT_LOG=/logs/audit.log
       - COLLECTOR_EBPF_OUTPUT=/logs/ebpf.jsonl
+      - TRACEE_EVENTS=net_packet_dns_request,net_packet_dns_response
 
   proxy:
     image: harness-proxy:latest
@@ -126,6 +127,7 @@ services:
 - The collector needs privileged + pid: host with access to bpffs and tracefs/audit interfaces.
 - Ensure tracefs is mounted in the VM (commonly /sys/kernel/tracing or /sys/kernel/debug/tracing).
 - Only one audit daemon can consume audit events; the collector should be the sole audit consumer in the VM.
+- Auditd emits raw audit logs; normalization to JSONL happens in a later processing step.
 - Trust boundary: the host is trusted; the agent container is untrusted; VM root is out of scope.
 - Host log export is the host-mounted ~/agent_harness/logs directory.
 - Enforce proxy use with firewall rules so the agent cannot bypass it.
