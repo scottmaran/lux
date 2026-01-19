@@ -11,12 +11,10 @@
 -a always,exit -F arch=b64 -S execve,execveat -k exec
 
 # Workspace watch (writes + attribute changes).
--w /vm/workspace -p wa -k fs_watch
+-w /work -p wa -k fs_watch
 
-# Rename/unlink/link/symlink in workspace.
--a always,exit -F arch=b64 -S rename,renameat,renameat2,unlink,unlinkat,link,linkat,symlink,symlinkat -F dir=/vm/workspace -k fs_change
+# Rename/unlink/link/symlink in workspace (aarch64-compatible syscalls).
+-a always,exit -F arch=b64 -S renameat,renameat2,unlinkat,linkat,symlinkat -F dir=/work -k fs_change
 
-# Metadata changes in workspace.
--a always,exit -F arch=b64 -S chmod,fchmod,fchmodat,chown,fchown,fchownat,lchown \
-  -S setxattr,lsetxattr,fsetxattr,removexattr,lremovexattr,fremovexattr \
-  -S utime,utimes,utimensat -F dir=/vm/workspace -k fs_meta
+# Metadata changes in workspace (aarch64-compatible syscalls).
+-a always,exit -F arch=b64 -S fchmod,fchmodat,fchmodat2,fchown,fchownat,setxattr,lsetxattr,fsetxattr,removexattr,lremovexattr,fremovexattr,utimensat -F dir=/work -k fs_meta

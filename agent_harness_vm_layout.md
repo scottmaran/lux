@@ -27,7 +27,7 @@ Host OS
 
 - Collector container
   - Runs auditd rules for exec + file changes + metadata changes.
-  - Runs Tracee (eBPF) for network egress + IPC connection metadata (plus DNS lookups when available).
+  - Runs a custom eBPF loader (TBD) for network egress + IPC connection metadata (plus DNS lookups when available).
   - Emits audit and eBPF events with PID/PPID + timestamps.
 
 - Proxy container
@@ -64,6 +64,7 @@ Permission model inside agent container
 
 Collector container mounts
 - /logs -> /vm/logs (rw, writes audit and eBPF events)
+- /work -> /vm/workspace (ro, required to load auditd path watches)
 - /sys/fs/bpf -> /sys/fs/bpf (rw, eBPF maps/programs)
 - /sys/kernel/tracing -> /sys/kernel/tracing (rw, tracefs if mounted here)
 - /sys/kernel/debug -> /sys/kernel/debug (rw, debugfs/tracefs access)
@@ -74,7 +75,7 @@ Proxy container mounts
 ## Event flow
 1) Harness starts, creates session_id, writes session header to /logs.
 2) Harness creates the agent container with /logs mounted read-only and attaches to its stdio.
-3) Collector runs auditd for exec + file changes + metadata and eBPF for network + IPC (plus DNS lookups when available).
+3) Collector runs auditd for exec + file changes + metadata and eBPF (custom loader, TBD) for network + IPC (plus DNS lookups when available).
 4) Proxy logs method/URL/status for HTTP; for HTTPS without MITM, host/port only.
 5) Harness logs stdout/stderr in parallel; agent can read /logs during the session.
 6) Log merger (optional) correlates by PID/session_id into a unified timeline.
@@ -105,13 +106,13 @@ services:
     pid: "host"
     volumes:
       - /vm/logs:/logs:rw
+      - /vm/workspace:/work:ro
       - /sys/fs/bpf:/sys/fs/bpf:rw
       - /sys/kernel/tracing:/sys/kernel/tracing:rw
       - /sys/kernel/debug:/sys/kernel/debug:rw
     environment:
       - COLLECTOR_AUDIT_LOG=/logs/audit.log
       - COLLECTOR_EBPF_OUTPUT=/logs/ebpf.jsonl
-      - TRACEE_EVENTS=net_packet_dns_request,net_packet_dns_response
 
   proxy:
     image: harness-proxy:latest
