@@ -1,0 +1,12 @@
+[package]
+name = "collector-ebpf"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+path = "src/lib.rs"
+crate-type = ["cdylib"]
+
+[dependencies]
+aya-bpf = "0.12"
+aya-bpf-macros = "0.12"
