@@ -1,8 +1,9 @@
-FROM rust:1.78-bookworm AS ebpf-builder
+FROM rust:1.86-bookworm AS ebpf-builder
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
         clang \
+        git \
         llvm \
         libelf-dev \
         pkg-config \
@@ -10,13 +11,14 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/*
 
 RUN rustup toolchain install nightly \
-    && rustup target add bpfel-unknown-none --toolchain nightly
-RUN cargo install bpf-linker
+    && rustup component add rust-src --toolchain nightly
+RUN cargo install bpf-linker --locked
 
 WORKDIR /src
 COPY ebpf /src
 
-RUN cargo +nightly build -p collector-ebpf --release --target bpfel-unknown-none
+RUN cargo +nightly build -p collector-ebpf --release --target bpfel-unknown-none \
+    -Z build-std=core -Z build-std-features=compiler-builtins-mem
 RUN cargo +nightly build -p collector-ebpf-loader --release
 
 FROM ubuntu:22.04
@@ -31,7 +33,7 @@ RUN apt-get update \
 
 RUN mkdir -p /usr/local/share/collector
 COPY --from=ebpf-builder /src/target/release/collector-ebpf-loader /usr/local/bin/collector-ebpf-loader
-COPY --from=ebpf-builder /src/target/bpfel-unknown-none/release/collector-ebpf /usr/local/share/collector/collector-ebpf.o
+COPY --from=ebpf-builder /src/target/bpfel-unknown-none/release/libcollector_ebpf.so /usr/local/share/collector/collector-ebpf.o
 COPY entrypoint.sh /usr/local/bin/collector-entrypoint.sh
 COPY config/auditd.conf /etc/audit/auditd.conf
 COPY config/rules.d/harness.rules /etc/audit/rules.d/harness.rules

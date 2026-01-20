@@ -5,12 +5,13 @@ use aya_bpf::{
     helpers::{
         bpf_get_current_cgroup_id, bpf_get_current_comm, bpf_get_current_pid_tgid,
         bpf_get_current_uid_gid, bpf_ktime_get_ns, bpf_probe_read_user,
+        bpf_probe_read_user_buf,
     },
     macros::{map, tracepoint},
-    maps::{HashMap, RingBuf},
+    maps::{HashMap, PerCpuArray, RingBuf},
     programs::TracePointContext,
 };
-use core::mem;
+use core::{mem, ptr};
 
 const TASK_COMM_LEN: usize = 16;
 const DNS_PAYLOAD_MAX: usize = 512;
@@ -138,18 +139,21 @@ static mut SEND_ARGS: HashMap<u32, SendArgs> = HashMap::with_max_entries(4096, 0
 static mut RECV_ARGS: HashMap<u32, RecvArgs> = HashMap::with_max_entries(4096, 0);
 
 #[map(name = "EVENTS")]
-static mut EVENTS: RingBuf<Event> = RingBuf::with_max_entries(1 << 24, 0);
+static mut EVENTS: RingBuf = RingBuf::with_byte_size(1 << 24, 0);
+
+#[map(name = "EVENT_BUF")]
+static mut EVENT_BUF: PerCpuArray<Event> = PerCpuArray::with_max_entries(1, 0);
 
 fn now_ns() -> u64 {
     unsafe { bpf_ktime_get_ns() }
 }
 
 fn current_pid() -> u32 {
-    (unsafe { bpf_get_current_pid_tgid() } >> 32) as u32
+    (bpf_get_current_pid_tgid() >> 32) as u32
 }
 
 fn current_uid_gid() -> (u32, u32) {
-    let uid_gid = unsafe { bpf_get_current_uid_gid() };
+    let uid_gid = bpf_get_current_uid_gid();
     (uid_gid as u32, (uid_gid >> 32) as u32)
 }
 
@@ -160,16 +164,38 @@ fn fill_common(event: &mut Event) {
     event.uid = uid;
     event.gid = gid;
     event.cgroup_id = unsafe { bpf_get_current_cgroup_id() };
+    if let Ok(comm) = bpf_get_current_comm() {
+        event.comm = comm;
+    }
+}
+
+fn init_event(event: &mut Event) {
     unsafe {
-        let _ = bpf_get_current_comm(&mut event.comm);
+        ptr::write_bytes(
+            event as *mut Event as *mut u8,
+            0,
+            mem::size_of::<Event>(),
+        );
     }
 }
 
 fn emit(event: &Event) {
     unsafe {
-        if let Some(mut buf) = EVENTS.reserve(mem::size_of::<Event>() as u32) {
-            buf.write(*event);
-            buf.submit(0);
+        let _ = EVENTS.output(event, 0);
+    }
+}
+
+fn with_event<F>(mut f: F)
+where
+    F: FnOnce(&mut Event) -> bool,
+{
+    unsafe {
+        if let Some(ptr) = EVENT_BUF.get_ptr_mut(0) {
+            let event = &mut *ptr;
+            init_event(event);
+            if f(event) {
+                emit(event);
+            }
         }
     }
 }
@@ -179,27 +205,19 @@ fn parse_sockaddr(uservaddr: u64, addrlen: u32, out: &mut ConnectArgs) -> bool {
         return false;
     }
 
-    let mut family: u16 = 0;
-    unsafe {
-        let _ = bpf_probe_read_user(
-            &mut family,
-            mem::size_of::<u16>() as u32,
-            uservaddr as *const _,
-        );
-    }
+    let family = match unsafe { bpf_probe_read_user(uservaddr as *const u16) } {
+        Ok(value) => value,
+        Err(_) => return false,
+    };
 
     if family == AF_INET {
         if addrlen < mem::size_of::<SockAddrIn>() as u32 {
             return false;
         }
-        let mut addr: SockAddrIn = unsafe { mem::zeroed() };
-        unsafe {
-            let _ = bpf_probe_read_user(
-                &mut addr,
-                mem::size_of::<SockAddrIn>() as u32,
-                uservaddr as *const _,
-            );
-        }
+        let addr: SockAddrIn = match unsafe { bpf_probe_read_user(uservaddr as *const SockAddrIn) } {
+            Ok(value) => value,
+            Err(_) => return false,
+        };
         out.family = AF_INET;
         out.port = u16::from_be(addr.sin_port);
         out.addr = [0u8; 16];
@@ -211,14 +229,11 @@ fn parse_sockaddr(uservaddr: u64, addrlen: u32, out: &mut ConnectArgs) -> bool {
         if addrlen < mem::size_of::<SockAddrIn6>() as u32 {
             return false;
         }
-        let mut addr: SockAddrIn6 = unsafe { mem::zeroed() };
-        unsafe {
-            let _ = bpf_probe_read_user(
-                &mut addr,
-                mem::size_of::<SockAddrIn6>() as u32,
-                uservaddr as *const _,
-            );
-        }
+        let addr: SockAddrIn6 =
+            match unsafe { bpf_probe_read_user(uservaddr as *const SockAddrIn6) } {
+                Ok(value) => value,
+                Err(_) => return false,
+            };
         out.family = AF_INET6;
         out.port = u16::from_be(addr.sin6_port);
         out.addr = addr.sin6_addr;
@@ -226,14 +241,11 @@ fn parse_sockaddr(uservaddr: u64, addrlen: u32, out: &mut ConnectArgs) -> bool {
     }
 
     if family == AF_UNIX {
-        let mut addr: SockAddrUn = unsafe { mem::zeroed() };
-        unsafe {
-            let _ = bpf_probe_read_user(
-                &mut addr,
-                mem::size_of::<SockAddrUn>() as u32,
-                uservaddr as *const _,
-            );
-        }
+        let addr: SockAddrUn = match unsafe { bpf_probe_read_user(uservaddr as *const SockAddrUn) }
+        {
+            Ok(value) => value,
+            Err(_) => return false,
+        };
         out.family = AF_UNIX;
         out.unix_path = addr.sun_path;
         out.unix_path_len = unix_path_len(&addr.sun_path);
@@ -256,7 +268,7 @@ fn unix_path_len(path: &[u8; UNIX_PATH_MAX]) -> u16 {
     len
 }
 
-#[tracepoint(name = "sys_enter_connect")]
+#[tracepoint(category = "syscalls", name = "sys_enter_connect")]
 pub fn sys_enter_connect(ctx: TracePointContext) -> u32 {
     match try_sys_enter_connect(ctx) {
         Ok(_) => 0,
@@ -281,7 +293,7 @@ fn try_sys_enter_connect(ctx: TracePointContext) -> Result<(), i64> {
     Ok(())
 }
 
-#[tracepoint(name = "sys_exit_connect")]
+#[tracepoint(category = "syscalls", name = "sys_exit_connect")]
 pub fn sys_exit_connect(ctx: TracePointContext) -> u32 {
     match try_sys_exit_connect(ctx) {
         Ok(_) => 0,
@@ -294,36 +306,41 @@ fn try_sys_exit_connect(ctx: TracePointContext) -> Result<(), i64> {
     let ret = args.ret;
     let pid = current_pid();
 
-    let parsed = unsafe { CONNECT_ARGS.remove(&pid) };
-    if parsed.is_none() {
-        return Ok(());
-    }
-    let parsed = parsed.unwrap();
-
-    let mut event: Event = unsafe { mem::zeroed() };
-    fill_common(&mut event);
-    event.syscall_result = ret;
+    let parsed = unsafe { CONNECT_ARGS.get(&pid) };
+    let parsed = match parsed {
+        Some(value) => *value,
+        None => return Ok(()),
+    };
+    let _ = unsafe { CONNECT_ARGS.remove(&pid) };
 
     if parsed.family == AF_UNIX {
-        event.event_type = EVENT_UNIX_CONNECT;
-        event.family = AF_UNIX as u8;
-        event.unix_path_len = parsed.unix_path_len;
-        event.unix_path = parsed.unix_path;
-        emit(&event);
+        with_event(|event| {
+            fill_common(event);
+            event.syscall_result = ret;
+            event.event_type = EVENT_UNIX_CONNECT;
+            event.family = AF_UNIX as u8;
+            event.unix_path_len = parsed.unix_path_len;
+            event.unix_path = parsed.unix_path;
+            true
+        });
         return Ok(());
     }
 
-    event.event_type = EVENT_NET_CONNECT;
-    event.family = parsed.family as u8;
-    event.protocol = IPPROTO_TCP;
-    event.dst_addr = parsed.addr;
-    event.dst_port = parsed.port;
-    emit(&event);
+    with_event(|event| {
+        fill_common(event);
+        event.syscall_result = ret;
+        event.event_type = EVENT_NET_CONNECT;
+        event.family = parsed.family as u8;
+        event.protocol = IPPROTO_TCP;
+        event.dst_addr = parsed.addr;
+        event.dst_port = parsed.port;
+        true
+    });
 
     Ok(())
 }
 
-#[tracepoint(name = "sys_enter_sendto")]
+#[tracepoint(category = "syscalls", name = "sys_enter_sendto")]
 pub fn sys_enter_sendto(ctx: TracePointContext) -> u32 {
     match try_sys_enter_sendto(ctx) {
         Ok(_) => 0,
@@ -363,7 +380,7 @@ fn try_sys_enter_sendto(ctx: TracePointContext) -> Result<(), i64> {
     Ok(())
 }
 
-#[tracepoint(name = "sys_exit_sendto")]
+#[tracepoint(category = "syscalls", name = "sys_exit_sendto")]
 pub fn sys_exit_sendto(ctx: TracePointContext) -> u32 {
     match try_sys_exit_sendto(ctx) {
         Ok(_) => 0,
@@ -376,54 +393,54 @@ fn try_sys_exit_sendto(ctx: TracePointContext) -> Result<(), i64> {
     let ret = args.ret;
     let pid = current_pid();
 
-    let stored = unsafe { SEND_ARGS.remove(&pid) };
-    if stored.is_none() {
-        return Ok(());
-    }
-    let stored = stored.unwrap();
+    let stored = unsafe { SEND_ARGS.get(&pid) };
+    let stored = match stored {
+        Some(value) => *value,
+        None => return Ok(()),
+    };
+    let _ = unsafe { SEND_ARGS.remove(&pid) };
 
-    let mut net_event: Event = unsafe { mem::zeroed() };
-    fill_common(&mut net_event);
-    net_event.event_type = EVENT_NET_SEND;
-    net_event.family = stored.family as u8;
-    net_event.protocol = IPPROTO_UDP;
-    net_event.dst_addr = stored.addr;
-    net_event.dst_port = stored.port;
-    net_event.bytes = if ret > 0 { ret as u32 } else { 0 };
-    net_event.syscall_result = ret;
-    emit(&net_event);
+    with_event(|event| {
+        fill_common(event);
+        event.event_type = EVENT_NET_SEND;
+        event.family = stored.family as u8;
+        event.protocol = IPPROTO_UDP;
+        event.dst_addr = stored.addr;
+        event.dst_port = stored.port;
+        event.bytes = if ret > 0 { ret as u32 } else { 0 };
+        event.syscall_result = ret;
+        true
+    });
 
     if stored.port == 53 {
-        let mut dns_event: Event = unsafe { mem::zeroed() };
-        fill_common(&mut dns_event);
-        dns_event.event_type = EVENT_DNS_QUERY;
-        dns_event.family = stored.family as u8;
-        dns_event.protocol = IPPROTO_UDP;
-        dns_event.dst_addr = stored.addr;
-        dns_event.dst_port = stored.port;
-        dns_event.syscall_result = if ret >= 0 { 0 } else { ret };
+        with_event(|event| {
+            fill_common(event);
+            event.event_type = EVENT_DNS_QUERY;
+            event.family = stored.family as u8;
+            event.protocol = IPPROTO_UDP;
+            event.dst_addr = stored.addr;
+            event.dst_port = stored.port;
+            event.syscall_result = if ret >= 0 { 0 } else { ret };
 
-        let mut payload_len = stored.len;
-        if payload_len > DNS_PAYLOAD_MAX as u32 {
-            payload_len = DNS_PAYLOAD_MAX as u32;
-        }
-        dns_event.dns_payload_len = payload_len as u16;
-        if payload_len > 0 {
-            unsafe {
-                let _ = bpf_probe_read_user(
-                    &mut dns_event.dns_payload,
-                    payload_len as u32,
-                    stored.buf as *const _,
-                );
+            let mut payload_len = stored.len;
+            if payload_len > DNS_PAYLOAD_MAX as u32 {
+                payload_len = DNS_PAYLOAD_MAX as u32;
             }
-        }
-        emit(&dns_event);
+            event.dns_payload_len = payload_len as u16;
+            if payload_len > 0 {
+                let dst = &mut event.dns_payload[..payload_len as usize];
+                unsafe {
+                    let _ = bpf_probe_read_user_buf(stored.buf as *const u8, dst);
+                }
+            }
+            true
+        });
     }
 
     Ok(())
 }
 
-#[tracepoint(name = "sys_enter_recvfrom")]
+#[tracepoint(category = "syscalls", name = "sys_enter_recvfrom")]
 pub fn sys_enter_recvfrom(ctx: TracePointContext) -> u32 {
     match try_sys_enter_recvfrom(ctx) {
         Ok(_) => 0,
@@ -450,7 +467,7 @@ fn try_sys_enter_recvfrom(ctx: TracePointContext) -> Result<(), i64> {
     Ok(())
 }
 
-#[tracepoint(name = "sys_exit_recvfrom")]
+#[tracepoint(category = "syscalls", name = "sys_exit_recvfrom")]
 pub fn sys_exit_recvfrom(ctx: TracePointContext) -> u32 {
     match try_sys_exit_recvfrom(ctx) {
         Ok(_) => 0,
@@ -466,11 +483,12 @@ fn try_sys_exit_recvfrom(ctx: TracePointContext) -> Result<(), i64> {
     }
 
     let pid = current_pid();
-    let stored = unsafe { RECV_ARGS.remove(&pid) };
-    if stored.is_none() {
-        return Ok(());
-    }
-    let stored = stored.unwrap();
+    let stored = unsafe { RECV_ARGS.get(&pid) };
+    let stored = match stored {
+        Some(value) => *value,
+        None => return Ok(()),
+    };
+    let _ = unsafe { RECV_ARGS.remove(&pid) };
 
     let mut parsed: ConnectArgs = unsafe { mem::zeroed() };
     if !parse_sockaddr(stored.addr_ptr, stored.addrlen, &mut parsed) {
@@ -483,38 +501,36 @@ fn try_sys_exit_recvfrom(ctx: TracePointContext) -> Result<(), i64> {
         return Ok(());
     }
 
-    let mut dns_event: Event = unsafe { mem::zeroed() };
-    fill_common(&mut dns_event);
-    dns_event.event_type = EVENT_DNS_RESPONSE;
-    dns_event.family = parsed.family as u8;
-    dns_event.protocol = IPPROTO_UDP;
-    dns_event.src_addr = parsed.addr;
-    dns_event.src_port = parsed.port;
-    dns_event.syscall_result = if ret >= 0 { 0 } else { ret };
+    with_event(|event| {
+        fill_common(event);
+        event.event_type = EVENT_DNS_RESPONSE;
+        event.family = parsed.family as u8;
+        event.protocol = IPPROTO_UDP;
+        event.src_addr = parsed.addr;
+        event.src_port = parsed.port;
+        event.syscall_result = if ret >= 0 { 0 } else { ret };
 
-    let mut payload_len = ret as u32;
-    if payload_len > stored.len {
-        payload_len = stored.len;
-    }
-    if payload_len > DNS_PAYLOAD_MAX as u32 {
-        payload_len = DNS_PAYLOAD_MAX as u32;
-    }
-    dns_event.dns_payload_len = payload_len as u16;
-    if payload_len > 0 {
-        unsafe {
-            let _ = bpf_probe_read_user(
-                &mut dns_event.dns_payload,
-                payload_len as u32,
-                stored.buf as *const _,
-            );
+        let mut payload_len = ret as u32;
+        if payload_len > stored.len {
+            payload_len = stored.len;
         }
-    }
+        if payload_len > DNS_PAYLOAD_MAX as u32 {
+            payload_len = DNS_PAYLOAD_MAX as u32;
+        }
+        event.dns_payload_len = payload_len as u16;
+        if payload_len > 0 {
+            let dst = &mut event.dns_payload[..payload_len as usize];
+            unsafe {
+                let _ = bpf_probe_read_user_buf(stored.buf as *const u8, dst);
+            }
+        }
 
-    emit(&dns_event);
+        true
+    });
     Ok(())
 }
 
 #[panic_handler]
 fn panic(_info: &core::panic::PanicInfo) -> ! {
-    core::hint::unreachable_unchecked()
+    unsafe { core::hint::unreachable_unchecked() }
 }

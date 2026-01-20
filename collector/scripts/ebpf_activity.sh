@@ -13,9 +13,9 @@ docker run --rm alpine sh -c "apk add --no-cache curl bind-tools >/dev/null; nsl
 
 # Unix domain socket connect
 
-docker run --rm -v "${WORKSPACE}:/work" python:3-alpine sh -c "python - <<'PY'
+docker run --rm python:3-alpine sh -c "python - <<'PY'
 import os, socket, threading, time
-path = '/work/ipc.sock'
+path = '/tmp/ipc.sock'
 try:
     os.unlink(path)
 except FileNotFoundError:

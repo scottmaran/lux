@@ -30,7 +30,7 @@ const EVENT_DNS_RESPONSE: u8 = 4;
 const EVENT_UNIX_CONNECT: u8 = 5;
 
 #[repr(C)]
-#[derive(Copy, Clone, Pod, Zeroable)]
+#[derive(Copy, Clone)]
 struct Event {
     event_type: u8,
     family: u8,
@@ -54,6 +54,9 @@ struct Event {
     dns_payload: [u8; DNS_PAYLOAD_MAX],
 }
 
+unsafe impl Zeroable for Event {}
+unsafe impl Pod for Event {}
+
 fn main() -> Result<()> {
     set_memlock_rlimit().context("set memlock rlimit")?;
 
@@ -71,7 +74,10 @@ fn main() -> Result<()> {
     attach_tracepoint(&mut bpf, "sys_enter_recvfrom")?;
     attach_tracepoint(&mut bpf, "sys_exit_recvfrom")?;
 
-    let mut ring = RingBuf::new(bpf.map_mut("EVENTS")?).context("open ring buffer")?;
+    let mut ring = RingBuf::try_from(
+        bpf.map_mut("EVENTS").context("missing EVENTS map")?,
+    )
+    .context("open ring buffer")?;
 
     let file = OpenOptions::new()
         .create(true)
@@ -106,7 +112,10 @@ fn main() -> Result<()> {
 }
 
 fn attach_tracepoint(bpf: &mut Bpf, name: &str) -> Result<()> {
-    let program: &mut TracePoint = bpf.program_mut(name)?.try_into()?;
+    let program: &mut TracePoint = bpf
+        .program_mut(name)
+        .context(format!("missing program {name}"))?
+        .try_into()?;
     program.load()?;
     program.attach("syscalls", name)?;
     Ok(())

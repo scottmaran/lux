@@ -8,5 +8,5 @@ path = "src/lib.rs"
 crate-type = ["cdylib"]
 
 [dependencies]
-aya-bpf = "0.12"
-aya-bpf-macros = "0.12"
+aya-bpf = { git = "https://github.com/aya-rs/aya", tag = "aya-v0.12.0" }
+aya-bpf-macros = { git = "https://github.com/aya-rs/aya", tag = "aya-v0.12.0" }
