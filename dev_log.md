@@ -20,11 +20,24 @@ the unsupported linker flag in collector/ebpf/.cargo/config.toml.
 - Copied the correct eBPF artifact into the image in collector/Dockerfile.
 - Adjusted the unix-socket activity test to use /tmp inside the container in collector/scripts/ebpf_activity.sh.
 
+## Block 2:
+- Expanded eBPF coverage to include sendmsg/recvmsg and TCP DNS paths, plus socket FD tracking for richer context.
+- Added userspace socket enrichment from `/proc/<pid>/net/*` to populate src/dst endpoints and unix socket types when available.
+- Updated schema notes to reflect the new network/DNS handling and remaining gaps.
+
+### Details 
+- Extended the eBPF event payload with `fd` and added maps for sendmsg/recvmsg + connected sockets; introduced tracepoints and parsing of
+msghdr/iovec in `collector/ebpf/ebpf/src/lib.rs`.
+- Added connected-socket fallback for sendto/recvfrom when no sockaddr is passed, enabling DNS extraction for connected UDP/TCP flows in
+`collector/ebpf/ebpf/src/lib.rs`.
+- Loader now resolves inet socket endpoints by scanning `/proc/<pid>/net/{tcp,udp,tcp6,udp6}` and unix socket types via
+`/proc/<pid>/net/unix`, feeding those fields into net/unix event JSON in `collector/ebpf/loader/src/main.rs`.
+- DNS parsing now detects TCP length-prefixed payloads and uses socket info for transport/server fields; zero-address handling was added to
+trigger `/proc` fallback in `collector/ebpf/loader/src/main.rs`.
+- Updated documentation notes in `collector/eBPF_data.md` and refreshed the To Do section in `dev_log.md` to reflect current behavior.
+
 # To Do:
-- DNS parsing is UDP-only via sendto/recvfrom: we only hook sys_enter/exit_sendto + sys_enter/exit_recvfrom and only emit DNS when port
-53 is seen there. That captures UDP DNS and misses TCP DNS (port 53 over connect/send/recv), plus sendmsg/recvmsg paths some libs
-use. DoH/DoT isn’t captured at all.
-- src_ip/src_port are zeroed: the eBPF program never looks up the socket’s local endpoint, so the loader only has the destination
-address. That’s why src_ip shows 0.0.0.0/:: and src_port is 0 in net_* events.
-- unix socket sock_type fixed to stream: we don’t read the real socket type from the kernel, so the loader hardcodes "stream". If a
-process uses datagram/seqpacket unix sockets, we’ll mislabel them until we fetch the true type.
+- DNS parsing now covers UDP/TCP port 53 via sendto/recvfrom/sendmsg/recvmsg and detects TCP by length prefix, but DoH/DoT traffic is
+still opaque.
+- src_ip/src_port are now best-effort from `/proc/<pid>/net/*`, but short-lived or in-progress sockets can still show 0.0.0.0/:: and 0.
+- unix sock_type is resolved from `/proc/<pid>/net/unix`, but can still be "unknown" if the socket disappears before lookup.

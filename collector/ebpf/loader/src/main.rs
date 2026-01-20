@@ -37,6 +37,7 @@ struct Event {
     protocol: u8,
     _pad: u8,
     pid: u32,
+    fd: i32,
     uid: u32,
     gid: u32,
     cgroup_id: u64,
@@ -121,6 +122,56 @@ fn attach_tracepoint(bpf: &mut Bpf, name: &str) -> Result<()> {
     Ok(())
 }
 
+struct NetFields {
+    protocol: String,
+    family: String,
+    src_ip: String,
+    src_port: u16,
+    dst_ip: String,
+    dst_port: u16,
+}
+
+fn merge_net_fields(event: &Event, socket: Option<SocketInfo>) -> NetFields {
+    let mut protocol = protocol_to_string(event.protocol).to_string();
+    let mut family = family_to_string(event.family as u16).to_string();
+    let mut src_ip = addr_to_string(event.family as u16, &event.src_addr);
+    let mut dst_ip = addr_to_string(event.family as u16, &event.dst_addr);
+    let mut src_port = event.src_port;
+    let mut dst_port = event.dst_port;
+    let mut src_missing = src_ip.is_empty() || is_zero_ip(&src_ip);
+    let mut dst_missing = dst_ip.is_empty() || is_zero_ip(&dst_ip);
+
+    if let Some(info) = socket {
+        if protocol == "unknown" {
+            protocol = info.protocol.to_string();
+        }
+        if family == "unknown" {
+            family = family_to_string(info.family).to_string();
+        }
+        if src_port == 0 || src_missing {
+            src_port = info.local_port;
+            if src_missing {
+                src_ip = info.local_ip;
+            }
+        }
+        if dst_port == 0 || dst_missing {
+            dst_port = info.remote_port;
+            if dst_missing {
+                dst_ip = info.remote_ip;
+            }
+        }
+    }
+
+    NetFields {
+        protocol,
+        family,
+        src_ip,
+        src_port,
+        dst_ip,
+        dst_port,
+    }
+}
+
 fn render_event(event: &Event) -> Option<String> {
     let ts = format_ts(event.ts);
     let comm = bytes_to_string(&event.comm);
@@ -132,56 +183,74 @@ fn render_event(event: &Event) -> Option<String> {
     let syscall_result = event.syscall_result;
 
     match event.event_type {
-        EVENT_NET_CONNECT => Some(
-            json!({
-                "schema_version": "ebpf.v1",
-                "ts": ts,
-                "event_type": "net_connect",
-                "pid": pid,
-                "ppid": ppid,
-                "uid": uid,
-                "gid": gid,
-                "comm": comm,
-                "cgroup_id": cgroup_id,
-                "syscall_result": syscall_result,
-                "net": {
-                    "protocol": protocol_to_string(event.protocol),
-                    "family": family_to_string(event.family as u16),
-                    "src_ip": addr_to_string(event.family as u16, &event.src_addr),
-                    "src_port": event.src_port,
-                    "dst_ip": addr_to_string(event.family as u16, &event.dst_addr),
-                    "dst_port": event.dst_port
-                }
-            })
-            .to_string(),
-        ),
-        EVENT_NET_SEND => Some(
-            json!({
-                "schema_version": "ebpf.v1",
-                "ts": ts,
-                "event_type": "net_send",
-                "pid": pid,
-                "ppid": ppid,
-                "uid": uid,
-                "gid": gid,
-                "comm": comm,
-                "cgroup_id": cgroup_id,
-                "syscall_result": syscall_result,
-                "net": {
-                    "protocol": protocol_to_string(event.protocol),
-                    "family": family_to_string(event.family as u16),
-                    "src_ip": addr_to_string(event.family as u16, &event.src_addr),
-                    "src_port": event.src_port,
-                    "dst_ip": addr_to_string(event.family as u16, &event.dst_addr),
-                    "dst_port": event.dst_port,
-                    "bytes": event.bytes
-                }
-            })
-            .to_string(),
-        ),
+        EVENT_NET_CONNECT => {
+            let socket = socket_info(pid, event.fd);
+            let net = merge_net_fields(event, socket);
+            Some(
+                json!({
+                    "schema_version": "ebpf.v1",
+                    "ts": ts,
+                    "event_type": "net_connect",
+                    "pid": pid,
+                    "ppid": ppid,
+                    "uid": uid,
+                    "gid": gid,
+                    "comm": comm,
+                    "cgroup_id": cgroup_id,
+                    "syscall_result": syscall_result,
+                    "net": {
+                        "protocol": net.protocol,
+                        "family": net.family,
+                        "src_ip": net.src_ip,
+                        "src_port": net.src_port,
+                        "dst_ip": net.dst_ip,
+                        "dst_port": net.dst_port
+                    }
+                })
+                .to_string(),
+            )
+        }
+        EVENT_NET_SEND => {
+            let socket = socket_info(pid, event.fd);
+            let net = merge_net_fields(event, socket);
+            Some(
+                json!({
+                    "schema_version": "ebpf.v1",
+                    "ts": ts,
+                    "event_type": "net_send",
+                    "pid": pid,
+                    "ppid": ppid,
+                    "uid": uid,
+                    "gid": gid,
+                    "comm": comm,
+                    "cgroup_id": cgroup_id,
+                    "syscall_result": syscall_result,
+                    "net": {
+                        "protocol": net.protocol,
+                        "family": net.family,
+                        "src_ip": net.src_ip,
+                        "src_port": net.src_port,
+                        "dst_ip": net.dst_ip,
+                        "dst_port": net.dst_port,
+                        "bytes": event.bytes
+                    }
+                })
+                .to_string(),
+            )
+        }
         EVENT_DNS_QUERY => {
             let payload = dns_payload(event);
-            let parsed = parse_dns(&payload);
+            let (dns_bytes, mut transport) = dns_payload_view(&payload);
+            let parsed = parse_dns(dns_bytes);
+            let socket = socket_info(pid, event.fd);
+            if transport == "udp" {
+                if let Some(info) = socket.as_ref() {
+                    if info.protocol == "tcp" {
+                        transport = "tcp";
+                    }
+                }
+            }
+            let (server_ip, server_port) = dns_server_info(event, socket.as_ref(), true);
             Some(
                 json!({
                     "schema_version": "ebpf.v1",
@@ -195,11 +264,11 @@ fn render_event(event: &Event) -> Option<String> {
                     "cgroup_id": cgroup_id,
                     "syscall_result": syscall_result,
                     "dns": {
-                        "transport": "udp",
+                        "transport": transport,
                         "query_name": parsed.query_name.unwrap_or_else(|| "".to_string()),
                         "query_type": parsed.query_type.unwrap_or_else(|| "".to_string()),
-                        "server_ip": addr_to_string(event.family as u16, &event.dst_addr),
-                        "server_port": event.dst_port
+                        "server_ip": server_ip,
+                        "server_port": server_port
                     }
                 })
                 .to_string(),
@@ -207,7 +276,16 @@ fn render_event(event: &Event) -> Option<String> {
         }
         EVENT_DNS_RESPONSE => {
             let payload = dns_payload(event);
-            let parsed = parse_dns(&payload);
+            let (dns_bytes, mut transport) = dns_payload_view(&payload);
+            let parsed = parse_dns(dns_bytes);
+            let socket = socket_info(pid, event.fd);
+            if transport == "udp" {
+                if let Some(info) = socket.as_ref() {
+                    if info.protocol == "tcp" {
+                        transport = "tcp";
+                    }
+                }
+            }
             Some(
                 json!({
                     "schema_version": "ebpf.v1",
@@ -221,7 +299,7 @@ fn render_event(event: &Event) -> Option<String> {
                     "cgroup_id": cgroup_id,
                     "syscall_result": syscall_result,
                     "dns": {
-                        "transport": "udp",
+                        "transport": transport,
                         "query_name": parsed.query_name.unwrap_or_else(|| "".to_string()),
                         "query_type": parsed.query_type.unwrap_or_else(|| "".to_string()),
                         "rcode": parsed.rcode.unwrap_or_else(|| "".to_string()),
@@ -233,6 +311,7 @@ fn render_event(event: &Event) -> Option<String> {
         }
         EVENT_UNIX_CONNECT => {
             let (path, abstract_flag) = unix_path(event);
+            let sock_type = unix_socket_type(pid, event.fd).unwrap_or("unknown");
             Some(
                 json!({
                     "schema_version": "ebpf.v1",
@@ -248,7 +327,7 @@ fn render_event(event: &Event) -> Option<String> {
                     "unix": {
                         "path": path,
                         "abstract": abstract_flag,
-                        "sock_type": "stream"
+                        "sock_type": sock_type
                     }
                 })
                 .to_string(),
@@ -274,6 +353,10 @@ fn addr_to_string(family: u16, addr: &[u8; 16]) -> String {
         AF_INET6 => Ipv6Addr::from(*addr).to_string(),
         _ => "".to_string(),
     }
+}
+
+fn is_zero_ip(ip: &str) -> bool {
+    ip == "0.0.0.0" || ip == "::"
 }
 
 fn protocol_to_string(proto: u8) -> &'static str {
@@ -365,6 +448,154 @@ fn read_ppid(pid: u32) -> Option<u32> {
     ppid.parse::<u32>().ok()
 }
 
+struct SocketInfo {
+    family: u16,
+    protocol: &'static str,
+    local_ip: String,
+    local_port: u16,
+    remote_ip: String,
+    remote_port: u16,
+}
+
+fn socket_info(pid: u32, fd: i32) -> Option<SocketInfo> {
+    let inode = socket_inode(pid, fd)?;
+    find_inet_socket(pid, inode)
+}
+
+fn socket_inode(pid: u32, fd: i32) -> Option<u64> {
+    if fd < 0 {
+        return None;
+    }
+    let link = fs::read_link(format!("/proc/{pid}/fd/{fd}")).ok()?;
+    let link_str = link.to_string_lossy();
+    let inode_str = link_str.strip_prefix("socket:[")?.strip_suffix(']')?;
+    inode_str.parse::<u64>().ok()
+}
+
+fn find_inet_socket(pid: u32, inode: u64) -> Option<SocketInfo> {
+    let candidates = [
+        ("tcp", AF_INET, "tcp"),
+        ("udp", AF_INET, "udp"),
+        ("tcp6", AF_INET6, "tcp"),
+        ("udp6", AF_INET6, "udp"),
+    ];
+    for (net_file, family, protocol) in candidates {
+        let path = format!("/proc/{pid}/net/{net_file}");
+        if let Some(info) = parse_proc_net(&path, family, protocol, inode) {
+            return Some(info);
+        }
+    }
+    None
+}
+
+fn parse_proc_net(
+    path: &str,
+    family: u16,
+    protocol: &'static str,
+    inode: u64,
+) -> Option<SocketInfo> {
+    let content = fs::read_to_string(path).ok()?;
+    for line in content.lines().skip(1) {
+        let parts: Vec<&str> = line.split_whitespace().collect();
+        if parts.len() < 10 {
+            continue;
+        }
+        let inode_str = parts[9];
+        let entry_inode = inode_str.parse::<u64>().ok()?;
+        if entry_inode != inode {
+            continue;
+        }
+        let (local_addr, local_port) = split_addr_port(parts[1])?;
+        let (remote_addr, remote_port) = split_addr_port(parts[2])?;
+        let local_ip = parse_addr(family, local_addr)?;
+        let remote_ip = parse_addr(family, remote_addr)?;
+        let local_port = u16::from_str_radix(local_port, 16).ok()?;
+        let remote_port = u16::from_str_radix(remote_port, 16).ok()?;
+        return Some(SocketInfo {
+            family,
+            protocol,
+            local_ip,
+            local_port,
+            remote_ip,
+            remote_port,
+        });
+    }
+    None
+}
+
+fn split_addr_port(addr: &str) -> Option<(&str, &str)> {
+    let mut parts = addr.split(':');
+    let host = parts.next()?;
+    let port = parts.next()?;
+    Some((host, port))
+}
+
+fn parse_addr(family: u16, addr: &str) -> Option<String> {
+    match family {
+        AF_INET => Some(parse_ipv4_hex(addr)?.to_string()),
+        AF_INET6 => Some(parse_ipv6_hex(addr)?.to_string()),
+        _ => None,
+    }
+}
+
+fn parse_ipv4_hex(hex: &str) -> Option<Ipv4Addr> {
+    if hex.len() != 8 {
+        return None;
+    }
+    let value = u32::from_str_radix(hex, 16).ok()?;
+    let bytes = value.to_le_bytes();
+    Some(Ipv4Addr::new(bytes[0], bytes[1], bytes[2], bytes[3]))
+}
+
+fn parse_ipv6_hex(hex: &str) -> Option<Ipv6Addr> {
+    if hex.len() != 32 {
+        return None;
+    }
+    let mut bytes = [0u8; 16];
+    for i in 0..16 {
+        let start = i * 2;
+        let end = start + 2;
+        bytes[i] = u8::from_str_radix(&hex[start..end], 16).ok()?;
+    }
+    for chunk in bytes.chunks_exact_mut(4) {
+        chunk.reverse();
+    }
+    Some(Ipv6Addr::from(bytes))
+}
+
+fn unix_socket_type(pid: u32, fd: i32) -> Option<&'static str> {
+    let inode = socket_inode(pid, fd)?;
+    parse_proc_net_unix(pid, inode)
+}
+
+fn parse_proc_net_unix(pid: u32, inode: u64) -> Option<&'static str> {
+    let content = fs::read_to_string(format!("/proc/{pid}/net/unix")).ok()?;
+    for line in content.lines().skip(1) {
+        let parts: Vec<&str> = line.split_whitespace().collect();
+        if parts.len() < 7 {
+            continue;
+        }
+        let entry_inode = parts[6].parse::<u64>().ok()?;
+        if entry_inode != inode {
+            continue;
+        }
+        let socket_type = u32::from_str_radix(parts[4], 16).ok()?;
+        return Some(unix_type_to_string(socket_type));
+    }
+    None
+}
+
+fn unix_type_to_string(socket_type: u32) -> &'static str {
+    match socket_type {
+        1 => "stream",
+        2 => "dgram",
+        3 => "raw",
+        4 => "rdm",
+        5 => "seqpacket",
+        _ => "unknown",
+    }
+}
+
 #[derive(Default)]
 struct DnsParsed {
     query_name: Option<String>,
@@ -437,6 +668,46 @@ fn parse_dns(payload: &[u8]) -> DnsParsed {
 
     parsed.answers = answers;
     parsed
+}
+
+fn dns_payload_view(payload: &[u8]) -> (&[u8], &'static str) {
+    if payload.len() >= 2 {
+        let tcp_len = u16::from_be_bytes([payload[0], payload[1]]) as usize;
+        if tcp_len >= 12 && tcp_len <= payload.len().saturating_sub(2) {
+            return (&payload[2..2 + tcp_len], "tcp");
+        }
+    }
+    (payload, "udp")
+}
+
+fn dns_server_info(
+    event: &Event,
+    socket: Option<&SocketInfo>,
+    is_query: bool,
+) -> (String, u16) {
+    let (mut ip, mut port) = if is_query {
+        (
+            addr_to_string(event.family as u16, &event.dst_addr),
+            event.dst_port,
+        )
+    } else {
+        (
+            addr_to_string(event.family as u16, &event.src_addr),
+            event.src_port,
+        )
+    };
+
+    if is_zero_ip(&ip) {
+        ip.clear();
+    }
+
+    if (ip.is_empty() || port == 0) && socket.is_some() {
+        let socket = socket.unwrap();
+        ip = socket.remote_ip.clone();
+        port = socket.remote_port;
+    }
+
+    (ip, port)
 }
 
 fn read_dns_name(payload: &[u8], mut offset: usize, depth: u8) -> Option<(String, usize)> {

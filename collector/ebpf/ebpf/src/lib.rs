@@ -24,6 +24,8 @@ const AF_INET6: u16 = 10;
 const IPPROTO_TCP: u8 = 6;
 const IPPROTO_UDP: u8 = 17;
 
+const EINPROGRESS: i64 = -115;
+
 const EVENT_NET_CONNECT: u8 = 1;
 const EVENT_NET_SEND: u8 = 2;
 const EVENT_DNS_QUERY: u8 = 3;
@@ -38,6 +40,7 @@ pub struct Event {
     pub protocol: u8,
     pub _pad: u8,
     pub pid: u32,
+    pub fd: i32,
     pub uid: u32,
     pub gid: u32,
     pub cgroup_id: u64,
@@ -58,6 +61,7 @@ pub struct Event {
 #[repr(C)]
 #[derive(Copy, Clone)]
 struct ConnectArgs {
+    fd: i32,
     family: u16,
     port: u16,
     addr: [u8; 16],
@@ -68,9 +72,12 @@ struct ConnectArgs {
 #[repr(C)]
 #[derive(Copy, Clone)]
 struct SendArgs {
+    fd: i32,
     family: u16,
     port: u16,
     addr: [u8; 16],
+    protocol: u8,
+    _pad: [u8; 3],
     buf: u64,
     len: u32,
 }
@@ -78,6 +85,7 @@ struct SendArgs {
 #[repr(C)]
 #[derive(Copy, Clone)]
 struct RecvArgs {
+    fd: i32,
     buf: u64,
     len: u32,
     addr_ptr: u64,
@@ -129,14 +137,67 @@ struct SockAddrUn {
     sun_path: [u8; UNIX_PATH_MAX],
 }
 
+#[repr(C)]
+#[derive(Copy, Clone)]
+struct SocketKey {
+    pid: u32,
+    fd: i32,
+}
+
+#[repr(C)]
+#[derive(Copy, Clone)]
+struct ConnectedSock {
+    family: u16,
+    port: u16,
+    addr: [u8; 16],
+}
+
+#[repr(C)]
+#[derive(Copy, Clone)]
+struct Iovec {
+    iov_base: u64,
+    iov_len: u64,
+}
+
+#[repr(C)]
+#[derive(Copy, Clone)]
+struct Msghdr {
+    msg_name: u64,
+    msg_namelen: u32,
+    _pad: u32,
+    msg_iov: u64,
+    msg_iovlen: u64,
+    msg_control: u64,
+    msg_controllen: u64,
+    msg_flags: u32,
+    _pad2: u32,
+}
+
+#[repr(C)]
+#[derive(Copy, Clone)]
+struct RecvMsgArgs {
+    fd: i32,
+    msg_ptr: u64,
+}
+
 #[map(name = "CONNECT_ARGS")]
 static mut CONNECT_ARGS: HashMap<u32, ConnectArgs> = HashMap::with_max_entries(1024, 0);
 
 #[map(name = "SEND_ARGS")]
 static mut SEND_ARGS: HashMap<u32, SendArgs> = HashMap::with_max_entries(4096, 0);
 
+#[map(name = "SENDMSG_ARGS")]
+static mut SENDMSG_ARGS: HashMap<u32, SendArgs> = HashMap::with_max_entries(4096, 0);
+
 #[map(name = "RECV_ARGS")]
 static mut RECV_ARGS: HashMap<u32, RecvArgs> = HashMap::with_max_entries(4096, 0);
+
+#[map(name = "RECVMSG_ARGS")]
+static mut RECVMSG_ARGS: HashMap<u32, RecvMsgArgs> = HashMap::with_max_entries(4096, 0);
+
+#[map(name = "CONNECTED_SOCKS")]
+static mut CONNECTED_SOCKS: HashMap<SocketKey, ConnectedSock> =
+    HashMap::with_max_entries(8192, 0);
 
 #[map(name = "EVENTS")]
 static mut EVENTS: RingBuf = RingBuf::with_byte_size(1 << 24, 0);
@@ -185,7 +246,24 @@ fn emit(event: &Event) {
     }
 }
 
-fn with_event<F>(mut f: F)
+fn socket_key(pid: u32, fd: i32) -> SocketKey {
+    SocketKey { pid, fd }
+}
+
+fn lookup_connected(pid: u32, fd: i32, out: &mut ConnectArgs) -> bool {
+    let key = socket_key(pid, fd);
+    let stored = unsafe { CONNECTED_SOCKS.get(&key) };
+    let stored = match stored {
+        Some(value) => *value,
+        None => return false,
+    };
+    out.family = stored.family;
+    out.port = stored.port;
+    out.addr = stored.addr;
+    true
+}
+
+fn with_event<F>(f: F)
 where
     F: FnOnce(&mut Event) -> bool,
 {
@@ -255,6 +333,30 @@ fn parse_sockaddr(uservaddr: u64, addrlen: u32, out: &mut ConnectArgs) -> bool {
     false
 }
 
+fn read_msghdr(msg_ptr: u64, out: &mut Msghdr) -> bool {
+    if msg_ptr == 0 {
+        return false;
+    }
+    let msg: Msghdr = match unsafe { bpf_probe_read_user(msg_ptr as *const Msghdr) } {
+        Ok(value) => value,
+        Err(_) => return false,
+    };
+    *out = msg;
+    true
+}
+
+fn read_iovec(iov_ptr: u64, out: &mut Iovec) -> bool {
+    if iov_ptr == 0 {
+        return false;
+    }
+    let iov: Iovec = match unsafe { bpf_probe_read_user(iov_ptr as *const Iovec) } {
+        Ok(value) => value,
+        Err(_) => return false,
+    };
+    *out = iov;
+    true
+}
+
 fn unix_path_len(path: &[u8; UNIX_PATH_MAX]) -> u16 {
     let mut len = 0u16;
     let mut i = if path[0] == 0 { 1 } else { 0 };
@@ -278,10 +380,12 @@ pub fn sys_enter_connect(ctx: TracePointContext) -> u32 {
 
 fn try_sys_enter_connect(ctx: TracePointContext) -> Result<(), i64> {
     let args: SysEnterArgs = unsafe { ctx.read_at(0)? };
+    let fd = args.args[0] as i32;
     let uservaddr = args.args[1];
     let addrlen = args.args[2] as u32;
 
     let mut parsed: ConnectArgs = unsafe { mem::zeroed() };
+    parsed.fd = fd;
     if !parse_sockaddr(uservaddr, addrlen, &mut parsed) {
         return Ok(());
     }
@@ -319,6 +423,7 @@ fn try_sys_exit_connect(ctx: TracePointContext) -> Result<(), i64> {
             event.syscall_result = ret;
             event.event_type = EVENT_UNIX_CONNECT;
             event.family = AF_UNIX as u8;
+            event.fd = parsed.fd;
             event.unix_path_len = parsed.unix_path_len;
             event.unix_path = parsed.unix_path;
             true
@@ -326,12 +431,23 @@ fn try_sys_exit_connect(ctx: TracePointContext) -> Result<(), i64> {
         return Ok(());
     }
 
+    if ret == 0 || ret == EINPROGRESS {
+        let key = socket_key(pid, parsed.fd);
+        let connected = ConnectedSock {
+            family: parsed.family,
+            port: parsed.port,
+            addr: parsed.addr,
+        };
+        let _ = unsafe { CONNECTED_SOCKS.insert(&key, &connected, 0) };
+    }
+
     with_event(|event| {
         fill_common(event);
         event.syscall_result = ret;
         event.event_type = EVENT_NET_CONNECT;
         event.family = parsed.family as u8;
-        event.protocol = IPPROTO_TCP;
+        event.protocol = 0;
+        event.fd = parsed.fd;
         event.dst_addr = parsed.addr;
         event.dst_port = parsed.port;
         true
@@ -350,13 +466,17 @@ pub fn sys_enter_sendto(ctx: TracePointContext) -> u32 {
 
 fn try_sys_enter_sendto(ctx: TracePointContext) -> Result<(), i64> {
     let args: SysEnterArgs = unsafe { ctx.read_at(0)? };
+    let fd = args.args[0] as i32;
     let buf = args.args[1];
     let len = args.args[2] as u32;
     let dest_addr = args.args[4];
     let addrlen = args.args[5] as u32;
 
     let mut parsed: ConnectArgs = unsafe { mem::zeroed() };
-    if !parse_sockaddr(dest_addr, addrlen, &mut parsed) {
+    let mut protocol = 0u8;
+    if dest_addr != 0 && parse_sockaddr(dest_addr, addrlen, &mut parsed) {
+        protocol = IPPROTO_UDP;
+    } else if !lookup_connected(current_pid(), fd, &mut parsed) {
         return Ok(());
     }
 
@@ -365,9 +485,12 @@ fn try_sys_enter_sendto(ctx: TracePointContext) -> Result<(), i64> {
     }
 
     let send_args = SendArgs {
+        fd,
         family: parsed.family,
         port: parsed.port,
         addr: parsed.addr,
+        protocol,
+        _pad: [0u8; 3],
         buf,
         len,
     };
@@ -404,7 +527,8 @@ fn try_sys_exit_sendto(ctx: TracePointContext) -> Result<(), i64> {
         fill_common(event);
         event.event_type = EVENT_NET_SEND;
         event.family = stored.family as u8;
-        event.protocol = IPPROTO_UDP;
+        event.protocol = stored.protocol;
+        event.fd = stored.fd;
         event.dst_addr = stored.addr;
         event.dst_port = stored.port;
         event.bytes = if ret > 0 { ret as u32 } else { 0 };
@@ -417,12 +541,138 @@ fn try_sys_exit_sendto(ctx: TracePointContext) -> Result<(), i64> {
             fill_common(event);
             event.event_type = EVENT_DNS_QUERY;
             event.family = stored.family as u8;
-            event.protocol = IPPROTO_UDP;
+            event.protocol = stored.protocol;
+            event.fd = stored.fd;
             event.dst_addr = stored.addr;
             event.dst_port = stored.port;
             event.syscall_result = if ret >= 0 { 0 } else { ret };
 
-            let mut payload_len = stored.len;
+            let mut payload_len = if ret > 0 { ret as u32 } else { stored.len };
+            if payload_len > DNS_PAYLOAD_MAX as u32 {
+                payload_len = DNS_PAYLOAD_MAX as u32;
+            }
+            event.dns_payload_len = payload_len as u16;
+            if payload_len > 0 {
+                let dst = &mut event.dns_payload[..payload_len as usize];
+                unsafe {
+                    let _ = bpf_probe_read_user_buf(stored.buf as *const u8, dst);
+                }
+            }
+            true
+        });
+    }
+
+    Ok(())
+}
+
+#[tracepoint(category = "syscalls", name = "sys_enter_sendmsg")]
+pub fn sys_enter_sendmsg(ctx: TracePointContext) -> u32 {
+    match try_sys_enter_sendmsg(ctx) {
+        Ok(_) => 0,
+        Err(_) => 0,
+    }
+}
+
+fn try_sys_enter_sendmsg(ctx: TracePointContext) -> Result<(), i64> {
+    let args: SysEnterArgs = unsafe { ctx.read_at(0)? };
+    let fd = args.args[0] as i32;
+    let msg_ptr = args.args[1];
+    let pid = current_pid();
+
+    let mut msg: Msghdr = unsafe { mem::zeroed() };
+    if !read_msghdr(msg_ptr, &mut msg) {
+        return Ok(());
+    }
+    if msg.msg_iov == 0 || msg.msg_iovlen == 0 {
+        return Ok(());
+    }
+    let mut iov: Iovec = unsafe { mem::zeroed() };
+    if !read_iovec(msg.msg_iov, &mut iov) {
+        return Ok(());
+    }
+    let buf = iov.iov_base;
+    let len = if iov.iov_len > u32::MAX as u64 {
+        u32::MAX
+    } else {
+        iov.iov_len as u32
+    };
+
+    let mut parsed: ConnectArgs = unsafe { mem::zeroed() };
+    let mut protocol = 0u8;
+    if msg.msg_name != 0 && msg.msg_namelen > 0 {
+        if parse_sockaddr(msg.msg_name, msg.msg_namelen, &mut parsed) {
+            protocol = IPPROTO_UDP;
+        }
+    } else if !lookup_connected(pid, fd, &mut parsed) {
+        return Ok(());
+    }
+
+    if parsed.family != AF_INET && parsed.family != AF_INET6 {
+        return Ok(());
+    }
+
+    let send_args = SendArgs {
+        fd,
+        family: parsed.family,
+        port: parsed.port,
+        addr: parsed.addr,
+        protocol,
+        _pad: [0u8; 3],
+        buf,
+        len,
+    };
+
+    unsafe {
+        SENDMSG_ARGS.insert(&pid, &send_args, 0)?;
+    }
+    Ok(())
+}
+
+#[tracepoint(category = "syscalls", name = "sys_exit_sendmsg")]
+pub fn sys_exit_sendmsg(ctx: TracePointContext) -> u32 {
+    match try_sys_exit_sendmsg(ctx) {
+        Ok(_) => 0,
+        Err(_) => 0,
+    }
+}
+
+fn try_sys_exit_sendmsg(ctx: TracePointContext) -> Result<(), i64> {
+    let args: SysExitArgs = unsafe { ctx.read_at(0)? };
+    let ret = args.ret;
+    let pid = current_pid();
+
+    let stored = unsafe { SENDMSG_ARGS.get(&pid) };
+    let stored = match stored {
+        Some(value) => *value,
+        None => return Ok(()),
+    };
+    let _ = unsafe { SENDMSG_ARGS.remove(&pid) };
+
+    with_event(|event| {
+        fill_common(event);
+        event.event_type = EVENT_NET_SEND;
+        event.family = stored.family as u8;
+        event.protocol = stored.protocol;
+        event.fd = stored.fd;
+        event.dst_addr = stored.addr;
+        event.dst_port = stored.port;
+        event.bytes = if ret > 0 { ret as u32 } else { 0 };
+        event.syscall_result = ret;
+        true
+    });
+
+    if stored.port == 53 {
+        with_event(|event| {
+            fill_common(event);
+            event.event_type = EVENT_DNS_QUERY;
+            event.family = stored.family as u8;
+            event.protocol = stored.protocol;
+            event.fd = stored.fd;
+            event.dst_addr = stored.addr;
+            event.dst_port = stored.port;
+            event.syscall_result = if ret >= 0 { 0 } else { ret };
+
+            let mut payload_len = if ret > 0 { ret as u32 } else { stored.len };
             if payload_len > DNS_PAYLOAD_MAX as u32 {
                 payload_len = DNS_PAYLOAD_MAX as u32;
             }
@@ -450,9 +700,11 @@ pub fn sys_enter_recvfrom(ctx: TracePointContext) -> u32 {
 
 fn try_sys_enter_recvfrom(ctx: TracePointContext) -> Result<(), i64> {
     let args: SysEnterArgs = unsafe { ctx.read_at(0)? };
+    let fd = args.args[0] as i32;
     let buf = args.args[1];
     let len = args.args[2] as u32;
     let recv_args = RecvArgs {
+        fd,
         buf,
         len,
         addr_ptr: args.args[4],
@@ -491,8 +743,12 @@ fn try_sys_exit_recvfrom(ctx: TracePointContext) -> Result<(), i64> {
     let _ = unsafe { RECV_ARGS.remove(&pid) };
 
     let mut parsed: ConnectArgs = unsafe { mem::zeroed() };
+    let mut protocol = IPPROTO_UDP;
     if !parse_sockaddr(stored.addr_ptr, stored.addrlen, &mut parsed) {
-        return Ok(());
+        if !lookup_connected(pid, stored.fd, &mut parsed) {
+            return Ok(());
+        }
+        protocol = 0;
     }
     if parsed.family != AF_INET && parsed.family != AF_INET6 {
         return Ok(());
@@ -505,7 +761,8 @@ fn try_sys_exit_recvfrom(ctx: TracePointContext) -> Result<(), i64> {
         fill_common(event);
         event.event_type = EVENT_DNS_RESPONSE;
         event.family = parsed.family as u8;
-        event.protocol = IPPROTO_UDP;
+        event.protocol = protocol;
+        event.fd = stored.fd;
         event.src_addr = parsed.addr;
         event.src_port = parsed.port;
         event.syscall_result = if ret >= 0 { 0 } else { ret };
@@ -527,6 +784,113 @@ fn try_sys_exit_recvfrom(ctx: TracePointContext) -> Result<(), i64> {
 
         true
     });
+    Ok(())
+}
+
+#[tracepoint(category = "syscalls", name = "sys_enter_recvmsg")]
+pub fn sys_enter_recvmsg(ctx: TracePointContext) -> u32 {
+    match try_sys_enter_recvmsg(ctx) {
+        Ok(_) => 0,
+        Err(_) => 0,
+    }
+}
+
+fn try_sys_enter_recvmsg(ctx: TracePointContext) -> Result<(), i64> {
+    let args: SysEnterArgs = unsafe { ctx.read_at(0)? };
+    let fd = args.args[0] as i32;
+    let msg_ptr = args.args[1];
+    let recv_args = RecvMsgArgs { fd, msg_ptr };
+
+    let pid = current_pid();
+    unsafe {
+        RECVMSG_ARGS.insert(&pid, &recv_args, 0)?;
+    }
+
+    Ok(())
+}
+
+#[tracepoint(category = "syscalls", name = "sys_exit_recvmsg")]
+pub fn sys_exit_recvmsg(ctx: TracePointContext) -> u32 {
+    match try_sys_exit_recvmsg(ctx) {
+        Ok(_) => 0,
+        Err(_) => 0,
+    }
+}
+
+fn try_sys_exit_recvmsg(ctx: TracePointContext) -> Result<(), i64> {
+    let args: SysExitArgs = unsafe { ctx.read_at(0)? };
+    let ret = args.ret;
+    if ret <= 0 {
+        return Ok(());
+    }
+
+    let pid = current_pid();
+    let stored = unsafe { RECVMSG_ARGS.get(&pid) };
+    let stored = match stored {
+        Some(value) => *value,
+        None => return Ok(()),
+    };
+    let _ = unsafe { RECVMSG_ARGS.remove(&pid) };
+
+    let mut msg: Msghdr = unsafe { mem::zeroed() };
+    if !read_msghdr(stored.msg_ptr, &mut msg) {
+        return Ok(());
+    }
+    if msg.msg_iov == 0 || msg.msg_iovlen == 0 {
+        return Ok(());
+    }
+    let mut iov: Iovec = unsafe { mem::zeroed() };
+    if !read_iovec(msg.msg_iov, &mut iov) {
+        return Ok(());
+    }
+
+    let mut parsed: ConnectArgs = unsafe { mem::zeroed() };
+    let mut protocol = IPPROTO_UDP;
+    if msg.msg_name != 0 && msg.msg_namelen > 0 {
+        if !parse_sockaddr(msg.msg_name, msg.msg_namelen, &mut parsed) {
+            return Ok(());
+        }
+    } else if !lookup_connected(pid, stored.fd, &mut parsed) {
+        return Ok(());
+    } else {
+        protocol = 0;
+    }
+
+    if parsed.family != AF_INET && parsed.family != AF_INET6 {
+        return Ok(());
+    }
+    if parsed.port != 53 {
+        return Ok(());
+    }
+
+    with_event(|event| {
+        fill_common(event);
+        event.event_type = EVENT_DNS_RESPONSE;
+        event.family = parsed.family as u8;
+        event.protocol = protocol;
+        event.fd = stored.fd;
+        event.src_addr = parsed.addr;
+        event.src_port = parsed.port;
+        event.syscall_result = if ret >= 0 { 0 } else { ret };
+
+        let mut payload_len = if ret > 0 { ret as u32 } else { iov.iov_len as u32 };
+        if payload_len > iov.iov_len as u32 {
+            payload_len = iov.iov_len as u32;
+        }
+        if payload_len > DNS_PAYLOAD_MAX as u32 {
+            payload_len = DNS_PAYLOAD_MAX as u32;
+        }
+        event.dns_payload_len = payload_len as u16;
+        if payload_len > 0 {
+            let dst = &mut event.dns_payload[..payload_len as usize];
+            unsafe {
+                let _ = bpf_probe_read_user_buf(iov.iov_base as *const u8, dst);
+            }
+        }
+
+        true
+    });
+
     Ok(())
 }
 
