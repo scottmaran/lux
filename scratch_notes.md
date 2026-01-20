@@ -1,7 +1,9 @@
 
 
 ### Higher-level explanation of each
-
+We are building a containerized harness that watches what an AI agent does at the OS level. The harness runs the agent, captures its
+stdout/stderr, and a privileged collector watches the VM kernel for: process starts, file changes, and (via eBPF) network and IPC
+connections. Those logs are stored outside the agent’s reach and stitched into a timeline.
 
 To get a verifiable within an explicit scope of how the agent is acting, we need:
 - OS auditing telling you what proceses start, with what args, and filesystem metadata events.

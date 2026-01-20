@@ -1,6 +1,32 @@
 # Overview
 The collector container to audit the VM OS that the agent and harness containers live in.
 
+# Implementation
+
+## dockerfile
+Uses Ubuntu 22.04 LTS to stay aligned with the platform default and keep auditd behavior
+predictable across environments. Installs `auditd` plus `audispd-plugins` for future
+forwarding options, and `util-linux` for mount utilities. No eBPF tooling is included yet.
+
+## entrypoint.sh
+Bootstraps auditd and loads rules without forcing the container to exit on non‑fatal
+rule errors. It also ensures the log file exists and is writable by the audit group, then
+starts auditd in daemon mode and tails the log so the container stays alive. The log path
+is injected via `COLLECTOR_AUDIT_LOG` so the host mount can control where audit output lands.
+
+## auditd.conf
+Configured to keep audit output local and file‑backed: `local_events = yes`, RAW log
+format, and an explicit `log_file` under `/logs`. Rotation is enabled with small log
+chunks for local testing, and disk‑pressure actions are conservative (SUSPEND) to avoid
+silent loss. The log group is `adm` (Ubuntu standard).
+
+## harness.rules
+Keeps scope narrow and attribution‑focused. It logs exec events for process lineage and
+audits only writes/renames/unlinks plus metadata changes inside `/work` (no reads). The
+rules use a mix of path watches and syscall filters for coverage, and avoid syscalls that
+don’t exist on aarch64 kernels. This is a starter set intended to be refined for noise
+reduction and tighter scoping later.
+
 # Testing
 Step‑by‑step test
 
