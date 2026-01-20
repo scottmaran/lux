@@ -1,0 +1,12 @@
+[package]
+name = "collector-ebpf"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+path = "src/lib.rs"
+crate-type = ["cdylib"]
+
+[dependencies]
+aya-bpf = { git = "https://github.com/aya-rs/aya", tag = "aya-v0.12.0" }
+aya-bpf-macros = { git = "https://github.com/aya-rs/aya", tag = "aya-v0.12.0" }

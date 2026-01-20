@@ -151,6 +151,7 @@ Fields are lower snake_case. Required unless marked optional.
 ```
 
 ## Notes and constraints
-- DNS parsing is limited to UDP/TCP port 53; DoH/DoT traffic is not decoded.
+- DNS parsing covers UDP and TCP on port 53 via send/recv syscalls; DoH/DoT traffic is not decoded.
+- `src_ip`/`src_port` and unix `sock_type` are resolved in userspace from `/proc` when possible.
 - `exe` is omitted.
 - `cgroup_id` is retained for correlation; mapping to container IDs happens later in the merger.

@@ -1,0 +1,3 @@
+[workspace]
+members = ["loader", "ebpf"]
+resolver = "2"

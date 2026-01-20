@@ -5,14 +5,16 @@ The collector container to audit the VM OS that the agent and harness containers
 
 ## dockerfile
 Uses Ubuntu 22.04 LTS to stay aligned with the platform default and keep auditd behavior
-predictable across environments. Installs `auditd` plus `audispd-plugins` for future
-forwarding options, and `util-linux` for mount utilities. No eBPF tooling is included yet.
+predictable across environments. Includes a Rust build stage that compiles the custom
+eBPF programs and loader (Aya), then copies the artifacts into the final image. Installs
+`auditd` plus `audispd-plugins` for future forwarding options, and `util-linux` for mount
+utilities.
 
 ## entrypoint.sh
-Bootstraps auditd and loads rules without forcing the container to exit on non‑fatal
-rule errors. It also ensures the log file exists and is writable by the audit group, then
-starts auditd in daemon mode and tails the log so the container stays alive. The log path
-is injected via `COLLECTOR_AUDIT_LOG` so the host mount can control where audit output lands.
+Bootstraps auditd and the custom eBPF loader without forcing the container to exit on
+non‑fatal rule errors. It ensures the log files exist and are writable by the audit group,
+starts auditd in daemon mode, then launches the eBPF loader with paths controlled by
+`COLLECTOR_AUDIT_LOG`, `COLLECTOR_EBPF_OUTPUT`, and `COLLECTOR_EBPF_BPF`.
 
 ## auditd.conf
 Configured to keep audit output local and file‑backed: `local_events = yes`, RAW log
@@ -27,39 +29,19 @@ rules use a mix of path watches and syscall filters for coverage, and avoid sysc
 don’t exist on aarch64 kernels. This is a starter set intended to be refined for noise
 reduction and tighter scoping later.
 
+Schema reference: `collector/eBPF_data.md`.
+
 # Testing
-Step‑by‑step test
+Run the full test sequence with a single script:
 
-1. Build the collector image:
+collector/scripts/run_test.sh
 
-docker build -t harness-collector:dev ./collector
+The script builds the collector image, starts it with the required mounts, generates
+filesystem + network/IPC activity, stops the collector, and prints log summaries. You
+can override these environment variables if needed:
 
-2. Ensure workspace + logs exist:
-
-mkdir -p ~/agent_harness/workspace ~/agent_harness/logs
-
-3. Start the collector (auditd only; eBPF loader TBD):
-
-docker run -d --name harness-collector \
---pid=host --cgroupns=host --privileged \
--e COLLECTOR_AUDIT_LOG=/logs/audit.log \
--v ~/agent_harness/logs:/logs:rw \
--v ~/agent_harness/workspace:/work:ro \
--v /sys/fs/bpf:/sys/fs/bpf:rw \
--v /sys/kernel/tracing:/sys/kernel/tracing:rw \
--v /sys/kernel/debug:/sys/kernel/debug:rw \
-harness-collector:dev
-
-The /sys mounts are reserved for the custom eBPF loader; auditd works without them.
-
-4. Generate filesystem activity (auditd):
-
-docker run --rm -v ~/agent_harness/workspace:/work alpine sh -c \ "echo hi > /work/a.txt; mv /work/a.txt /work/b.txt; chmod 600 /work/b.txt; rm /work/b.txt"
-
-5. Stop the collector:
-
-docker stop harness-collector
-
-6. Inspect logs:
-
-tail -n 20 ~/agent_harness/logs/audit.log
+- `ROOT_DIR` (default: repo root)
+- `WORKSPACE` (default: `ROOT_DIR/workspace`)
+- `LOGS` (default: `ROOT_DIR/logs`)
+- `IMAGE` (default: `harness-collector:dev`)
+- `COLLECTOR_NAME` (default: `harness-collector`)

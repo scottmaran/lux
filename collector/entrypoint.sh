@@ -3,6 +3,8 @@ set -e
 
 AUDIT_LOG=${COLLECTOR_AUDIT_OUTPUT:-${COLLECTOR_AUDIT_LOG:-/logs/audit.log}}
 EBPF_LOG=${COLLECTOR_EBPF_OUTPUT:-/logs/ebpf.jsonl}
+EBPF_BIN=${COLLECTOR_EBPF_BIN:-/usr/local/bin/collector-ebpf-loader}
+EBPF_OBJ=${COLLECTOR_EBPF_BPF:-/usr/local/share/collector/collector-ebpf.o}
 
 mkdir -p /logs /sys/kernel/tracing /sys/kernel/debug /sys/fs/bpf
 
@@ -23,8 +25,12 @@ touch "${AUDIT_LOG}" 2>/dev/null || true
 chown root:adm "${AUDIT_LOG}" 2>/dev/null || chown root:root "${AUDIT_LOG}" 2>/dev/null || true
 chmod 0640 "${AUDIT_LOG}" 2>/dev/null || true
 
+touch "${EBPF_LOG}" 2>/dev/null || true
+chown root:adm "${EBPF_LOG}" 2>/dev/null || chown root:root "${EBPF_LOG}" 2>/dev/null || true
+chmod 0640 "${EBPF_LOG}" 2>/dev/null || true
+
 auditd
-AUDITD_PID=$(pidof auditd || true)
+AUDITD_PID=$(pidof auditd 2>/dev/null || cat /var/run/auditd.pid 2>/dev/null || true)
 if ! /usr/sbin/auditctl -D; then
   echo "collector: warning: failed to clear audit rules" >&2
 fi
@@ -32,8 +38,11 @@ if ! /usr/sbin/auditctl -R /etc/audit/rules.d/harness.rules; then
   echo "collector: warning: failed to load audit rules" >&2
 fi
 
+/usr/bin/env COLLECTOR_EBPF_OUTPUT="${EBPF_LOG}" COLLECTOR_EBPF_BPF="${EBPF_OBJ}" "${EBPF_BIN}" &
+EBPF_PID=$!
+
 tail -F "${AUDIT_LOG}" &
 TAIL_PID=$!
 
-trap 'kill ${TAIL_PID} 2>/dev/null || true; kill ${AUDITD_PID} 2>/dev/null || true' TERM INT
-wait "${TAIL_PID}"
+trap 'kill ${TAIL_PID} 2>/dev/null || true; kill ${EBPF_PID} 2>/dev/null || true; kill ${AUDITD_PID} 2>/dev/null || true' TERM INT
+wait "${EBPF_PID}"
