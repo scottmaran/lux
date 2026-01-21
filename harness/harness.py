@@ -32,6 +32,7 @@ HTTP_PORT = int(os.getenv("HARNESS_HTTP_PORT", "8081"))
 API_TOKEN = os.getenv("HARNESS_API_TOKEN", "")
 
 TUI_CMD = os.getenv("HARNESS_TUI_CMD", "codex")
+RUN_CMD_TEMPLATE = os.getenv("HARNESS_RUN_CMD_TEMPLATE", "").strip() or "codex exec {prompt}"
 DEFAULT_CWD = os.getenv("HARNESS_AGENT_WORKDIR", "/work")
 
 JOBS = {}
@@ -131,7 +132,11 @@ def build_remote_command(prompt: str, cwd: str, env: dict, timeout: int | None) 
         cmd += f"{prefix} "
     if timeout:
         cmd += f"timeout {int(timeout)} "
-    cmd += f"codex exec {shlex.quote(prompt)}"
+    if "{prompt}" in RUN_CMD_TEMPLATE:
+        run_cmd = RUN_CMD_TEMPLATE.replace("{prompt}", shlex.quote(prompt))
+    else:
+        run_cmd = RUN_CMD_TEMPLATE
+    cmd += run_cmd
     return cmd.strip()
 
 
@@ -161,7 +166,7 @@ def run_job(job_id: str, prompt: str, logged_prompt: str, cwd: str, env: dict, t
         "prompt": logged_prompt,
         "cwd": cwd,
         "env": env,
-        "command": "codex exec",
+        "command": RUN_CMD_TEMPLATE,
     }
     write_json(os.path.join(job_path, "input.json"), meta)
 

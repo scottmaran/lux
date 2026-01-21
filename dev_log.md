@@ -53,3 +53,17 @@ still opaque.
 - unix sock_type is resolved from `/proc/<pid>/net/unix`, but can still be "unknown" if the socket disappears before lookup.
 - create normalized autid logs for simpler, quicker viewing by humans
 - decide if we want host port mapping for agent container
+
+# Integration Tests
+
+## Block 1: 
+- Added agent-agnostic integration testing with a configurable run command and a Codex-specific compose override.
+- Added stub + Codex integration scripts that spin up the stack, run `/run` jobs, verify logs, and tear down.
+
+### Details
+- Added `HARNESS_RUN_CMD_TEMPLATE` to control the non-interactive command in `harness/harness.py` and wired it through `compose.yml`.
+- Introduced `compose.codex.yml` for mounting host Codex auth/skills without polluting the base compose file.
+- Created `scripts/run_integration_stub.sh` and `scripts/run_integration_codex.sh` to drive the `/run` API, poll status, and validate
+host-side logs.
+- Documented integration flows and the manual TUI check in the new root `README.md`.
+- Unlocked the agent account for SSH auth in `agent/Dockerfile` (`passwd -d agent`) so harness logins succeed.

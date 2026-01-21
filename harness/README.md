@@ -28,11 +28,14 @@ Launches `codex` via `ssh -tt agent@agent` and proxies stdin/stdout through a PT
 
 ### Server mode
 Exposes a minimal HTTP API for non-interactive runs:
-- `POST /run` triggers `codex exec` in the agent via SSH.
+- `POST /run` triggers the configured run command in the agent via SSH.
 - `GET /jobs/<id>` returns job status.
 
 Use `HARNESS_HTTP_BIND` and `HARNESS_HTTP_PORT` to control the listen address.
 Requests must include `X-Harness-Token` matching `HARNESS_API_TOKEN`.
+
+The run command is controlled by `HARNESS_RUN_CMD_TEMPLATE` (default: `codex exec {prompt}`).
+The `{prompt}` placeholder is replaced with a shell-quoted prompt; omit the placeholder to ignore the prompt.
 
 ## Environment
 - `HARNESS_AGENT_HOST` (default: `agent`)
@@ -44,6 +47,7 @@ Requests must include `X-Harness-Token` matching `HARNESS_API_TOKEN`.
 - `HARNESS_HTTP_PORT` (default: `8081`)
 - `HARNESS_API_TOKEN` (required for server mode)
 - `HARNESS_TUI_CMD` (default: `codex`)
+- `HARNESS_RUN_CMD_TEMPLATE` (default: `codex exec {prompt}`)
 - `HARNESS_AGENT_WORKDIR` (default: `/work`)
 
 ## Security posture
