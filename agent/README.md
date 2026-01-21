@@ -19,6 +19,13 @@ On startup, the agent waits briefly for the authorized keys to appear so the har
 ## Codex CLI
 Installed via npm in the image (`@openai/codex`). The entrypoint logs a warning if the `codex` binary is missing.
 
+## Codex auth and skills
+The agent can import host credentials and skills on startup:
+- `/run/codex_auth.json` -> copied to `/home/agent/.codex/auth.json`
+- `/run/codex_skills` -> copied to `/home/agent/.codex/skills`
+
+These mounts are read-only; the entrypoint copies them into the agent home and fixes ownership.
+
 ## Usage patterns
 Interactive TUI (harness-driven):
 - `ssh -tt agent@agent codex`

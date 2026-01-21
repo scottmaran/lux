@@ -8,9 +8,6 @@ services:
     # the container shares the host PID namespace, so it can “see” host/VM processes. 
     # Required for auditing system‑wide syscalls
     pid: "host"
-    # shares the host cgroup namespace so cgroup IDs align with what the kernel sees. 
-    # This helps map events back to containers
-    cgroupns: host
     # Each entry is host_path:container_path:mode
     volumes:
       - ./logs:/logs:rw
@@ -31,6 +28,8 @@ services:
       - ./logs:/logs:ro
       # the named docker volume to store the keys
       - harness_keys:/config:ro
+      - ${HOME}/.codex/auth.json:/run/codex_auth.json:ro
+      - ${HOME}/.codex/skills:/run/codex_skills:ro
 
   harness:
     build: ./harness

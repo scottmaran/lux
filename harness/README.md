@@ -39,6 +39,7 @@ Requests must include `X-Harness-Token` matching `HARNESS_API_TOKEN`.
 - `HARNESS_AGENT_PORT` (default: `22`)
 - `HARNESS_AGENT_USER` (default: `agent`)
 - `HARNESS_SSH_KEY_PATH` (default: `/harness/keys/ssh_key`)
+- `HARNESS_SSH_WAIT_SEC` (default: `30`)
 - `HARNESS_HTTP_BIND` (default: `0.0.0.0`)
 - `HARNESS_HTTP_PORT` (default: `8081`)
 - `HARNESS_API_TOKEN` (required for server mode)

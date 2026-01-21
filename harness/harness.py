@@ -6,6 +6,7 @@ import os
 import selectors
 import shlex
 import signal
+import socket
 import subprocess
 import sys
 import termios
@@ -24,6 +25,7 @@ AGENT_PORT = int(os.getenv("HARNESS_AGENT_PORT", "22"))
 AGENT_USER = os.getenv("HARNESS_AGENT_USER", "agent")
 SSH_KEY_PATH = os.getenv("HARNESS_SSH_KEY_PATH", "/harness/keys/ssh_key")
 SSH_KNOWN_HOSTS = os.getenv("HARNESS_SSH_KNOWN_HOSTS", "/harness/keys/known_hosts")
+SSH_WAIT_SEC = int(os.getenv("HARNESS_SSH_WAIT_SEC", "30"))
 
 HTTP_BIND = os.getenv("HARNESS_HTTP_BIND", "0.0.0.0")
 HTTP_PORT = int(os.getenv("HARNESS_HTTP_PORT", "8081"))
@@ -42,6 +44,38 @@ def now_iso() -> str:
 
 def ensure_dir(path: str) -> None:
     os.makedirs(path, exist_ok=True)
+
+
+def wait_for_agent(timeout_sec: int) -> bool:
+    deadline = time.time() + timeout_sec
+    while time.time() < deadline:
+        try:
+            with socket.create_connection((AGENT_HOST, AGENT_PORT), timeout=2):
+                return True
+        except OSError:
+            time.sleep(1)
+    return False
+
+
+def wait_for_agent_ssh(timeout_sec: int) -> bool:
+    deadline = time.time() + timeout_sec
+    while time.time() < deadline:
+        if not wait_for_agent(2):
+            time.sleep(1)
+            continue
+        cmd = ssh_base_args() + [
+            "-o",
+            "BatchMode=yes",
+            "-o",
+            "ConnectTimeout=2",
+            ssh_target(),
+            "true",
+        ]
+        result = subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        if result.returncode == 0:
+            return True
+        time.sleep(1)
+    return False
 
 
 def sanitize_env(env: dict) -> dict:
@@ -131,6 +165,15 @@ def run_job(job_id: str, prompt: str, logged_prompt: str, cwd: str, env: dict, t
     }
     write_json(os.path.join(job_path, "input.json"), meta)
 
+    if not wait_for_agent_ssh(SSH_WAIT_SEC):
+        with JOBS_LOCK:
+            JOBS[job_id]["status"] = "failed"
+            JOBS[job_id]["ended_at"] = now_iso()
+            JOBS[job_id]["exit_code"] = 255
+            JOBS[job_id]["error"] = "agent_unreachable"
+        write_json(status_path, JOBS[job_id])
+        return
+
     remote_cmd = build_remote_command(prompt, cwd, env, timeout)
     cmd = ssh_base_args() + [ssh_target(), "bash", "-lc", remote_cmd]
 
@@ -149,6 +192,8 @@ def run_job(job_id: str, prompt: str, logged_prompt: str, cwd: str, env: dict, t
             proc.kill()
             status = "failed"
             exit_code = 124
+            with JOBS_LOCK:
+                JOBS[job_id]["error"] = "timeout"
 
     with JOBS_LOCK:
         JOBS[job_id]["status"] = status
@@ -183,6 +228,7 @@ def handle_run(payload: dict) -> tuple[dict, int]:
             "started_at": None,
             "ended_at": None,
             "exit_code": None,
+            "error": None,
             "output_path": None,
             "error_path": None,
         }
@@ -268,6 +314,10 @@ def run_tui() -> int:
     ensure_dir(LOG_DIR)
     ensure_dir(SESSION_DIR)
 
+    if not wait_for_agent_ssh(SSH_WAIT_SEC):
+        print("Agent SSH is not ready (auth failed or port unreachable). Try again in a few seconds.", file=sys.stderr)
+        return 1
+
     session_id = f"session_{dt.datetime.utcnow().strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:4]}"
     session_path = os.path.join(SESSION_DIR, session_id)
     ensure_dir(session_path)
@@ -324,7 +374,7 @@ def run_tui() -> int:
                         os.write(sys.stdout.fileno(), data)
                         stdout_log.write(data)
                         stdout_log.flush()
-        except EOFError:
+        except (EOFError, OSError):
             _, status = os.waitpid(pid, 0)
             if os.WIFEXITED(status):
                 exit_code = os.WEXITSTATUS(status)
