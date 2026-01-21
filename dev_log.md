@@ -2,7 +2,9 @@
 
 A running log of implementation work on agent_harness
 
-# Blocks of Work
+# Collector
+
+Blocks of Work
 
 ## Block 1:
 - Implemented Rust/aya eBPF program + loader (tracepoints for connect/sendto/recvfrom) emitting JSONL events via ring buffer.
@@ -36,8 +38,18 @@ msghdr/iovec in `collector/ebpf/ebpf/src/lib.rs`.
 trigger `/proc` fallback in `collector/ebpf/loader/src/main.rs`.
 - Updated documentation notes in `collector/eBPF_data.md` and refreshed the To Do section in `dev_log.md` to reflect current behavior.
 
+# Agent 
+
+## Block 1: 
+Added an agent container skeleton with SSH-only access and Codex CLI via npm.
+
+### Details
+- Created the agent container files (`agent/Dockerfile`, `agent/sshd_config`, `agent/entrypoint.sh`, `agent/README.md`) with a locked-down SSH config, `agent` user (uid 1001), `/work` workspace, `/logs` read-only contract, and Codex CLI installed via `npm install -g @openai/codex`.
+
 # To Do:
 - DNS parsing now covers UDP/TCP port 53 via sendto/recvfrom/sendmsg/recvmsg and detects TCP by length prefix, but DoH/DoT traffic is
 still opaque.
 - src_ip/src_port are now best-effort from `/proc/<pid>/net/*`, but short-lived or in-progress sockets can still show 0.0.0.0/:: and 0.
 - unix sock_type is resolved from `/proc/<pid>/net/unix`, but can still be "unknown" if the socket disappears before lookup.
+- create normalized autid logs for simpler, quicker viewing by humans
+- decide if we want host port mapping for agent container

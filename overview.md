@@ -34,10 +34,8 @@ network/IPC.
 # Design doc
 Scope and purpose
 
-- The harness must produce auditable, structured logs of an agent's observable actions and side effects within a
-defined local scope (filesystem + processes + network + IPC + stdout/stderr).
-- Logs must be attributable to a single session with consistent timestamps, PID/PPID lineage, and a unique session
-ID.
+- The harness must produce auditable, structured logs of an agent's observable actions and side effects within a defined local scope (filesystem + processes + network + IPC + stdout/stderr).
+- Logs must be attributable to a single session with consistent timestamps, PID/PPID lineage, and a unique session ID.
 - The scope is local state and interaction auditability, not full behavioral reconstruction or model reasoning.
 
 Threat model and trust boundary
@@ -48,8 +46,7 @@ Threat model and trust boundary
 
 Process execution (exec)
 
-- Record every process start in the agent’s process tree with command line, executable path, uid/gid, parent PID, and
-timestamp.
+- Record every process start in the agent’s process tree with command line, executable path, uid/gid, parent PID, and timestamp.
 - Capture arguments where possible; note that some audit sources truncate or omit args, and this must be logged as a
 limitation.
 - Exec logging is used for attribution (what started) and correlation, not as proof of state change.

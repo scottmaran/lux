@@ -1,4 +1,6 @@
-
+# To Dos:
+- filter audit logs
+- decide if we want host access to agent container on port 22
 
 ### Higher-level explanation of each
 We are building a containerized harness that watches what an AI agent does at the OS level. The harness runs the agent, captures its
@@ -149,3 +151,11 @@ IPC (inter‑process communication) is how one running process talks to another 
 named pipes, shared memory, Mach ports/XPC on macOS, D‑Bus on Linux. This is different from exec: no new process is
 created. Example: a keychain lookup calls Security.framework, which talks to securityd over XPC; no exec, and no
 obvious file change.
+
+## Trust Model 
+
+- Trusted: the host/log sink outside the VM, plus the collector (privileged) that writes logs there.
+- Untrusted: the agent container (it can become root, so it must not be able to tamper with logs).
+- Harness: typically treated as trusted control‑plane (because it orchestrates tests and reads logs), but it should still be minimally
+  privileged and should not be able to rewrite logs.
+  
