@@ -1,11 +1,13 @@
 #!/usr/bin/env python3
 import argparse
 import datetime as dt
+import fcntl
 import json
 import os
 import selectors
 import shlex
 import signal
+import struct
 import socket
 import subprocess
 import sys
@@ -120,6 +122,32 @@ def ssh_base_args() -> list:
 
 def ssh_target() -> str:
     return f"{AGENT_USER}@{AGENT_HOST}"
+
+
+def get_terminal_size() -> os.terminal_size:
+    for stream in (sys.stdin, sys.stdout, sys.stderr):
+        try:
+            size = os.get_terminal_size(stream.fileno())
+            if size.columns > 1 and size.lines > 1:
+                return size
+        except OSError:
+            continue
+    env_cols = os.getenv("COLUMNS")
+    env_lines = os.getenv("LINES")
+    try:
+        if env_cols and env_lines:
+            cols = int(env_cols)
+            lines = int(env_lines)
+            if cols > 1 and lines > 1:
+                return os.terminal_size((cols, lines))
+    except ValueError:
+        pass
+    return os.terminal_size((80, 24))
+
+def set_pty_size(fd: int, size: os.terminal_size | None = None) -> None:
+    size = size or get_terminal_size()
+    rows, cols = size.lines, size.columns
+    fcntl.ioctl(fd, termios.TIOCSWINSZ, struct.pack("HHHH", rows, cols, 0, 0))
 
 
 def build_remote_command(prompt: str, cwd: str, env: dict, timeout: int | None) -> str:
@@ -347,9 +375,20 @@ def run_tui() -> int:
       - Child execs the ssh command so the TUI runs inside a PTY.
       - Parent gets the PTY master fd (master_fd).
     '''
+    term_size = get_terminal_size()
     pid, master_fd = os.forkpty()
     if pid == 0:
+        try:
+            set_pty_size(sys.stdin.fileno(), term_size)
+        except OSError:
+            pass
         os.execvp(cmd[0], cmd)
+
+    try:
+        set_pty_size(master_fd, term_size)
+    except OSError:
+        pass
+    signal.signal(signal.SIGWINCH, lambda *_: set_pty_size(master_fd))
 
     # Terminal mode + IO multiplexing
     old_settings = termios.tcgetattr(sys.stdin.fileno())
