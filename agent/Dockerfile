@@ -14,7 +14,7 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/*
 
 RUN useradd -m -u 1001 -s /bin/bash agent \
-    && mkdir -p /home/agent/.ssh /work /logs /var/run/sshd \
+    && mkdir -p /home/agent/.ssh /work /logs /var/run/sshd /config \
     && chown -R agent:agent /home/agent /work \
     && chmod 700 /home/agent/.ssh \
     && chown root:root /logs \

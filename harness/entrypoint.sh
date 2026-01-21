@@ -22,6 +22,11 @@ chmod 600 "${SSH_KEY_PATH}" "${SSH_KEY_PATH}.pub" "${AUTHORIZED_KEYS_PATH}"
 export HARNESS_SSH_KEY_PATH="${SSH_KEY_PATH}"
 export HARNESS_AUTHORIZED_KEYS_PATH="${AUTHORIZED_KEYS_PATH}"
 
+if [[ ! -w "/logs" ]]; then
+  echo "ERROR: /logs is not writable. Ensure the host logs directory is writable by uid 1002." >&2
+  exit 1
+fi
+
 if [[ -z "${MODE}" ]]; then
   if [[ -t 0 ]]; then
     MODE="tui"

@@ -144,6 +144,27 @@ Short answer: metadata changes are only captured if your OS audit is configured 
   If you want metadata changes in scope, make it explicit: “log file metadata syscalls,” not just create/write/rename/
   unlink.
 
+#### Cgroups
+
+A cgroup namespace is a Linux namespace that virtualizes the cgroup hierarchy a process sees.
+
+Quick mental model:
+
+- cgroups are the kernel’s “resource groups” (CPU/memory/IO/pids). They’re exposed under /sys/fs/cgroup, and
+  membership is listed in /proc/<pid>/cgroup.
+- cgroup namespace makes a process see a subtree as if it were the root of /sys/fs/cgroup, hiding the rest. Think
+  “chroot, but for cgroups.”
+
+Why it matters here:
+
+- The collector uses cgroup IDs from the kernel (eBPF) to attribute events to containers.
+- If the collector runs in a separate cgroup namespace, it only sees its own subtree, so the paths in /proc/
+  <pid>/cgroup and /sys/fs/cgroup can be relative or incomplete compared to the host’s view.
+- With cgroupns: host, the collector sees the same cgroup hierarchy as the host/VM, so cgroup IDs and paths line
+  up and can be mapped reliably to containers.
+
+So cgroupns: host is about consistent visibility and mapping, not extra privileges by itself.
+
 
 ### Definitions
 

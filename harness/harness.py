@@ -27,6 +27,7 @@ SSH_KNOWN_HOSTS = os.getenv("HARNESS_SSH_KNOWN_HOSTS", "/harness/keys/known_host
 
 HTTP_BIND = os.getenv("HARNESS_HTTP_BIND", "0.0.0.0")
 HTTP_PORT = int(os.getenv("HARNESS_HTTP_PORT", "8081"))
+API_TOKEN = os.getenv("HARNESS_API_TOKEN", "")
 
 TUI_CMD = os.getenv("HARNESS_TUI_CMD", "codex")
 DEFAULT_CWD = os.getenv("HARNESS_AGENT_WORKDIR", "/work")
@@ -57,11 +58,15 @@ def sanitize_env(env: dict) -> dict:
 
 
 def sanitize_cwd(cwd: str) -> str:
+    base = os.path.realpath(DEFAULT_CWD)
     if not cwd:
-        return DEFAULT_CWD
-    if not cwd.startswith("/work"):
-        return DEFAULT_CWD
-    return cwd
+        return base
+    if not os.path.isabs(cwd):
+        return base
+    real = os.path.realpath(cwd)
+    if real == base or real.startswith(base + os.sep):
+        return real
+    return base
 
 
 def ssh_base_args() -> list:
@@ -82,12 +87,17 @@ def ssh_target() -> str:
     return f"{AGENT_USER}@{AGENT_HOST}"
 
 
-def build_remote_command(prompt: str, cwd: str, env: dict) -> str:
+def build_remote_command(prompt: str, cwd: str, env: dict, timeout: int | None) -> str:
     env_parts = []
     for key, value in env.items():
         env_parts.append(f"{key}={shlex.quote(value)}")
     prefix = " ".join(env_parts)
-    cmd = f"cd {shlex.quote(cwd)} && {prefix} codex exec {shlex.quote(prompt)}"
+    cmd = f"cd {shlex.quote(cwd)} && "
+    if prefix:
+        cmd += f"{prefix} "
+    if timeout:
+        cmd += f"timeout {int(timeout)} "
+    cmd += f"codex exec {shlex.quote(prompt)}"
     return cmd.strip()
 
 
@@ -121,7 +131,7 @@ def run_job(job_id: str, prompt: str, logged_prompt: str, cwd: str, env: dict, t
     }
     write_json(os.path.join(job_path, "input.json"), meta)
 
-    remote_cmd = build_remote_command(prompt, cwd, env)
+    remote_cmd = build_remote_command(prompt, cwd, env, timeout)
     cmd = ssh_base_args() + [ssh_target(), "bash", "-lc", remote_cmd]
 
     with open(stdout_path, "wb") as out, open(stderr_path, "wb") as err:
@@ -202,7 +212,16 @@ class HarnessHandler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
+    def _authorized(self) -> bool:
+        token = self.headers.get("X-Harness-Token", "")
+        if not token or token != API_TOKEN:
+            self._json_response({"error": "unauthorized"}, 401)
+            return False
+        return True
+
     def do_POST(self) -> None:
+        if not self._authorized():
+            return
         if self.path != "/run":
             self._json_response({"error": "not found"}, 404)
             return
@@ -217,6 +236,8 @@ class HarnessHandler(BaseHTTPRequestHandler):
         self._json_response(response, status)
 
     def do_GET(self) -> None:
+        if not self._authorized():
+            return
         if not self.path.startswith("/jobs/"):
             self._json_response({"error": "not found"}, 404)
             return
@@ -233,6 +254,9 @@ class HarnessHandler(BaseHTTPRequestHandler):
 
 
 def run_server() -> None:
+    if not API_TOKEN:
+        print("HARNESS_API_TOKEN is required for server mode.", file=sys.stderr)
+        raise SystemExit(2)
     ensure_dir(LOG_DIR)
     ensure_dir(JOB_DIR)
     server = ThreadingHTTPServer((HTTP_BIND, HTTP_PORT), HarnessHandler)

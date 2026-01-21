@@ -32,6 +32,7 @@ Exposes a minimal HTTP API for non-interactive runs:
 - `GET /jobs/<id>` returns job status.
 
 Use `HARNESS_HTTP_BIND` and `HARNESS_HTTP_PORT` to control the listen address.
+Requests must include `X-Harness-Token` matching `HARNESS_API_TOKEN`.
 
 ## Environment
 - `HARNESS_AGENT_HOST` (default: `agent`)
@@ -40,6 +41,7 @@ Use `HARNESS_HTTP_BIND` and `HARNESS_HTTP_PORT` to control the listen address.
 - `HARNESS_SSH_KEY_PATH` (default: `/harness/keys/ssh_key`)
 - `HARNESS_HTTP_BIND` (default: `0.0.0.0`)
 - `HARNESS_HTTP_PORT` (default: `8081`)
+- `HARNESS_API_TOKEN` (required for server mode)
 - `HARNESS_TUI_CMD` (default: `codex`)
 - `HARNESS_AGENT_WORKDIR` (default: `/work`)
 
@@ -47,3 +49,4 @@ Use `HARNESS_HTTP_BIND` and `HARNESS_HTTP_PORT` to control the listen address.
 - No Docker socket required; SSH is used for control-plane access.
 - Keys are internal to the harness/agent volume and not dependent on host files.
 - `/logs` should be writable by the harness and read-only for the agent.
+  - If you use the default `harness` user (uid 1002), ensure `./logs` is writable by that uid.
