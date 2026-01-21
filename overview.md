@@ -75,7 +75,7 @@ payloads.
 
 Stdout/stderr (and stdin when applicable)
 
-- The harness launches the agent and owns its stdio file descriptors.
+- The harness launches the agent session over internal SSH and owns its stdio/PTY.
 - For non-interactive sessions, capture stdout/stderr via pipes and log exact output bytes.
 - For interactive sessions, allocate a PTY; capture stdout/stderr and user input (stdin) for full conversational logs.
 - Stdout/stderr are logged because they often contain results without any file writes.
@@ -112,7 +112,7 @@ in‑memory computation).
 
 # Roles
 
-- Harness: runs the agent, captures stdio, assigns session ID, emits session‑level logs.
+- Harness: runs agent sessions over internal SSH, captures stdio/PTY, assigns session IDs, emits session‑level logs, and exposes a local‑only HTTP API for non‑interactive runs.
 - Collector: observes OS‑level events (exec, file changes, network, IPC); requires privileged access to VM kernel audit sources.
 - Proxy: logs method/URL/status for HTTP; for HTTPS without MITM, host/port only.
 - Sink: where logs are stored (host directory outside the VM).

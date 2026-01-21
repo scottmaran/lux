@@ -14,6 +14,7 @@ The container expects authorized keys via one of:
 - `/run/authorized_keys` (bind-mount).
 
 Keys should be provided by the harness container so the solution is self-contained.
+On startup, the agent waits briefly for the authorized keys to appear so the harness can populate the shared volume.
 
 ## Codex CLI
 Installed via npm in the image (`@openai/codex`). The entrypoint logs a warning if the `codex` binary is missing.

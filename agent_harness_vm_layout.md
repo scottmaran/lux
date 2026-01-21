@@ -19,7 +19,7 @@ Host OS
 - Harness container
   - Launches and attaches to the agent container, capturing stdout/stderr (PTY for interactive).
   - Writes session-level logs (session ID, stdout/stderr, optional stdin) to the host sink.
-  - Requires access to the VM container runtime socket (e.g., /var/run/docker.sock) to create the agent container.
+  - Connects to the agent container over SSH (internal-only) to start sessions and capture I/O.
 
 - Agent container
   - Runs the third-party agent.
@@ -54,7 +54,7 @@ Agent container mounts
 Harness container mounts
 - /work  -> /vm/workspace (rw)
 - /logs  -> /vm/logs (rw)
-- /var/run/docker.sock -> /var/run/docker.sock (rw)
+- /harness/keys -> shared volume with agent for authorized_keys (rw)
 
 Permission model inside agent container
 - Agent runs as uid 1001 with no write permission to /logs.
@@ -89,16 +89,15 @@ services:
     volumes:
       - /vm/workspace:/work:rw
       - /vm/logs:/logs:rw
-      - /var/run/docker.sock:/var/run/docker.sock
+      - harness_keys:/harness/keys:rw
     environment:
       - HARNESS_LOG_DIR=/logs
-      - HARNESS_AGENT_IMAGE=third-party-agent:latest
-      - HARNESS_AGENT_CMD=/usr/local/bin/codex
       - HARNESS_AGENT_WORKDIR=/work
-      - HARNESS_AGENT_LOGS_MOUNT=/logs:ro
+    ports:
+      - 127.0.0.1:8081:8081
     depends_on:
-      - proxy
-    # Harness creates the agent container with TTY support and /logs mounted read-only.
+      - agent
+    # Harness connects to the agent via SSH for TTY and non-interactive runs.
 
   collector:
     image: harness-collector:latest
@@ -120,11 +119,14 @@ services:
       - /vm/logs:/logs:rw
     environment:
       - PROXY_LOG=/logs/http.jsonl
+
+volumes:
+  harness_keys:
 ```
 
 ## Notes
 - The agent should never run with write access to /logs; mount it read-only.
-- The harness needs container runtime access; treat it as trusted.
+- The harness uses SSH to control the agent container; it does not require container runtime access.
 - The collector needs privileged + pid: host with access to bpffs and tracefs/audit interfaces.
 - Ensure tracefs is mounted in the VM (commonly /sys/kernel/tracing or /sys/kernel/debug/tracing).
 - Only one audit daemon can consume audit events; the collector should be the sole audit consumer in the VM.

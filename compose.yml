@@ -1,0 +1,46 @@
+services:
+  collector:
+    build: ./collector
+    image: harness-collector:dev
+    privileged: true
+    pid: "host"
+    cgroupns: host
+    volumes:
+      - ./logs:/logs:rw
+      - ./workspace:/work:ro
+      - /sys/fs/bpf:/sys/fs/bpf:rw
+      - /sys/kernel/tracing:/sys/kernel/tracing:rw
+      - /sys/kernel/debug:/sys/kernel/debug:rw
+    environment:
+      - COLLECTOR_AUDIT_LOG=/logs/audit.log
+      - COLLECTOR_EBPF_OUTPUT=/logs/ebpf.jsonl
+
+  agent:
+    build: ./agent
+    image: harness-agent:dev
+    volumes:
+      - ./workspace:/work:rw
+      - ./logs:/logs:ro
+      - harness_keys:/config:ro
+
+  harness:
+    build: ./harness
+    image: harness-harness:dev
+    volumes:
+      - ./workspace:/work:rw
+      - ./logs:/logs:rw
+      - harness_keys:/harness/keys:rw
+    ports:
+      - "127.0.0.1:8081:8081"
+    environment:
+      - HARNESS_AGENT_HOST=agent
+      - HARNESS_AGENT_PORT=22
+      - HARNESS_AGENT_USER=agent
+      - HARNESS_HTTP_BIND=0.0.0.0
+      - HARNESS_HTTP_PORT=8081
+      - HARNESS_AGENT_WORKDIR=/work
+    depends_on:
+      - agent
+
+volumes:
+  harness_keys:

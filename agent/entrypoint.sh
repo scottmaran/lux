@@ -3,6 +3,16 @@ set -euo pipefail
 
 SSH_DIR="/home/agent/.ssh"
 AUTHORIZED_KEYS_FILE="${SSH_DIR}/authorized_keys"
+AUTH_WAIT_SEC="${AGENT_AUTH_WAIT_SEC:-30}"
+
+if [[ ! -f /config/authorized_keys && ! -f /run/authorized_keys ]]; then
+  for _ in $(seq 1 "${AUTH_WAIT_SEC}"); do
+    sleep 1
+    if [[ -f /config/authorized_keys || -f /run/authorized_keys ]]; then
+      break
+    fi
+  done
+fi
 
 if [[ -f /config/authorized_keys ]]; then
   cp /config/authorized_keys "${AUTHORIZED_KEYS_FILE}"
