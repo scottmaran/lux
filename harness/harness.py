@@ -284,15 +284,21 @@ def run_tui() -> int:
     }
     write_json(meta_path, meta)
 
-    remote_cmd = f"cd {shlex.quote(DEFAULT_CWD)} && {TUI_CMD}"
-    cmd = ssh_base_args() + ["-tt", ssh_target(), "bash", "-lc", remote_cmd]
+    remote_cmd = f"cd {shlex.quote(DEFAULT_CWD)} && {TUI_CMD}" # e.g. cd /work && codex
+    cmd = ssh_base_args() + ["-tt", ssh_target(), "bash", "-lc", remote_cmd] # Build the ssh command with -tt (force PTY allocation)
 
+    ''' 
+    creates a new PTY and forks:
+      - Child execs the ssh command so the TUI runs inside a PTY.
+      - Parent gets the PTY master fd (master_fd).
+    '''
     pid, master_fd = os.forkpty()
     if pid == 0:
         os.execvp(cmd[0], cmd)
 
+    # Terminal mode + IO multiplexing
     old_settings = termios.tcgetattr(sys.stdin.fileno())
-    tty.setraw(sys.stdin.fileno())
+    tty.setraw(sys.stdin.fileno()) # keystrokes pass through unchanged
 
     sel = selectors.DefaultSelector()
     sel.register(sys.stdin, selectors.EVENT_READ)
