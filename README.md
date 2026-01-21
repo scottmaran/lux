@@ -26,3 +26,4 @@ export HARNESS_API_TOKEN=dev-token
 docker compose run --rm --service-ports -e HARNESS_MODE=tui harness
 ```
 Use `-f compose.yml -f compose.codex.yml` if the agent needs host Codex credentials.
+The default TUI command uses `/work` and disables Codex sandboxing (`codex -C /work -s danger-full-access`); override via `HARNESS_TUI_CMD`.

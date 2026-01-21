@@ -22,9 +22,12 @@ The entrypoint chooses a mode automatically:
 You can override with `HARNESS_MODE=tui` or `HARNESS_MODE=server`.
 
 ### TUI mode
-Launches `codex` via `ssh -tt agent@agent` and proxies stdin/stdout through a PTY, logging both streams:
+Launches Codex via `ssh -tt agent@agent` and proxies stdin/stdout through a PTY, logging both streams:
 - `logs/sessions/<session_id>/stdin.log`
 - `logs/sessions/<session_id>/stdout.log`
+
+By default the TUI uses `/work` as the working root and disables Codex sandboxing (`codex -C /work -s danger-full-access`).
+You can override the command with `HARNESS_TUI_CMD`.
 
 ### Server mode
 Exposes a minimal HTTP API for non-interactive runs:
@@ -34,7 +37,7 @@ Exposes a minimal HTTP API for non-interactive runs:
 Use `HARNESS_HTTP_BIND` and `HARNESS_HTTP_PORT` to control the listen address.
 Requests must include `X-Harness-Token` matching `HARNESS_API_TOKEN`.
 
-The run command is controlled by `HARNESS_RUN_CMD_TEMPLATE` (default: `codex exec {prompt}`).
+The run command is controlled by `HARNESS_RUN_CMD_TEMPLATE` (default: `codex -C /work -s danger-full-access exec {prompt}`).
 The `{prompt}` placeholder is replaced with a shell-quoted prompt; omit the placeholder to ignore the prompt.
 
 ## Environment
@@ -46,8 +49,8 @@ The `{prompt}` placeholder is replaced with a shell-quoted prompt; omit the plac
 - `HARNESS_HTTP_BIND` (default: `0.0.0.0`)
 - `HARNESS_HTTP_PORT` (default: `8081`)
 - `HARNESS_API_TOKEN` (required for server mode)
-- `HARNESS_TUI_CMD` (default: `codex`)
-- `HARNESS_RUN_CMD_TEMPLATE` (default: `codex exec {prompt}`)
+- `HARNESS_TUI_CMD` (default: `codex -C /work -s danger-full-access`)
+- `HARNESS_RUN_CMD_TEMPLATE` (default: `codex -C /work -s danger-full-access exec {prompt}`)
 - `HARNESS_AGENT_WORKDIR` (default: `/work`)
 
 ## Security posture
