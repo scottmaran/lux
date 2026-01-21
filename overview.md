@@ -34,10 +34,8 @@ network/IPC.
 # Design doc
 Scope and purpose
 
-- The harness must produce auditable, structured logs of an agent's observable actions and side effects within a
-defined local scope (filesystem + processes + network + IPC + stdout/stderr).
-- Logs must be attributable to a single session with consistent timestamps, PID/PPID lineage, and a unique session
-ID.
+- The harness must produce auditable, structured logs of an agent's observable actions and side effects within a defined local scope (filesystem + processes + network + IPC + stdout/stderr).
+- Logs must be attributable to a single session with consistent timestamps, PID/PPID lineage, and a unique session ID.
 - The scope is local state and interaction auditability, not full behavioral reconstruction or model reasoning.
 
 Threat model and trust boundary
@@ -48,8 +46,7 @@ Threat model and trust boundary
 
 Process execution (exec)
 
-- Record every process start in the agent’s process tree with command line, executable path, uid/gid, parent PID, and
-timestamp.
+- Record every process start in the agent’s process tree with command line, executable path, uid/gid, parent PID, and timestamp.
 - Capture arguments where possible; note that some audit sources truncate or omit args, and this must be logged as a
 limitation.
 - Exec logging is used for attribution (what started) and correlation, not as proof of state change.
@@ -78,7 +75,7 @@ payloads.
 
 Stdout/stderr (and stdin when applicable)
 
-- The harness launches the agent and owns its stdio file descriptors.
+- The harness launches the agent session over internal SSH and owns its stdio/PTY.
 - For non-interactive sessions, capture stdout/stderr via pipes and log exact output bytes.
 - For interactive sessions, allocate a PTY; capture stdout/stderr and user input (stdin) for full conversational logs.
 - Stdout/stderr are logged because they often contain results without any file writes.
@@ -115,7 +112,7 @@ in‑memory computation).
 
 # Roles
 
-- Harness: runs the agent, captures stdio, assigns session ID, emits session‑level logs.
+- Harness: runs agent sessions over internal SSH, captures stdio/PTY, assigns session IDs, emits session‑level logs, and exposes a local‑only HTTP API for non‑interactive runs.
 - Collector: observes OS‑level events (exec, file changes, network, IPC); requires privileged access to VM kernel audit sources.
 - Proxy: logs method/URL/status for HTTP; for HTTPS without MITM, host/port only.
 - Sink: where logs are stored (host directory outside the VM).

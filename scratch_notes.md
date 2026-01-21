@@ -1,4 +1,6 @@
-
+# To Dos:
+- filter audit logs
+- decide if we want host access to agent container on port 22
 
 ### Higher-level explanation of each
 We are building a containerized harness that watches what an AI agent does at the OS level. The harness runs the agent, captures its
@@ -142,6 +144,27 @@ Short answer: metadata changes are only captured if your OS audit is configured 
   If you want metadata changes in scope, make it explicit: “log file metadata syscalls,” not just create/write/rename/
   unlink.
 
+#### Cgroups
+
+A cgroup namespace is a Linux namespace that virtualizes the cgroup hierarchy a process sees.
+
+Quick mental model:
+
+- cgroups are the kernel’s “resource groups” (CPU/memory/IO/pids). They’re exposed under /sys/fs/cgroup, and
+  membership is listed in /proc/<pid>/cgroup.
+- cgroup namespace makes a process see a subtree as if it were the root of /sys/fs/cgroup, hiding the rest. Think
+  “chroot, but for cgroups.”
+
+Why it matters here:
+
+- The collector uses cgroup IDs from the kernel (eBPF) to attribute events to containers.
+- If the collector runs in a separate cgroup namespace, it only sees its own subtree, so the paths in /proc/
+  <pid>/cgroup and /sys/fs/cgroup can be relative or incomplete compared to the host’s view.
+- With cgroupns: host, the collector sees the same cgroup hierarchy as the host/VM, so cgroup IDs and paths line
+  up and can be mapped reliably to containers.
+
+So cgroupns: host is about consistent visibility and mapping, not extra privileges by itself.
+
 
 ### Definitions
 
@@ -149,3 +172,11 @@ IPC (inter‑process communication) is how one running process talks to another 
 named pipes, shared memory, Mach ports/XPC on macOS, D‑Bus on Linux. This is different from exec: no new process is
 created. Example: a keychain lookup calls Security.framework, which talks to securityd over XPC; no exec, and no
 obvious file change.
+
+## Trust Model 
+
+- Trusted: the host/log sink outside the VM, plus the collector (privileged) that writes logs there.
+- Untrusted: the agent container (it can become root, so it must not be able to tamper with logs).
+- Harness: typically treated as trusted control‑plane (because it orchestrates tests and reads logs), but it should still be minimally
+  privileged and should not be able to rewrite logs.
+  

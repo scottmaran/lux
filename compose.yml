@@ -1,0 +1,59 @@
+services:
+  collector:
+    build: ./collector
+    image: harness-collector:dev
+    #  Grants the container essentially full host‑level capabilities (all Linux capabilities + device access).
+    #  Needed here so the collector can load eBPF programs and access kernel audit interfaces.
+    privileged: true
+    # the container shares the host PID namespace, so it can “see” host/VM processes. 
+    # Required for auditing system‑wide syscalls
+    pid: "host"
+    # Each entry is host_path:container_path:mode
+    volumes:
+      - ./logs:/logs:rw
+      - ./workspace:/work:ro
+      - /sys/fs/bpf:/sys/fs/bpf:rw
+      - /sys/kernel/tracing:/sys/kernel/tracing:rw
+      - /sys/kernel/debug:/sys/kernel/debug:rw
+    environment:
+      - COLLECTOR_AUDIT_LOG=/logs/audit.log
+      - COLLECTOR_EBPF_OUTPUT=/logs/ebpf.jsonl
+
+  agent:
+    build: ./agent
+    image: harness-agent:dev
+    # agent has read-only access to logs
+    volumes:
+      - ./workspace:/work:rw
+      - ./logs:/logs:ro
+      # the named docker volume to store the keys
+      - harness_keys:/config:ro
+
+  harness:
+    build: ./harness
+    image: harness-harness:dev
+    volumes:
+      - ./workspace:/work:rw
+      - ./logs:/logs:rw
+      - harness_keys:/harness/keys:rw
+    # host_ip:host_port:container_port
+    ports:
+      # binds the container’s port 8081 to localhost only on your Mac, so it’s reachable from the host at
+      # http://127.0.0.1:8081 but not from your LAN.
+      # This does not affect container‑to‑container traffic; other containers can still reach harness:8081 on the
+      # internal Docker network.
+      - "127.0.0.1:8081:8081"
+    environment:
+      - HARNESS_AGENT_HOST=agent
+      - HARNESS_AGENT_PORT=22
+      - HARNESS_AGENT_USER=agent
+      - HARNESS_HTTP_BIND=0.0.0.0
+      - HARNESS_HTTP_PORT=8081
+      - HARNESS_API_TOKEN=${HARNESS_API_TOKEN}
+      - HARNESS_AGENT_WORKDIR=/work
+      - HARNESS_RUN_CMD_TEMPLATE=${HARNESS_RUN_CMD_TEMPLATE:-}
+    depends_on:
+      - agent
+
+volumes:
+  harness_keys:

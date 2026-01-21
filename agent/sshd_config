@@ -1,0 +1,30 @@
+Port 22
+Protocol 2
+
+HostKey /etc/ssh/ssh_host_rsa_key
+HostKey /etc/ssh/ssh_host_ecdsa_key
+HostKey /etc/ssh/ssh_host_ed25519_key
+
+PermitRootLogin no
+PasswordAuthentication no
+KbdInteractiveAuthentication no
+ChallengeResponseAuthentication no
+UsePAM no
+
+AllowUsers agent
+AuthorizedKeysFile .ssh/authorized_keys
+StrictModes yes
+
+X11Forwarding no
+AllowAgentForwarding no
+AllowTcpForwarding no
+PermitTunnel no
+GatewayPorts no
+
+ClientAliveInterval 60
+ClientAliveCountMax 2
+LoginGraceTime 30
+MaxAuthTries 3
+
+PidFile /var/run/sshd.pid
+Subsystem sftp /usr/lib/openssh/sftp-server
