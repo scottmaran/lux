@@ -144,6 +144,40 @@ Short answer: metadata changes are only captured if your OS audit is configured 
   If you want metadata changes in scope, make it explicit: “log file metadata syscalls,” not just create/write/rename/
   unlink.
 
+#### auditd specifics 
+
+The logs/audit.log records numerous process executions, including primary commands you ran and many helper executions spawned by the
+  runtime environment like Tokio threads. The locale-check command appears regularly and is run via bash -lc to initialize login shells;
+  this often happens multiple times per session for environment setup.
+
+  - Locale-check: A command to verify or set locale environment variables, typically running early in shell sessions.
+  - Bash -lc calls: These invoke a login shell with commands; they’re frequent as helper processes and threads start separate shell
+    instances.
+  - Primary execs: Main user-initiated commands or scripts directly related to the agent's tasks.
+  - Helper execs: Additional processes spawned behind the scenes by runtime threads or environment setups.
+  - Originated cmd: The initial command that kicked off a chain of helper and runtime executions.
+
+Detailing audit.log terms and composition
+
+- Locale-check: A small helper binary (/bin/locale-check) invoked by bash -l or system library calls to verify locale settings; it’s not launched by your agent commands directly.
+- Bash -lc calls: In this session, bash -lc was called three times—for directory setup (cd /work), querying current directory (pwd),
+  and creating temp.txt via printf. Additional bash -c calls occurred during initialization. Each agent command typically runs in a
+  separate bash -lc login shell to ensure environment consistency.
+- Primary execs: Executions directly reflecting agent commands, usually identified by bash -lc running your requested commands like pwd
+  or printf, or direct binaries like git, node, or python invoked by the agent.
+- Helper execs: Processes spawned by runtime or system setups such as locale-check, getconf, uname, tokio-runtime-w threads, and
+  container init commands running as root; these support environment discovery and scaffolding but are not user commands.
+- Originated cmd: The original command string issued by the agent, visible in the EXECVE arguments for bash -lc or directly as the
+  command for non-shell processes.
+- Audit.log composition: Each syscall event generates multiple audit records (SYSCALL, EXECVE, CWD, PATH, PROCTITLE, BPRM_FCAPS), so a
+  single command produces 5–6 lines. In the session window from logs/audit.log (e.g., session_20260122_001630_de71), there were
+  approximately 2,257 lines across 432 events and 430 exec events.
+- Exec event distribution: About 277 execs (64%) ran under uid 1001 (agent user), including 176 tokio-runtime-w, 67 codex, 12 each of
+  getconf and uname, 4 bash, 3 locale-check, 2 git, and 1 node, mainly representing the agent runtime and helpers. The remaining 153
+  execs (36%) under uid 0 stem from system or container initialization.
+- This reflects that the majority of recorded executions come from the agent environment’s runtime and helper processes, with a smaller
+  portion from the root/system context.
+
 #### Cgroups
 
 A cgroup namespace is a Linux namespace that virtualizes the cgroup hierarchy a process sees.

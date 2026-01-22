@@ -1,0 +1,54 @@
+# Filter configuration for auditd-derived JSONL output.
+schema_version: auditd.filtered.v1
+
+input:
+  audit_log: /logs/audit.log
+
+output:
+  jsonl: /logs/filtered_audit.jsonl
+
+# grouping strategy to collapse multi-record audit events
+grouping:
+  strategy: audit_seq
+
+agent_ownership:
+  uid: 1001
+  # Process names considered a session root
+  root_comm:
+    - codex
+
+exec:
+  # Which audit rule keys should be treated as “exec” events. 
+  # Configurable so you can expand or narrow what counts as exec
+  # (e.g., if you add execveat under a different key later)
+  include_keys:
+    - exec
+  # Process names treated as shells (bash, sh). Configurable because some environments use zsh, dash, or busybox 
+  # for shell execution; you don’t want to hardcode only bash.
+  shell_comm:
+    - bash
+    - sh
+  # The flag to extract the “real” command from a shell (default -lc). Configurable because some commands are run with -c
+  # or other flags; different harnesses might set a different invocation pattern.
+  shell_cmd_flag: "-lc"
+  helper_exclude_comm:
+    - locale-check
+    - getconf
+    - uname
+    - tokio-runtime-w
+    - lsb_release
+    - git
+  helper_exclude_argv_prefix:
+    - ["git", "rev-parse"]
+
+fs:
+  include_keys:
+    - fs_watch
+    - fs_change
+    - fs_meta
+  include_paths_prefix:
+    - /work/
+
+linking:
+  attach_cmd_to_fs: true
+  attach_cmd_strategy: last_exec_same_pid
