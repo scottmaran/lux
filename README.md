@@ -21,6 +21,8 @@ export HARNESS_API_TOKEN=dev-token
 ./scripts/run_integration_codex.sh
 ```
 
+See `TESTING.md` for filter test cases and expected outcomes.
+
 ## TUI manual check
 ```bash
 docker compose run --rm --service-ports -e HARNESS_MODE=tui harness

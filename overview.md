@@ -93,8 +93,8 @@ Collection mechanics
 insufficient for attribution.
 - Correlate events by PID/PPID and session ID; map to agent‑visible actions in a single timeline.
 - Store logs in a host sink outside the VM where the agent cannot modify or delete them (read-only to agent).
-- Filter raw auditd logs into a compact JSONL stream for UI consumption (drop helper execs, keep agent-owned execs
-  and filesystem events).
+- Planned: filter raw auditd logs into a compact JSONL stream for UI consumption (drop helper execs, keep agent-owned
+  execs and filesystem events).
 
 Log schema contract (TODO)
 

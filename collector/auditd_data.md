@@ -163,6 +163,7 @@ type=PATH msg=audit(1768895520.574:1738): item=1 name="/work/b.txt" inode=11 dev
 Purpose: turn raw auditd events into a short, human-auditable JSONL timeline
 used by the UI. Display semantics are described in `UI_DESIGN.md`.
 Filter configuration lives in `collector/config/filtering.yaml`.
+This is a target spec; the filter implementation is still pending.
 
 Filtering steps (draft):
 1. Parse auditd records and group them by `msg=audit(...:<seq>)`.
@@ -178,7 +179,8 @@ Filtering steps (draft):
 ### Filtered JSONL schema (draft v1)
 Common fields (all events):
 - `schema_version` (string): fixed `auditd.filtered.v1`
-- `session_id` (string): harness session identifier
+- `session_id` (string): harness session identifier (or job id in server mode;
+  `unknown` when metadata is unavailable)
 - `ts` (string): RFC3339 timestamp derived from the audit event time
 - `source` (string): `audit`
 - `event_type` (string): `exec` or `fs_*`
@@ -197,6 +199,7 @@ Event-specific fields:
 - `fs_create`/`fs_write`/`fs_rename`/`fs_unlink`/`fs_meta`:
   - `path` (string): file path derived from PATH records
   - `cwd` (string, optional): CWD when available
+  - `cmd` (string, optional): originating command when linked by PID
   - `op` (string, optional): derived operation label
 
 ### Draft v0 (JSONL)

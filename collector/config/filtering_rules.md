@@ -23,6 +23,12 @@ input.audit_log
 - Path to the raw auditd log.
 - Configurable for different mount layouts or test fixtures.
 
+sessions_dir
+- Directory containing session metadata (`logs/sessions/*/meta.json`).
+- Used to map audit events to a `session_id` based on time windows.
+- Server-mode jobs use `logs/jobs/*` and will require a jobs mapping step
+  when the filter implementation is added.
+
 output.jsonl
 - Path to the filtered JSONL output.
 - Configurable for different log sinks or test output folders.
@@ -78,4 +84,3 @@ linking.attach_cmd_to_fs
 linking.attach_cmd_strategy
 - How to attach commands to file events (e.g., `last_exec_same_pid`).
 - Configurable so we can experiment with better attribution heuristics.
-

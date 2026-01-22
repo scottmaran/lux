@@ -4,6 +4,8 @@ schema_version: auditd.filtered.v1
 input:
   audit_log: /logs/audit.log
 
+sessions_dir: /logs/sessions
+
 output:
   jsonl: /logs/filtered_audit.jsonl
 
