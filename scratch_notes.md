@@ -180,3 +180,9 @@ obvious file change.
 - Harness: typically treated as trusted control‑plane (because it orchestrates tests and reads logs), but it should still be minimally
   privileged and should not be able to rewrite logs.
   
+#### Prompts 
+
+Before I start adding new features, I want you to document a complete, linear history of how the current project (agent_harness) came to be. I want you to:
+- read all of the markdown files in the current directory
+- investigate all of my previous conversations with you located at /Users/scottmaran/NoBloat/The_Brain/Knowledge/agent/conversations/2026/2026-01 . After january 8th these conversations show the entire iteration process of how we've gotten to where we are, showing the motivation, original design intention, and reasoning behind decisions.
+The primary focus is creating a file someone can read with 0 knowledge of the project and get up to speed on all of the aspects NOT captured in the current documentation. As a chief example, I think of the design design to go with SSH instead of a docker socket for the harness container connecting to the agent container, which is not in the current repo but embedded in the past conversations I've had with you. Before continuing, I want you to repeat back to me your task, my intentions, and any clarifying questions you may have 
