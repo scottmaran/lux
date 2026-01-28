@@ -8,6 +8,8 @@ filter behavior.
 - Collector smoke tests (raw auditd + eBPF logs).
 - Integration tests for harness + agent workflows.
 - Audit filter tests (spec-driven, implemented).
+- eBPF filter tests (spec-driven, pending implementation).
+- Unified merge tests (spec-driven, pending implementation).
 - Unit tests with fixture logs for deterministic parsing.
 
 ## Collector Smoke Test (raw logs)
@@ -65,6 +67,37 @@ Case C: interactive session (tui)
   - Interactive sessions map to `logs/sessions/*/meta.json`.
   - Server jobs map to `logs/jobs/*/input.json` + `status.json`.
 
+## eBPF Filter Test Cases (proposed)
+
+These validate the eBPF filter behavior and ownership attribution using raw
+audit exec events as the PID tree source.
+
+Minimums (unit + integration):
+- Keeps only events whose PID is in the agent-owned PID tree.
+- Uses session/job time-window mapping (sessions take precedence).
+- Preserves DNS query/response as separate events.
+- Honors exclusion lists (comm, unix paths, dst IP/port).
+- Optionally attaches `cmd` from the last exec for the same PID.
+
+Suggested cases:
+- Owned PID inclusion + `cmd` linking.
+- Unowned PID exclusion.
+- Exclude `unix_connect` to `/var/run/nscd/socket` and `/var/run/docker.raw.sock`.
+- Exclude comms like `initd`, `dockerd`, `chown`.
+- Preserve `dns_query` and `dns_response`.
+- Job/session precedence (session wins, job_id omitted when session_id present).
+
+## Unified Merge Test Cases (proposed)
+
+These validate the merger that produces a single UI timeline.
+
+Suggested cases:
+- Merge audit + eBPF streams into a single JSONL output.
+- Deterministic ordering by timestamp, then source, then PID.
+- Preserve session_id/job_id from inputs.
+- Normalize into a common schema with `details` for source-specific fields.
+- Handles empty inputs gracefully.
+
 ## Integration Scripts
 
 - Stub: `scripts/run_integration_stub.sh`
@@ -72,6 +105,8 @@ Case C: interactive session (tui)
 - Filter (no harness): `scripts/run_integration_filter_no_harness.sh`
 - Filter (job/server): `scripts/run_integration_filter_job.sh`
 - Filter (tui): `scripts/run_integration_filter_tui.sh`
+- Filter (eBPF, job/server): `scripts/run_integration_filter_ebpf_job.sh` (requires eBPF filter)
+- Merge (audit + eBPF): `scripts/run_integration_merge.sh` (requires unified merger)
 
 The filter scripts run direct shell commands (no Codex dependency) so file
 events are deterministic. The TUI variant requires the `script` command to
@@ -91,3 +126,5 @@ Suggested fixture coverage:
 - FS event typing from PATH nametypes.
 - Path prefix filtering for `/work`.
 - Session/job time-window mapping.
+- eBPF event inclusion/exclusion.
+- Unified merge ordering + schema normalization.
