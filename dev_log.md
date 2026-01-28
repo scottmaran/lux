@@ -49,6 +49,25 @@ session/job mapping and live-tail buffering.
 - Documented filtered output schema and rules in `collector/auditd_data.md` and `collector/config/filtering_rules.md`, and added `TESTING.md`.
 - Created audit-filter integration scripts for no-harness, job, and TUI flows under `scripts/`.
 
+## Block 4:
+- Extended the eBPF filter to follow audit exec events in real time so PID ownership stays accurate in long-running sessions.
+- Added an optional pending buffer to recover eBPF events that arrive before ownership is established.
+
+### Details
+- The eBPF filter now tails raw `audit.log` in `--follow` mode and updates its PID tree on new execs, while still tailing `ebpf.jsonl`.
+- Added a bounded pending buffer (TTL + size limits) to hold early eBPF events until ownership is learned; disabled by default.
+- Documented pending buffer settings in `collector/config/ebpf_filtering.yaml`.
+
+## Block 5:
+- Fixed follow-mode race conditions and gaps in the eBPF filter’s audit tailing path.
+- Added follow-mode tests for audit tailing, pending buffering, and log rotation behavior.
+
+### Details
+- Added an audit cursor (inode + offset) so follow mode resumes after the initial ownership scan without missing execs.
+- On log rotation, the audit tail now reads from the start of the new file instead of skipping early lines.
+- Fixed the pending-buffer race by re-checking ownership under consistent lock ordering before enqueueing.
+- Enabled the pending buffer by default and covered follow-mode behaviors with unit tests.
+
 # Agent 
 
 ## Block 1: 

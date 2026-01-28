@@ -293,6 +293,12 @@ class TimeWindowIndex:
         return "unknown", None
 
 
+@dataclass
+class AuditCursor:
+    inode: int | None
+    offset: int
+
+
 class OwnershipState:
     def __init__(self, ttl_sec: int | float = 0) -> None:
         self.owned_pids: dict[int, dt.datetime] = {}
@@ -344,13 +350,14 @@ class OwnershipState:
         return True
 
 
-def build_ownership(audit_log: str, cfg: dict) -> OwnershipState:
+def build_ownership(audit_log: str, cfg: dict) -> tuple[OwnershipState, AuditCursor | None]:
     state = OwnershipState(cfg.get("ownership", {}).get("pid_ttl_sec", 0))
     agent_uid = cfg.get("ownership", {}).get("uid")
     root_comm = set(cfg.get("ownership", {}).get("root_comm", []))
 
     current_seq = None
     current_records: list[dict] = []
+    cursor = None
 
     def flush(records: list[dict]) -> None:
         exec_info = extract_exec(records, cfg)
@@ -370,9 +377,11 @@ def build_ownership(audit_log: str, cfg: dict) -> OwnershipState:
     try:
         handle = open(audit_log, "r", encoding="utf-8", errors="replace")
     except FileNotFoundError:
-        return state
+        return state, None
 
     with handle:
+        stat = os.fstat(handle.fileno())
+        inode = stat.st_ino
         for line in handle:
             record = parse_line(line)
             if not record:
@@ -388,28 +397,49 @@ def build_ownership(audit_log: str, cfg: dict) -> OwnershipState:
                 current_records.append(record)
         if current_records:
             flush(current_records)
-    return state
+        cursor = AuditCursor(inode=inode, offset=handle.tell())
+    return state, cursor
 
 
-def iter_file(path: str, follow: bool, poll_interval: float, start_at_end: bool = False):
+def iter_file(
+    path: str,
+    follow: bool,
+    poll_interval: float,
+    start_at_end: bool = False,
+    start_offset: int | None = None,
+    start_inode: int | None = None,
+    yield_idle: bool = False,
+):
     position = 0
     inode = None
     handle = None
 
-    def reopen():
+    def reopen(initial: bool):
         nonlocal handle, position, inode
         if handle:
             handle.close()
         handle = open(path, "r", encoding="utf-8", errors="replace")
-        if start_at_end:
-            handle.seek(0, os.SEEK_END)
         stat = os.fstat(handle.fileno())
         inode = stat.st_ino
-        position = 0
+        if initial:
+            seek_pos = 0
+            if start_inode is not None and inode != start_inode:
+                seek_pos = 0
+            elif start_offset is not None:
+                if stat.st_size < start_offset:
+                    seek_pos = 0
+                else:
+                    seek_pos = start_offset
+            elif start_at_end:
+                seek_pos = stat.st_size
+            handle.seek(seek_pos, os.SEEK_SET)
+        else:
+            handle.seek(0, os.SEEK_SET)
+        position = handle.tell()
 
     while True:
         try:
-            reopen()
+            reopen(True)
             break
         except FileNotFoundError:
             if not follow:
@@ -424,16 +454,18 @@ def iter_file(path: str, follow: bool, poll_interval: float, start_at_end: bool 
             continue
         if not follow:
             break
+        if yield_idle:
+            yield None
         time.sleep(poll_interval)
         try:
             stat = os.stat(path)
         except FileNotFoundError:
             continue
         if inode is None or stat.st_ino != inode:
-            reopen()
+            reopen(False)
             continue
         if stat.st_size < position:
-            reopen()
+            reopen(False)
 
 
 def write_output(writer, output: dict, write_lock: threading.Lock) -> None:
@@ -457,6 +489,8 @@ def follow_audit_log(
     windows: TimeWindowIndex,
     link_cmd: bool,
     poll_interval: float,
+    start_offset: int | None,
+    start_inode: int | None,
 ) -> None:
     agent_uid = cfg.get("ownership", {}).get("uid")
     root_comm = set(cfg.get("ownership", {}).get("root_comm", []))
@@ -464,6 +498,8 @@ def follow_audit_log(
 
     current_seq = None
     current_records: list[dict] = []
+    last_line_time = time.monotonic()
+    idle_flush_after = max(poll_interval * 4, 0.2)
 
     def flush(records: list[dict]) -> None:
         exec_info = extract_exec(records, cfg)
@@ -501,10 +537,25 @@ def follow_audit_log(
             output = build_output(item.event, session_id, job_id, cmd, schema_version)
             write_output(writer, output, write_lock)
 
-    for line in iter_file(audit_log, follow=True, poll_interval=poll_interval, start_at_end=True):
+    for line in iter_file(
+        audit_log,
+        follow=True,
+        poll_interval=poll_interval,
+        start_at_end=False,
+        start_offset=start_offset,
+        start_inode=start_inode,
+        yield_idle=True,
+    ):
+        if line is None:
+            if current_records and (time.monotonic() - last_line_time) >= idle_flush_after:
+                flush(current_records)
+                current_records = []
+                current_seq = None
+            continue
         record = parse_line(line)
         if not record:
             continue
+        last_line_time = time.monotonic()
         seq = record["seq"]
         if current_seq is None:
             current_seq = seq
@@ -627,7 +678,7 @@ def main() -> int:
 
     link_cmd = cfg.get("linking", {}).get("attach_cmd_to_net", False)
 
-    state = build_ownership(audit_log, cfg)
+    state, audit_cursor = build_ownership(audit_log, cfg)
     windows = TimeWindowIndex(sessions_dir, jobs_dir)
     state_lock = threading.Lock()
     pending_lock = threading.Lock()
@@ -671,6 +722,8 @@ def main() -> int:
                     windows,
                     link_cmd,
                     args.poll_interval,
+                    audit_cursor.offset if audit_cursor else None,
+                    audit_cursor.inode if audit_cursor else None,
                 ),
                 daemon=True,
             )
@@ -712,11 +765,17 @@ def main() -> int:
             with state_lock:
                 owned = state.is_owned(pid, now=ts_dt)
                 cmd = state.last_exec_by_pid.get(pid) if link_cmd and owned else None
+                if not owned and pending:
+                    with pending_lock:
+                        if not state.is_owned(pid, now=ts_dt):
+                            pending.add(pid, ts_dt, event)
+                            owned = False
+                        else:
+                            owned = True
+                            if link_cmd:
+                                cmd = state.last_exec_by_pid.get(pid)
 
             if not owned:
-                if pending:
-                    with pending_lock:
-                        pending.add(pid, ts_dt, event)
                 continue
 
             session_id, job_id = windows.lookup(ts_dt)

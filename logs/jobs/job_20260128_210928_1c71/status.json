@@ -1,0 +1,11 @@
+{
+  "ended_at": "2026-01-28T21:09:28.608220+00:00",
+  "error": null,
+  "error_path": "/logs/jobs/job_20260128_210928_1c71/stderr.log",
+  "exit_code": 0,
+  "job_id": "job_20260128_210928_1c71",
+  "output_path": "/logs/jobs/job_20260128_210928_1c71/stdout.log",
+  "started_at": "2026-01-28T21:09:28.244429+00:00",
+  "status": "complete",
+  "submitted_at": "2026-01-28T21:09:28.242865+00:00"
+}
