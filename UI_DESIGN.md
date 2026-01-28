@@ -13,56 +13,75 @@
   - Right (narrow rail): session list and metadata expansion.
 
 ## Top Band (Summary and Controls)
-- Summary tiles: counts for exec, fs change, fs meta, net, unix, stdout, stdin.
-- Source toggles: Audit, eBPF, Stdout, Stdin.
-- Event type filters: exec, fs change, fs meta, net, unix.
+- Summary tiles: counts for exec, fs_create, fs_write, fs_rename, fs_unlink, fs_meta, net_connect, net_send, dns_query, dns_response, unix_connect.
+- Source toggles: Audit, eBPF (Proxy reserved for later).
+- Event type filters reflect the timeline schema (see below).
 - Time controls:
   - Presets: 15m, 1h, 24h, 7d.
   - Absolute range picker.
 - Live tail control is present but can be disabled in the prototype.
+- Run scope filter: Sessions / Jobs / Unattributed.
 
-## Sessions Column (Right)
-- List sessions from `logs/sessions/*`.
+## Runs Column (Right)
+- List sessions from `logs/sessions/*/meta.json`.
+- List jobs from `logs/jobs/*/input.json` + `status.json`.
 - Each row shows:
-  - `session_id`
-  - `mode` (tui or exec)
+  - `session_id` or `job_id`
+  - `mode` (tui or exec) for sessions
+  - `status`, `exit_code`
   - `started_at`, `ended_at`, duration
-  - `exit_code` and status badge
 - Selecting a session expands it to reveal `meta.json` fields.
-- Selecting a session filters the log timeline by session time window.
-  - If `ended_at` is missing, treat the window as ongoing.
+- Selecting a job expands it to reveal `input.json` + `status.json` fields.
+- Selecting a run filters the log timeline by `session_id` or `job_id`.
+  - Time range can auto-scope to run start/end but ID filtering is primary.
 
 ## Logs Column (Left)
 - Virtualized timeline list for performance.
 - Default row fields:
-  - Timestamp (normalized to ISO)
+  - Timestamp (RFC3339 with sub-second precision)
   - Source (audit or ebpf)
   - Event type
   - Process (`comm`, `pid`, `ppid`)
-  - Target (file path, host, socket, or syscall detail)
+  - Target (derived from `details`, see schema below)
 - No event inspector in phase 1.
 
+### Target Derivation (from `details`)
+- `exec`: `details.cmd` (secondary: `details.cwd`)
+- `fs_create` / `fs_write` / `fs_rename` / `fs_unlink` / `fs_meta`: `details.path` (secondary: `details.cmd`)
+- `net_connect` / `net_send`: `details.net.dst_ip:dst_port`
+- `dns_query` / `dns_response`: `details.dns.query_name` + `details.dns.query_type`
+- `unix_connect`: `details.unix.path`
+
 ## Data Sources
-- `logs/audit.log` and `logs/example_audit.log`
-  - Raw auditd text lines, multiple lines per event.
-- `logs/ebpf.jsonl` and `logs/example_ebpf.jsonl`
-  - JSONL, one event per line.
+- `logs/filtered_timeline.jsonl`
+  - Unified, filtered timeline used by the UI (schema `timeline.filtered.v1`).
+- `logs/filtered_audit.jsonl`
+  - Filtered audit events (schema `auditd.filtered.v1`), primarily for debugging.
+- `logs/filtered_ebpf.jsonl`
+  - Filtered eBPF events (schema `ebpf.filtered.v1`), primarily for debugging.
 - `logs/sessions/<session_id>/meta.json`
   - Session metadata used in the session list.
+- `logs/jobs/<job_id>/input.json` and `status.json`
+  - Job metadata used in the run list.
 - `logs/sessions/<session_id>/stdin.log` and `stdout.log`
   - Session IO streams (not shown in phase 1).
+- `logs/jobs/<job_id>/stdout.log` and `stderr.log`
+  - Job IO streams (not shown in phase 1).
 
 ## Normalization Rules
-- Audit events are grouped by `msg=audit(epoch:sequence)` into a single row.
-- Audit event type uses `key=` when present (exec, fs_change, fs_meta).
-- eBPF events use `event_type` (net_connect, unix_connect, etc).
-- All timestamps normalize to ISO UTC for sorting and filtering.
-- Final timeline sort order: timestamp, then stable tiebreaker.
+- Normalization and merging are handled by the collector.
+- The UI consumes `filtered_timeline.jsonl` directly.
+- Each row uses the timeline schema:
+  - Common fields: `session_id`, optional `job_id`, `ts`, `source`, `event_type`, `pid`, `ppid`, `uid`, `gid`, `comm`, `exe`.
+  - Event-specific data lives under `details`.
+- Timeline sort order is stable: `ts`, then `source`, then `pid`.
 
 ## Filtering Model
-- Session selection applies a time window filter.
+- Run selection filters by `session_id` or `job_id` from timeline rows.
 - Top band filters further narrow the stream by source and event type.
+- Time filters are additive (apply within the selected run or overall).
 - Default view shows all sources with the last 24h selected.
+- Unattributed events use `session_id: "unknown"` and no `job_id`.
 
 ## Performance Expectations
 - Use virtualization for the log list.
@@ -72,6 +91,7 @@
 ## Live Tailing Considerations
 - Use a cursor-based API shape now (even if implemented by polling).
 - UI log list should be append-only in live mode with pause/resume.
+- Cursor should be based on `ts` + `source` + `pid` (not file offsets), because the merged timeline file is regenerated.
 - Later swap polling for SSE or WebSocket without changing the UI model.
 
 ## Phase 1 Non-Goals
