@@ -5,15 +5,16 @@
 - Fast scan: select a session, see the correlated logs immediately.
 - Support very large logs with virtualization and paged loading.
 - Keep the architecture ready for live tailing later without a rewrite.
+- Keep the prototype minimal: zero-build static UI + tiny HTTP API.
 
 ## Layout
 - Full-width top band for summary and controls.
 - Two vertical columns beneath:
   - Left (dominant width): log timeline.
-  - Right (narrow rail): session list and metadata expansion.
+  - Right (narrow rail): session & jobs list and metadata expansion.
 
 ## Top Band (Summary and Controls)
-- Summary tiles: counts for exec, fs_create, fs_write, fs_rename, fs_unlink, fs_meta, net_connect, net_send, dns_query, dns_response, unix_connect.
+- Summary tiles (current view): counts for exec, fs_create, fs_unlink, fs_meta, net_connect, net_send, dns_query, dns_response, unix_connect.
 - Source toggles: Audit, eBPF (Proxy reserved for later).
 - Event type filters reflect the timeline schema (see below).
 - Time controls:
@@ -23,8 +24,9 @@
 - Run scope filter: Sessions / Jobs / Unattributed.
 
 ## Runs Column (Right)
-- List sessions from `logs/sessions/*/meta.json`.
-- List jobs from `logs/jobs/*/input.json` + `status.json`.
+- Combined list (sessions + jobs) sorted by `started_at`.
+- Sessions from `logs/sessions/*/meta.json`.
+- Jobs from `logs/jobs/*/input.json` + `status.json`.
 - Each row shows:
   - `session_id` or `job_id`
   - `mode` (tui or exec) for sessions
@@ -85,14 +87,23 @@
 
 ## Performance Expectations
 - Use virtualization for the log list.
-- Page by cursor or time range, not by loading whole files.
-- Precompute summary counts for the top band.
+- Page by cursor or time range, not by loading whole files in the browser.
+- Summary counts can be limited to the current time window or loaded page for the prototype.
 
 ## Live Tailing Considerations
 - Use a cursor-based API shape now (even if implemented by polling).
 - UI log list should be append-only in live mode with pause/resume.
 - Cursor should be based on `ts` + `source` + `pid` (not file offsets), because the merged timeline file is regenerated.
+- When tailing, re-request a small overlap window to avoid missing late-arriving events; dedupe client-side.
 - Later swap polling for SSE or WebSocket without changing the UI model.
+
+## Minimal API Requirement (Prototype)
+- Browsers cannot read `/logs/*` directly; the UI must call a tiny HTTP API.
+- Minimal endpoints:
+  - `GET /api/timeline?start=...&end=...` (time window) or `GET /api/timeline?limit=...&before_ts=...`
+  - `GET /api/sessions` (from `logs/sessions/*/meta.json`)
+  - `GET /api/jobs` (from `logs/jobs/*/input.json` + `status.json`)
+  - Optional: `GET /api/summary?start=...&end=...` for top-band counts
 
 ## Phase 1 Non-Goals
 - No event inspector panel.
