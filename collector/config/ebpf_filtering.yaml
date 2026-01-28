@@ -50,3 +50,10 @@ exclude:
 linking:
   attach_cmd_to_net: true
   attach_cmd_strategy: last_exec_same_pid
+
+# Optional pending buffer for events that arrive before ownership is known.
+pending_buffer:
+  enabled: false
+  ttl_sec: 1.5
+  max_per_pid: 200
+  max_total: 2000

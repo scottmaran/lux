@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+from __future__ import annotations
 import argparse
 import datetime as dt
 import json
@@ -6,7 +7,10 @@ import os
 import re
 import shlex
 import sys
+import threading
 import time
+from collections import deque
+from dataclasses import dataclass
 
 try:
     import yaml
@@ -161,6 +165,30 @@ def parse_ebpf_ts(ts: str | None) -> dt.datetime | None:
         return dt.datetime.fromisoformat(value).replace(tzinfo=dt.timezone.utc)
     except ValueError:
         return None
+
+
+def extract_exec(records: list[dict], cfg: dict) -> dict | None:
+    syscall = next((r for r in records if r["type"] == "SYSCALL"), None)
+    if not syscall:
+        return None
+    audit_key = sanitize_key(syscall["fields"].get("key"))
+    exec_keys = set(cfg.get("ownership", {}).get("exec_keys", ["exec"]))
+    if audit_key not in exec_keys:
+        return None
+    pid = parse_int(syscall["fields"].get("pid"))
+    ppid = parse_int(syscall["fields"].get("ppid"))
+    uid = parse_int(syscall["fields"].get("uid"))
+    comm = syscall["fields"].get("comm") or ""
+    ts = syscall["ts"]
+    if ts is None:
+        return None
+    exec_cfg = cfg.get("exec", {})
+    shell_comm = set(exec_cfg.get("shell_comm", ["bash", "sh"]))
+    shell_flag = exec_cfg.get("shell_cmd_flag", "-lc")
+    exec_records = [r for r in records if r["type"] == "EXECVE"]
+    argv = parse_execve_args(exec_records)
+    cmd = derive_cmd(argv, comm, shell_comm, shell_flag)
+    return {"pid": pid, "ppid": ppid, "uid": uid, "comm": comm, "ts": ts, "cmd": cmd}
 
 
 def load_sessions(sessions_dir: str) -> list[dict]:
@@ -318,10 +346,6 @@ class OwnershipState:
 
 def build_ownership(audit_log: str, cfg: dict) -> OwnershipState:
     state = OwnershipState(cfg.get("ownership", {}).get("pid_ttl_sec", 0))
-    exec_cfg = cfg.get("exec", {})
-    shell_comm = set(exec_cfg.get("shell_comm", ["bash", "sh"]))
-    shell_flag = exec_cfg.get("shell_cmd_flag", "-lc")
-    exec_keys = set(cfg.get("ownership", {}).get("exec_keys", ["exec"]))
     agent_uid = cfg.get("ownership", {}).get("uid")
     root_comm = set(cfg.get("ownership", {}).get("root_comm", []))
 
@@ -329,23 +353,19 @@ def build_ownership(audit_log: str, cfg: dict) -> OwnershipState:
     current_records: list[dict] = []
 
     def flush(records: list[dict]) -> None:
-        syscall = next((r for r in records if r["type"] == "SYSCALL"), None)
-        if not syscall:
+        exec_info = extract_exec(records, cfg)
+        if not exec_info:
             return
-        audit_key = sanitize_key(syscall["fields"].get("key"))
-        if audit_key not in exec_keys:
-            return
-        pid = parse_int(syscall["fields"].get("pid"))
-        ppid = parse_int(syscall["fields"].get("ppid"))
-        uid = parse_int(syscall["fields"].get("uid"))
-        comm = syscall["fields"].get("comm") or ""
-        ts = syscall["ts"]
-        if ts is None:
-            return
-        exec_records = [r for r in records if r["type"] == "EXECVE"]
-        argv = parse_execve_args(exec_records)
-        cmd = derive_cmd(argv, comm, shell_comm, shell_flag)
-        state.mark_owned(pid, ppid, uid, comm, agent_uid, root_comm, ts, cmd=cmd)
+        state.mark_owned(
+            exec_info["pid"],
+            exec_info["ppid"],
+            exec_info["uid"],
+            exec_info["comm"],
+            agent_uid,
+            root_comm,
+            exec_info["ts"],
+            cmd=exec_info["cmd"],
+        )
 
     try:
         handle = open(audit_log, "r", encoding="utf-8", errors="replace")
@@ -371,7 +391,7 @@ def build_ownership(audit_log: str, cfg: dict) -> OwnershipState:
     return state
 
 
-def iter_file(path: str, follow: bool, poll_interval: float):
+def iter_file(path: str, follow: bool, poll_interval: float, start_at_end: bool = False):
     position = 0
     inode = None
     handle = None
@@ -381,6 +401,8 @@ def iter_file(path: str, follow: bool, poll_interval: float):
         if handle:
             handle.close()
         handle = open(path, "r", encoding="utf-8", errors="replace")
+        if start_at_end:
+            handle.seek(0, os.SEEK_END)
         stat = os.fstat(handle.fileno())
         inode = stat.st_ino
         position = 0
@@ -414,6 +436,177 @@ def iter_file(path: str, follow: bool, poll_interval: float):
             reopen()
 
 
+def write_output(writer, output: dict, write_lock: threading.Lock) -> None:
+    if output is None:
+        return
+    encoded = json.dumps(output, separators=(",", ":")) + "\n"
+    with write_lock:
+        writer.write(encoded)
+        writer.flush()
+
+
+def follow_audit_log(
+    audit_log: str,
+    cfg: dict,
+    state: OwnershipState,
+    state_lock: threading.Lock,
+    pending: PendingBuffer | None,
+    pending_lock: threading.Lock,
+    writer,
+    write_lock: threading.Lock,
+    windows: TimeWindowIndex,
+    link_cmd: bool,
+    poll_interval: float,
+) -> None:
+    agent_uid = cfg.get("ownership", {}).get("uid")
+    root_comm = set(cfg.get("ownership", {}).get("root_comm", []))
+    schema_version = cfg.get("schema_version", "ebpf.filtered.v1")
+
+    current_seq = None
+    current_records: list[dict] = []
+
+    def flush(records: list[dict]) -> None:
+        exec_info = extract_exec(records, cfg)
+        if not exec_info:
+            return
+        pid = exec_info["pid"]
+        if pid is None:
+            return
+        ts = exec_info["ts"]
+        if ts is None:
+            return
+        with state_lock:
+            was_owned = state.is_owned(pid, now=ts)
+            owned = state.mark_owned(
+                pid,
+                exec_info["ppid"],
+                exec_info["uid"],
+                exec_info["comm"],
+                agent_uid,
+                root_comm,
+                ts,
+                cmd=exec_info["cmd"],
+            )
+            newly_owned = owned and not was_owned
+        if not newly_owned or not pending:
+            return
+        with pending_lock:
+            buffered = pending.pop(pid, now=ts)
+        if not buffered:
+            return
+        with state_lock:
+            cmd = state.last_exec_by_pid.get(pid) if link_cmd else None
+        for item in buffered:
+            session_id, job_id = windows.lookup(item.ts)
+            output = build_output(item.event, session_id, job_id, cmd, schema_version)
+            write_output(writer, output, write_lock)
+
+    for line in iter_file(audit_log, follow=True, poll_interval=poll_interval, start_at_end=True):
+        record = parse_line(line)
+        if not record:
+            continue
+        seq = record["seq"]
+        if current_seq is None:
+            current_seq = seq
+        if seq != current_seq:
+            flush(current_records)
+            current_records = [record]
+            current_seq = seq
+        else:
+            current_records.append(record)
+
+
+@dataclass
+class PendingEvent:
+    ts: dt.datetime
+    event: dict
+
+
+class PendingBuffer:
+    def __init__(self, ttl_sec: float, max_per_pid: int, max_total: int):
+        self.ttl = dt.timedelta(seconds=ttl_sec) if ttl_sec else None
+        self.max_per_pid = max_per_pid
+        self.max_total = max_total
+        self.by_pid: dict[int, deque[PendingEvent]] = {}
+        self.total = 0
+
+    def _prune_pid(self, pid: int, now: dt.datetime) -> None:
+        if not self.ttl:
+            return
+        queue = self.by_pid.get(pid)
+        if not queue:
+            return
+        while queue and now - queue[0].ts > self.ttl:
+            queue.popleft()
+            self.total -= 1
+        if not queue:
+            self.by_pid.pop(pid, None)
+
+    def _drop_oldest_until_under(self) -> None:
+        while self.max_total and self.total > self.max_total and self.by_pid:
+            oldest_pid = min(self.by_pid.items(), key=lambda item: item[1][0].ts)[0]
+            queue = self.by_pid[oldest_pid]
+            queue.popleft()
+            self.total -= 1
+            if not queue:
+                self.by_pid.pop(oldest_pid, None)
+
+    def add(self, pid: int, ts: dt.datetime, event: dict) -> None:
+        self._prune_pid(pid, ts)
+        queue = self.by_pid.setdefault(pid, deque())
+        queue.append(PendingEvent(ts=ts, event=event))
+        self.total += 1
+        if self.max_per_pid and len(queue) > self.max_per_pid:
+            while len(queue) > self.max_per_pid:
+                queue.popleft()
+                self.total -= 1
+        self._drop_oldest_until_under()
+
+    def pop(self, pid: int, now: dt.datetime) -> list[PendingEvent]:
+        self._prune_pid(pid, now)
+        queue = self.by_pid.pop(pid, None)
+        if not queue:
+            return []
+        self.total -= len(queue)
+        return list(queue)
+
+
+def build_output(
+    event: dict,
+    session_id: str,
+    job_id: str | None,
+    cmd: str | None,
+    schema_version: str,
+) -> dict:
+    output = {
+        "schema_version": schema_version,
+        "session_id": session_id,
+        "ts": event.get("ts"),
+        "source": "ebpf",
+        "event_type": event.get("event_type"),
+        "pid": event.get("pid"),
+        "ppid": event.get("ppid"),
+        "uid": event.get("uid"),
+        "gid": event.get("gid"),
+        "comm": event.get("comm") or "",
+        "cgroup_id": event.get("cgroup_id"),
+        "syscall_result": event.get("syscall_result"),
+        "agent_owned": True,
+    }
+    if job_id:
+        output["job_id"] = job_id
+    if cmd:
+        output["cmd"] = cmd
+    event_type = event.get("event_type")
+    if event_type in ("net_connect", "net_send") and event.get("net") is not None:
+        output["net"] = event.get("net")
+    if event_type in ("dns_query", "dns_response") and event.get("dns") is not None:
+        output["dns"] = event.get("dns")
+    if event_type == "unix_connect" and event.get("unix") is not None:
+        output["unix"] = event.get("unix")
+    return output
+
+
 def main() -> int:
     args = parse_args()
     cfg = load_config(args.config)
@@ -436,11 +629,53 @@ def main() -> int:
 
     state = build_ownership(audit_log, cfg)
     windows = TimeWindowIndex(sessions_dir, jobs_dir)
+    state_lock = threading.Lock()
+    pending_lock = threading.Lock()
+    write_lock = threading.Lock()
+
+    pending_cfg = cfg.get("pending_buffer", {})
+    pending_enabled = pending_cfg.get("enabled")
+    if pending_enabled is None:
+        pending_enabled = any(
+            key in pending_cfg for key in ("ttl_sec", "max_per_pid", "max_total")
+        )
+    if not args.follow:
+        pending_enabled = False
+    pending = None
+    if pending_enabled:
+        ttl_sec = float(pending_cfg.get("ttl_sec", 1.5))
+        max_per_pid = int(pending_cfg.get("max_per_pid", 200))
+        max_total = int(pending_cfg.get("max_total", 2000))
+        if ttl_sec <= 0:
+            pending_enabled = False
+        else:
+            pending = PendingBuffer(ttl_sec, max_per_pid, max_total)
 
     os.makedirs(os.path.dirname(output_path) or ".", exist_ok=True)
     mode = "a" if args.follow else "w"
 
     with open(output_path, mode, encoding="utf-8") as writer:
+        audit_thread = None
+        if args.follow:
+            audit_thread = threading.Thread(
+                target=follow_audit_log,
+                args=(
+                    audit_log,
+                    cfg,
+                    state,
+                    state_lock,
+                    pending,
+                    pending_lock,
+                    writer,
+                    write_lock,
+                    windows,
+                    link_cmd,
+                    args.poll_interval,
+                ),
+                daemon=True,
+            )
+            audit_thread.start()
+
         for line in iter_file(ebpf_log, args.follow, args.poll_interval):
             line = line.strip()
             if not line:
@@ -453,10 +688,10 @@ def main() -> int:
             if include_types and event_type not in include_types:
                 continue
             pid = event.get("pid")
+            if pid is None:
+                continue
             ts_dt = parse_ebpf_ts(event.get("ts"))
             if ts_dt is None:
-                continue
-            if not state.is_owned(pid, now=ts_dt):
                 continue
             comm = event.get("comm") or ""
             if comm in exclude_comm:
@@ -474,36 +709,26 @@ def main() -> int:
                 if dst_port in exclude_net_ports:
                     continue
 
+            with state_lock:
+                owned = state.is_owned(pid, now=ts_dt)
+                cmd = state.last_exec_by_pid.get(pid) if link_cmd and owned else None
+
+            if not owned:
+                if pending:
+                    with pending_lock:
+                        pending.add(pid, ts_dt, event)
+                continue
+
             session_id, job_id = windows.lookup(ts_dt)
 
-            output = {
-                "schema_version": cfg.get("schema_version", "ebpf.filtered.v1"),
-                "session_id": session_id,
-                "ts": event.get("ts"),
-                "source": "ebpf",
-                "event_type": event_type,
-                "pid": event.get("pid"),
-                "ppid": event.get("ppid"),
-                "uid": event.get("uid"),
-                "gid": event.get("gid"),
-                "comm": comm,
-                "cgroup_id": event.get("cgroup_id"),
-                "syscall_result": event.get("syscall_result"),
-                "agent_owned": True,
-            }
-            if job_id:
-                output["job_id"] = job_id
-            if link_cmd and pid in state.last_exec_by_pid:
-                output["cmd"] = state.last_exec_by_pid[pid]
-            if event_type in ("net_connect", "net_send") and event.get("net") is not None:
-                output["net"] = event.get("net")
-            if event_type in ("dns_query", "dns_response") and event.get("dns") is not None:
-                output["dns"] = event.get("dns")
-            if event_type == "unix_connect" and event.get("unix") is not None:
-                output["unix"] = event.get("unix")
-
-            writer.write(json.dumps(output, separators=(",", ":")) + "\n")
-            writer.flush()
+            output = build_output(
+                event,
+                session_id,
+                job_id,
+                cmd,
+                cfg.get("schema_version", "ebpf.filtered.v1"),
+            )
+            write_output(writer, output, write_lock)
 
     return 0
 
