@@ -163,6 +163,14 @@ if [ "$state" != "complete" ]; then
   exit 1
 fi
 
+# Give eBPF a moment to flush network events.
+for _ in $(seq 1 10); do
+  if rg -m 1 '"uid":1001' "${LOGS}/ebpf.jsonl" >/dev/null 2>&1; then
+    break
+  fi
+  sleep 0.5
+done
+
 "${compose[@]}" exec -T collector collector-audit-filter --config /logs/filtering_test.yaml
 "${compose[@]}" exec -T collector collector-ebpf-filter --config /logs/ebpf_filtering_test.yaml
 "${compose[@]}" exec -T collector collector-merge-filtered --config /logs/merge_filtering_test.yaml

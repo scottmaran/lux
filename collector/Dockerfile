@@ -38,10 +38,17 @@ COPY --from=ebpf-builder /src/target/release/collector-ebpf-loader /usr/local/bi
 COPY --from=ebpf-builder /src/target/bpfel-unknown-none/release/libcollector_ebpf.so /usr/local/share/collector/collector-ebpf.o
 COPY entrypoint.sh /usr/local/bin/collector-entrypoint.sh
 COPY scripts/filter_audit_logs.py /usr/local/bin/collector-audit-filter
+COPY scripts/filter_ebpf_logs.py /usr/local/bin/collector-ebpf-filter
+COPY scripts/merge_filtered_logs.py /usr/local/bin/collector-merge-filtered
 COPY config/filtering.yaml /etc/collector/filtering.yaml
+COPY config/ebpf_filtering.yaml /etc/collector/ebpf_filtering.yaml
+COPY config/merge_filtering.yaml /etc/collector/merge_filtering.yaml
 COPY config/auditd.conf /etc/audit/auditd.conf
 COPY config/rules.d/harness.rules /etc/audit/rules.d/harness.rules
 
-RUN chmod +x /usr/local/bin/collector-entrypoint.sh /usr/local/bin/collector-audit-filter
+RUN chmod +x /usr/local/bin/collector-entrypoint.sh \
+    /usr/local/bin/collector-audit-filter \
+    /usr/local/bin/collector-ebpf-filter \
+    /usr/local/bin/collector-merge-filtered
 
 ENTRYPOINT ["/usr/local/bin/collector-entrypoint.sh"]

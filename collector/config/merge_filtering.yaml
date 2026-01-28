@@ -1,0 +1,14 @@
+# Merge configuration for unified timeline output.
+schema_version: timeline.filtered.v1
+
+inputs:
+  - path: /logs/filtered_audit.jsonl
+    source: audit
+  - path: /logs/filtered_ebpf.jsonl
+    source: ebpf
+
+output:
+  jsonl: /logs/filtered_timeline.jsonl
+
+sorting:
+  strategy: ts_source_pid
