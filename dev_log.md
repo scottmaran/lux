@@ -38,6 +38,17 @@ msghdr/iovec in `collector/ebpf/ebpf/src/lib.rs`.
 trigger `/proc` fallback in `collector/ebpf/loader/src/main.rs`.
 - Updated documentation notes in `collector/eBPF_data.md` and refreshed the To Do section in `dev_log.md` to reflect current behavior.
 
+## Block 3:
+- Implemented an auditd filtering pipeline that emits compact JSONL exec/fs events with session/job attribution.
+- Added filtering configuration + schema docs, plus unit and integration tests for the filter.
+
+### Details
+- Added `collector/scripts/filter_audit_logs.py` to parse auditd sequences, apply ownership rules, and emit filtered JSONL, including optional
+session/job mapping and live-tail buffering.
+- Wired the filter into the collector image and entrypoint; added `python3-yaml` dependency and config at `collector/config/filtering.yaml`.
+- Documented filtered output schema and rules in `collector/auditd_data.md` and `collector/config/filtering_rules.md`, and added `TESTING.md`.
+- Created audit-filter integration scripts for no-harness, job, and TUI flows under `scripts/`.
+
 # Agent 
 
 ## Block 1: 
@@ -51,7 +62,6 @@ Added an agent container skeleton with SSH-only access and Codex CLI via npm.
 still opaque.
 - src_ip/src_port are now best-effort from `/proc/<pid>/net/*`, but short-lived or in-progress sockets can still show 0.0.0.0/:: and 0.
 - unix sock_type is resolved from `/proc/<pid>/net/unix`, but can still be "unknown" if the socket disappears before lookup.
-- create normalized autid logs for simpler, quicker viewing by humans
 - decide if we want host port mapping for agent container
 
 # Integration Tests
@@ -67,3 +77,11 @@ still opaque.
 host-side logs.
 - Documented integration flows and the manual TUI check in the new root `README.md`.
 - Unlocked the agent account for SSH auth in `agent/Dockerfile` (`passwd -d agent`) so harness logins succeed.
+
+## Block 2:
+- Added audit-filter integration coverage for no-harness, job, and TUI paths.
+
+### Details
+- New scripts: `scripts/run_integration_filter_no_harness.sh`, `scripts/run_integration_filter_job.sh`,
+  `scripts/run_integration_filter_tui.sh`.
+- Tests validate expected exec/fs rows and session/job attribution in the filtered JSONL output.
