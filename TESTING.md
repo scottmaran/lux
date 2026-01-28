@@ -1,13 +1,13 @@
 # Testing Guide
 
-This document describes how to validate the audit pipeline and the planned
-audit filter behavior.
+This document describes how to validate the audit pipeline and the audit
+filter behavior.
 
 ## Test Layers
 
 - Collector smoke tests (raw auditd + eBPF logs).
 - Integration tests for harness + agent workflows.
-- Audit filter tests (spec-driven; filter script pending).
+- Audit filter tests (spec-driven, implemented).
 - Unit tests with fixture logs for deterministic parsing.
 
 ## Collector Smoke Test (raw logs)
@@ -27,7 +27,7 @@ Expected:
 
 This is a raw pipeline check; it does not validate filtering.
 
-## Audit Filter Test Cases (spec)
+## Audit Filter Test Cases
 
 These cases validate the filter logic once implemented. Because `exec` includes
 the `codex` runtime, counts are minimums rather than exact values.
@@ -43,11 +43,13 @@ Case B: non-interactive job (server mode)
   - 1 `exec` for the write command (`bash -lc ...`)
   - 1 `fs_create` for `/work/temp.txt`
 - Additional `exec` rows for `codex` are expected.
+- `job_id` should be populated for these rows.
 
 Case C: interactive session (tui)
 - Same prompt as Case B.
 - Expected minimum: same as Case B.
 - Additional `exec` rows may be higher because of PTY/session setup.
+- `session_id` should be populated for these rows.
 
 ## Additional Filter Scenarios (recommended)
 
@@ -67,15 +69,20 @@ Case C: interactive session (tui)
 
 - Stub: `scripts/run_integration_stub.sh`
 - Codex: `scripts/run_integration_codex.sh`
+- Filter (no harness): `scripts/run_integration_filter_no_harness.sh`
+- Filter (job/server): `scripts/run_integration_filter_job.sh`
+- Filter (tui): `scripts/run_integration_filter_tui.sh`
 
-These validate the harness stack end-to-end. They should be extended with a
-prompt that writes to `/work` to verify `fs_*` outputs in the filter.
+The filter scripts run direct shell commands (no Codex dependency) so file
+events are deterministic. The TUI variant requires the `script` command to
+allocate a pseudo-TTY.
 
-## Unit Tests (planned)
+## Unit Tests
 
-Recommended location and structure:
-- Fixtures: `collector/testdata/` (small audit.log excerpts)
-- Tests: `collector/tests/` (pytest)
+Unit tests live in `collector/tests/` and can be run with:
+```bash
+python3 -m unittest discover -s collector/tests
+```
 
 Suggested fixture coverage:
 - Grouping by `msg=audit(...:<seq>)`.
@@ -84,4 +91,3 @@ Suggested fixture coverage:
 - FS event typing from PATH nametypes.
 - Path prefix filtering for `/work`.
 - Session/job time-window mapping.
-

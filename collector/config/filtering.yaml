@@ -5,6 +5,7 @@ input:
   audit_log: /logs/audit.log
 
 sessions_dir: /logs/sessions
+jobs_dir: /logs/jobs
 
 output:
   jsonl: /logs/filtered_audit.jsonl

@@ -26,8 +26,10 @@ input.audit_log
 sessions_dir
 - Directory containing session metadata (`logs/sessions/*/meta.json`).
 - Used to map audit events to a `session_id` based on time windows.
-- Server-mode jobs use `logs/jobs/*` and will require a jobs mapping step
-  when the filter implementation is added.
+
+jobs_dir
+- Directory containing job metadata (`logs/jobs/*/input.json`, `status.json`).
+- Used to map audit events to `job_id` based on time windows.
 
 output.jsonl
 - Path to the filtered JSONL output.

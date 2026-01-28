@@ -28,16 +28,20 @@ RUN apt-get update \
         auditd \
         audispd-plugins \
         ca-certificates \
+        python3 \
+        python3-yaml \
         util-linux \
     && rm -rf /var/lib/apt/lists/*
 
-RUN mkdir -p /usr/local/share/collector
+RUN mkdir -p /usr/local/share/collector /etc/collector
 COPY --from=ebpf-builder /src/target/release/collector-ebpf-loader /usr/local/bin/collector-ebpf-loader
 COPY --from=ebpf-builder /src/target/bpfel-unknown-none/release/libcollector_ebpf.so /usr/local/share/collector/collector-ebpf.o
 COPY entrypoint.sh /usr/local/bin/collector-entrypoint.sh
+COPY scripts/filter_audit_logs.py /usr/local/bin/collector-audit-filter
+COPY config/filtering.yaml /etc/collector/filtering.yaml
 COPY config/auditd.conf /etc/audit/auditd.conf
 COPY config/rules.d/harness.rules /etc/audit/rules.d/harness.rules
 
-RUN chmod +x /usr/local/bin/collector-entrypoint.sh
+RUN chmod +x /usr/local/bin/collector-entrypoint.sh /usr/local/bin/collector-audit-filter
 
 ENTRYPOINT ["/usr/local/bin/collector-entrypoint.sh"]
