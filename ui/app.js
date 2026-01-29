@@ -2,6 +2,11 @@ const state = {
   runs: [],
   timeline: [],
   activeRun: null,
+  loadingTimeline: false,
+  filters: {
+    sources: new Set(),
+    range: "1h",
+  },
 };
 
 const timelineEl = document.getElementById("timeline");
@@ -26,6 +31,54 @@ function summarize(rows) {
     const value = counts[key] || 0;
     node.textContent = String(value);
   });
+}
+
+function initFilters() {
+  const sourceButtons = document.querySelectorAll(".filter-button[data-source]");
+  sourceButtons.forEach((btn) => {
+    if (btn.classList.contains("is-active")) {
+      state.filters.sources.add(btn.dataset.source);
+    }
+    btn.addEventListener("click", () => {
+      const source = btn.dataset.source;
+      if (state.filters.sources.has(source)) {
+        state.filters.sources.delete(source);
+        btn.classList.remove("is-active");
+      } else {
+        state.filters.sources.add(source);
+        btn.classList.add("is-active");
+      }
+      loadTimeline();
+    });
+  });
+
+  const rangeButtons = document.querySelectorAll(".filter-button[data-range]");
+  rangeButtons.forEach((btn) => {
+    if (btn.classList.contains("is-active")) {
+      state.filters.range = btn.dataset.range;
+    }
+    btn.addEventListener("click", () => {
+      rangeButtons.forEach((node) => node.classList.remove("is-active"));
+      btn.classList.add("is-active");
+      state.filters.range = btn.dataset.range;
+      loadTimeline();
+    });
+  });
+}
+
+function rangeToMs(range) {
+  switch (range) {
+    case "15m":
+      return 15 * 60 * 1000;
+    case "1h":
+      return 60 * 60 * 1000;
+    case "24h":
+      return 24 * 60 * 60 * 1000;
+    case "7d":
+      return 7 * 24 * 60 * 60 * 1000;
+    default:
+      return null;
+  }
 }
 
 function formatRunTitle(run) {
@@ -153,8 +206,25 @@ async function loadRuns() {
 }
 
 async function loadTimeline() {
+  if (state.loadingTimeline) {
+    return;
+  }
+  state.loadingTimeline = true;
   const params = new URLSearchParams();
   params.set("limit", "500");
+  if (!state.filters.sources.size) {
+    renderTimeline([]);
+    state.loadingTimeline = false;
+    return;
+  }
+  params.set("source", [...state.filters.sources].join(","));
+  const windowMs = rangeToMs(state.filters.range);
+  if (windowMs) {
+    const end = new Date();
+    const start = new Date(end.getTime() - windowMs);
+    params.set("start", start.toISOString());
+    params.set("end", end.toISOString());
+  }
   if (state.activeRun) {
     if (state.activeRun.kind === "session") {
       params.set("session_id", state.activeRun.session_id);
@@ -162,15 +232,25 @@ async function loadTimeline() {
       params.set("job_id", state.activeRun.job_id);
     }
   }
-  const data = await fetchJson(`/api/timeline?${params.toString()}`);
-  state.timeline = data.rows || [];
-  renderTimeline(state.timeline);
+  try {
+    const data = await fetchJson(`/api/timeline?${params.toString()}`);
+    state.timeline = data.rows || [];
+    renderTimeline(state.timeline);
+  } finally {
+    state.loadingTimeline = false;
+  }
 }
 
 async function boot() {
   try {
+    initFilters();
     await loadRuns();
     await loadTimeline();
+    setInterval(() => {
+      if (!document.hidden) {
+        loadTimeline();
+      }
+    }, 2000);
   } catch (err) {
     timelineEl.innerHTML = `<div class="empty-state">[ FAILED TO LOAD ]</div>`;
     runsEl.innerHTML = `<div class="empty-state">[ FAILED TO LOAD ]</div>`;
