@@ -19,7 +19,7 @@ Returns filtered timeline rows from `logs/filtered_timeline.jsonl`.
 - `session_id`: filter by session id.
 - `job_id`: filter by job id.
 - `source`: comma-separated list (`audit,ebpf`).
-- `event_type`: comma-separated list (`exec,fs_create,fs_unlink,fs_meta,net_connect,net_send,dns_query,dns_response,unix_connect`).
+- `event_type`: comma-separated list (`exec,fs_create,fs_unlink,fs_meta,net_summary,unix_connect`).
 
 ### Response
 ```json
@@ -31,17 +31,19 @@ Returns filtered timeline rows from `logs/filtered_timeline.jsonl`.
       "job_id": "job_20260128_204429_9680",
       "ts": "2026-01-28T20:44:29.887Z",
       "source": "ebpf",
-      "event_type": "net_connect",
+      "event_type": "net_summary",
       "pid": 4566,
       "ppid": 4562,
       "uid": 1001,
       "gid": 1001,
       "comm": "curl",
       "details": {
-        "net": {
-          "dst_ip": "104.18.27.120",
-          "dst_port": 443
-        }
+        "dst_ip": "104.18.27.120",
+        "dst_port": 443,
+        "dns_names": ["chatgpt.com"],
+        "connect_attempts": 1,
+        "send_count": 3,
+        "bytes_sent_total": 1200
       }
     }
   ],
@@ -102,10 +104,7 @@ as `/api/timeline`.
     "fs_create": 2,
     "fs_unlink": 1,
     "fs_meta": 1,
-    "net_connect": 3,
-    "net_send": 1,
-    "dns_query": 2,
-    "dns_response": 2,
+    "net_summary": 3,
     "unix_connect": 4
   },
   "total": 28

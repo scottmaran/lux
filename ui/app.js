@@ -159,6 +159,13 @@ function deriveTarget(row) {
         return `${details.net.dst_ip || "--"}:${details.net.dst_port || "--"}`;
       }
       return "--";
+    case "net_summary": {
+      const ip = details.dst_ip || "--";
+      const port = details.dst_port || "--";
+      const names = Array.isArray(details.dns_names) ? details.dns_names : [];
+      const suffix = names.length ? ` (${names.join(", ")})` : "";
+      return `${ip}:${port}${suffix}`;
+    }
     case "dns_query":
     case "dns_response":
       if (details.dns) {

@@ -14,7 +14,7 @@
   - Right (narrow rail): session & jobs list and metadata expansion.
 
 ## Top Band (Summary and Controls)
-- Summary tiles (current view): counts for exec, fs_create, fs_unlink, fs_meta, net_connect, net_send, dns_query, dns_response, unix_connect.
+- Summary tiles (current view): counts for exec, fs_create, fs_unlink, fs_meta, net_summary, unix_connect.
 - Source toggles: Audit, eBPF (Proxy reserved for later).
 - Event type filters reflect the timeline schema (see below).
 - Time controls:
@@ -49,9 +49,8 @@
 
 ### Target Derivation (from `details`)
 - `exec`: `details.cmd` (secondary: `details.cwd`)
-- `fs_create` / `fs_write` / `fs_rename` / `fs_unlink` / `fs_meta`: `details.path` (secondary: `details.cmd`)
-- `net_connect` / `net_send`: `details.net.dst_ip:dst_port`
-- `dns_query` / `dns_response`: `details.dns.query_name` + `details.dns.query_type`
+- `fs_create` / `fs_unlink` / `fs_meta`: `details.path` (secondary: `details.cmd`)
+- `net_summary`: `details.dst_ip:dst_port` + `details.dns_names`
 - `unix_connect`: `details.unix.path`
 
 ## Data Sources
