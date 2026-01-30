@@ -97,6 +97,11 @@ def main() -> int:
     input_path = Path(cfg.get("input", {}).get("jsonl", "/logs/filtered_ebpf.jsonl"))
     output_path = Path(cfg.get("output", {}).get("jsonl", "/logs/filtered_ebpf_summary.jsonl"))
     burst_gap_sec = float(cfg.get("burst_gap_sec", 5))
+    dns_lookback_sec = float(cfg.get("dns_lookback_sec", 2))
+    min_send_count = int(cfg.get("min_send_count", 0))
+    min_bytes_sent_total = int(cfg.get("min_bytes_sent_total", 0))
+    if dns_lookback_sec < 0:
+        dns_lookback_sec = 0
 
     dns_by_key: dict[tuple[str, int, str], list[tuple[dt.datetime, str]]] = defaultdict(list)
     sends_by_key: dict[tuple[str, str | None, int, str, int], list[SendEvent]] = defaultdict(list)
@@ -193,10 +198,13 @@ def main() -> int:
 
         def finalize_burst(start: dt.datetime, end: dt.datetime, count: int, bytes_sum: int, proto: str | None) -> None:
             nonlocal rows
+            if count <= min_send_count and bytes_sum <= min_bytes_sent_total:
+                return
+            window_start = start - dt.timedelta(seconds=dns_lookback_sec)
             dns_names = sorted({
                 name
                 for ts, name in dns_entries
-                if start <= ts <= end
+                if window_start <= ts <= end
             })
             connect_count = sum(1 for conn in connects if start <= conn.ts <= end)
             chosen_protocol = proto

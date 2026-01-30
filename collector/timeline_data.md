@@ -48,12 +48,13 @@ Typical keys inside `details` for `net_summary`:
 - `dst_ip` (string)
 - `dst_port` (int)
 - `protocol` (string)
-- `dns_names` (array) - DNS answers observed **within the burst window**
+- `dns_names` (array) - DNS answers observed **within the burst window + lookback**
 - `connect_count` (int) - `net_connect` events within the burst window
 - `send_count` (int)
 - `bytes_sent_total` (int)
 - `ts_first` (string)
 - `ts_last` (string)
+- (bursts can be suppressed via `min_send_count` + `min_bytes_sent_total` in `ebpf_summary.yaml`)
 
 ### proxy (future)
 Typical keys inside `details`:

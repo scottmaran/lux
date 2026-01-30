@@ -45,7 +45,7 @@ def make_event(
 
 
 class EbpfSummaryTests(unittest.TestCase):
-    def run_summary(self, events: list[dict]) -> list[dict]:
+    def run_summary(self, events: list[dict], config_overrides: dict | None = None) -> list[dict]:
         with tempfile.TemporaryDirectory() as tmpdir:
             input_path = os.path.join(tmpdir, "filtered_ebpf.jsonl")
             output_path = os.path.join(tmpdir, "filtered_ebpf_summary.jsonl")
@@ -61,6 +61,8 @@ class EbpfSummaryTests(unittest.TestCase):
                 "output": {"jsonl": output_path},
                 "burst_gap_sec": 5,
             }
+            if config_overrides:
+                config.update(config_overrides)
             Path(config_path).write_text(json.dumps(config), encoding="utf-8")
 
             result = subprocess.run(
@@ -81,7 +83,7 @@ class EbpfSummaryTests(unittest.TestCase):
         events = [
             make_event(
                 "dns_response",
-                "2026-01-22T00:00:02.200Z",
+                "2026-01-22T00:00:01.000Z",
                 dns={
                     "query_name": "example.com",
                     "answers": ["1.2.3.4"],
@@ -103,6 +105,11 @@ class EbpfSummaryTests(unittest.TestCase):
                 net={"dst_ip": "1.2.3.4", "dst_port": 443, "protocol": "tcp", "bytes": 5},
             ),
             make_event(
+                "net_send",
+                "2026-01-22T00:00:10.500Z",
+                net={"dst_ip": "1.2.3.4", "dst_port": 443, "protocol": "tcp", "bytes": 7},
+            ),
+            make_event(
                 "dns_response",
                 "2026-01-22T00:00:10.500Z",
                 dns={
@@ -115,14 +122,9 @@ class EbpfSummaryTests(unittest.TestCase):
                 "2026-01-22T00:00:10.500Z",
                 net={"dst_ip": "1.2.3.4", "dst_port": 443, "protocol": "tcp"},
             ),
-            make_event(
-                "net_send",
-                "2026-01-22T00:00:10.500Z",
-                net={"dst_ip": "1.2.3.4", "dst_port": 443, "protocol": "tcp", "bytes": 7},
-            ),
         ]
 
-        rows = self.run_summary(events)
+        rows = self.run_summary(events, {"dns_lookback_sec": 2})
         summary_rows = [row for row in rows if row.get("event_type") == "net_summary"]
         self.assertEqual(len(summary_rows), 2)
 
@@ -143,6 +145,39 @@ class EbpfSummaryTests(unittest.TestCase):
         self.assertEqual(second["dns_names"], ["example2.com"])
         self.assertEqual(second["ts_first"], "2026-01-22T00:00:10.500Z")
         self.assertEqual(second["ts_last"], "2026-01-22T00:00:10.500Z")
+
+    def test_suppression_thresholds(self) -> None:
+        events = [
+            make_event(
+                "net_send",
+                "2026-01-22T00:00:01.000Z",
+                net={"dst_ip": "9.9.9.9", "dst_port": 443, "protocol": "tcp", "bytes": 50},
+            ),
+            make_event(
+                "net_send",
+                "2026-01-22T00:00:10.000Z",
+                net={"dst_ip": "9.9.9.9", "dst_port": 443, "protocol": "tcp", "bytes": 150},
+            ),
+            make_event(
+                "net_send",
+                "2026-01-22T00:00:20.000Z",
+                net={"dst_ip": "9.9.9.9", "dst_port": 443, "protocol": "tcp", "bytes": 30},
+            ),
+            make_event(
+                "net_send",
+                "2026-01-22T00:00:20.500Z",
+                net={"dst_ip": "9.9.9.9", "dst_port": 443, "protocol": "tcp", "bytes": 30},
+            ),
+        ]
+
+        rows = self.run_summary(
+            events,
+            {"min_send_count": 1, "min_bytes_sent_total": 100},
+        )
+        summary_rows = [row for row in rows if row.get("event_type") == "net_summary"]
+        self.assertEqual(len(summary_rows), 2)
+        self.assertEqual(summary_rows[0]["send_count"], 1)
+        self.assertEqual(summary_rows[1]["send_count"], 2)
 
     def test_connects_only_do_not_emit_summary(self) -> None:
         events = [
