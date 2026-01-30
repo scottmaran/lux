@@ -14,8 +14,29 @@ except ImportError:
     yaml = None
 
 
+class SendEvent:
+    __slots__ = ("ts", "bytes", "protocol", "comm", "ppid", "uid", "gid")
+
+    def __init__(self, ts: dt.datetime, bytes_sent: int, protocol: str, comm: str, ppid: int | None, uid: int | None, gid: int | None) -> None:
+        self.ts = ts
+        self.bytes = bytes_sent
+        self.protocol = protocol
+        self.comm = comm
+        self.ppid = ppid
+        self.uid = uid
+        self.gid = gid
+
+
+class ConnectEvent:
+    __slots__ = ("ts", "protocol")
+
+    def __init__(self, ts: dt.datetime, protocol: str) -> None:
+        self.ts = ts
+        self.protocol = protocol
+
+
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Summarize filtered eBPF logs into network request rows.")
+    parser = argparse.ArgumentParser(description="Summarize filtered eBPF logs into burst-level network rows.")
     parser.add_argument(
         "--config",
         default=os.getenv("COLLECTOR_EBPF_SUMMARY_CONFIG", "/etc/collector/ebpf_summary.yaml"),
@@ -75,9 +96,11 @@ def main() -> int:
     schema_version = cfg.get("schema_version", "ebpf.summary.v1")
     input_path = Path(cfg.get("input", {}).get("jsonl", "/logs/filtered_ebpf.jsonl"))
     output_path = Path(cfg.get("output", {}).get("jsonl", "/logs/filtered_ebpf_summary.jsonl"))
+    burst_gap_sec = float(cfg.get("burst_gap_sec", 5))
 
-    dns_by_pid_ip: dict[tuple[int, str], set[str]] = defaultdict(set)
-    groups: dict[tuple[str, str | None, int, str, int], dict] = {}
+    dns_by_key: dict[tuple[str, int, str], list[tuple[dt.datetime, str]]] = defaultdict(list)
+    sends_by_key: dict[tuple[str, str | None, int, str, int], list[SendEvent]] = defaultdict(list)
+    connects_by_key: dict[tuple[str, str | None, int, str, int], list[ConnectEvent]] = defaultdict(list)
     passthrough_rows: list[tuple[dt.datetime, dict]] = []
 
     if input_path.exists():
@@ -99,6 +122,7 @@ def main() -> int:
 
                 if event_type == "dns_response":
                     pid = parse_int(event.get("pid"))
+                    session_id = event.get("session_id", "unknown")
                     dns = event.get("dns") or event.get("details", {}).get("dns")
                     if pid is None or not isinstance(dns, dict):
                         continue
@@ -107,7 +131,7 @@ def main() -> int:
                     if query_name:
                         for ip in answers:
                             if ip:
-                                dns_by_pid_ip[(pid, ip)].add(query_name)
+                                dns_by_key[(session_id, pid, ip)].append((ts_dt, query_name))
                     continue
 
                 if event_type == "unix_connect":
@@ -134,83 +158,119 @@ def main() -> int:
                     continue
 
                 key = (session_id, job_id, pid, dst_ip, dst_port)
-                group = groups.get(key)
-                if not group:
-                    group = {
-                        "session_id": session_id,
-                        "job_id": job_id,
-                        "pid": pid,
-                        "ppid": parse_int(event.get("ppid")),
-                        "uid": parse_int(event.get("uid")),
-                        "gid": parse_int(event.get("gid")),
-                        "comm": event.get("comm") or "",
-                        "dst_ip": dst_ip,
-                        "dst_port": dst_port,
-                        "protocol": None,
-                        "ts_first": ts_dt,
-                        "ts_last": ts_dt,
-                        "connect_attempts": 0,
-                        "send_count": 0,
-                        "bytes_sent_total": 0,
-                    }
-                    groups[key] = group
-                else:
-                    if group.get("comm") == "" and event.get("comm"):
-                        group["comm"] = event.get("comm")
-                    for key_name in ("ppid", "uid", "gid"):
-                        if group.get(key_name) is None:
-                            group[key_name] = parse_int(event.get(key_name))
 
-                if ts_dt < group["ts_first"]:
-                    group["ts_first"] = ts_dt
-                if ts_dt > group["ts_last"]:
-                    group["ts_last"] = ts_dt
+                protocol = net.get("protocol") or "unknown"
+                comm = event.get("comm") or ""
+                ppid = parse_int(event.get("ppid"))
+                uid = parse_int(event.get("uid"))
+                gid = parse_int(event.get("gid"))
 
                 if event_type == "net_connect":
-                    group["connect_attempts"] += 1
-                    proto = protocol_candidate(net.get("protocol"))
-                    if proto and not group["protocol"]:
-                        group["protocol"] = proto
-                elif event_type == "net_send":
-                    group["send_count"] += 1
-                    bytes_value = parse_int(net.get("bytes"))
-                    if bytes_value:
-                        group["bytes_sent_total"] += bytes_value
-                    proto = protocol_candidate(net.get("protocol"))
-                    if proto and not group["protocol"]:
-                        group["protocol"] = proto
+                    connects_by_key[key].append(ConnectEvent(ts_dt, protocol))
+                    continue
+
+                bytes_sent = parse_int(net.get("bytes")) or 0
+                sends_by_key[key].append(SendEvent(ts_dt, bytes_sent, protocol, comm, ppid, uid, gid))
 
     rows: list[tuple[dt.datetime, dict]] = []
-    for (session_id, job_id, pid, dst_ip, dst_port), group in groups.items():
-        ts_first = group["ts_first"]
-        ts_last = group["ts_last"]
-        ts_first_str = format_ts(ts_first)
-        ts_last_str = format_ts(ts_last)
-        dns_names = sorted(dns_by_pid_ip.get((pid, dst_ip), set()))
-        row = {
-            "schema_version": schema_version,
-            "session_id": session_id,
-            "ts": ts_first_str,
-            "source": "ebpf",
-            "event_type": "net_summary",
-            "pid": pid,
-            "ppid": group.get("ppid"),
-            "uid": group.get("uid"),
-            "gid": group.get("gid"),
-            "comm": group.get("comm") or "",
-            "dst_ip": dst_ip,
-            "dst_port": dst_port,
-            "protocol": group.get("protocol") or "unknown",
-            "dns_names": dns_names,
-            "connect_attempts": group.get("connect_attempts", 0),
-            "send_count": group.get("send_count", 0),
-            "bytes_sent_total": group.get("bytes_sent_total", 0),
-            "ts_first": ts_first_str,
-            "ts_last": ts_last_str,
-        }
-        if job_id:
-            row["job_id"] = job_id
-        rows.append((ts_first, row))
+
+    for key, send_events in sends_by_key.items():
+        send_events.sort(key=lambda ev: ev.ts)
+        session_id, job_id, pid, dst_ip, dst_port = key
+        connects = connects_by_key.get(key, [])
+        connects.sort(key=lambda ev: ev.ts)
+        dns_entries = dns_by_key.get((session_id, pid, dst_ip), [])
+
+        burst_start = send_events[0].ts
+        burst_end = send_events[0].ts
+        send_count = 0
+        bytes_total = 0
+        comm = send_events[0].comm
+        ppid = send_events[0].ppid
+        uid = send_events[0].uid
+        gid = send_events[0].gid
+        protocol = protocol_candidate(send_events[0].protocol)
+
+        def finalize_burst(start: dt.datetime, end: dt.datetime, count: int, bytes_sum: int, proto: str | None) -> None:
+            nonlocal rows
+            dns_names = sorted({
+                name
+                for ts, name in dns_entries
+                if start <= ts <= end
+            })
+            connect_count = sum(1 for conn in connects if start <= conn.ts <= end)
+            chosen_protocol = proto
+            if not chosen_protocol:
+                for conn in connects:
+                    if start <= conn.ts <= end:
+                        candidate = protocol_candidate(conn.protocol)
+                        if candidate:
+                            chosen_protocol = candidate
+                            break
+            if not chosen_protocol:
+                chosen_protocol = "unknown"
+
+            row = {
+                "schema_version": schema_version,
+                "session_id": session_id,
+                "ts": format_ts(start),
+                "source": "ebpf",
+                "event_type": "net_summary",
+                "pid": pid,
+                "ppid": ppid,
+                "uid": uid,
+                "gid": gid,
+                "comm": comm or "",
+                "dst_ip": dst_ip,
+                "dst_port": dst_port,
+                "protocol": chosen_protocol,
+                "dns_names": dns_names,
+                "connect_count": connect_count,
+                "send_count": count,
+                "bytes_sent_total": bytes_sum,
+                "ts_first": format_ts(start),
+                "ts_last": format_ts(end),
+            }
+            if job_id:
+                row["job_id"] = job_id
+            rows.append((start, row))
+
+        last_ts: dt.datetime | None = None
+        send_count = 0
+        bytes_total = 0
+        for ev in send_events:
+            if last_ts is None:
+                burst_start = ev.ts
+                burst_end = ev.ts
+            else:
+                gap = (ev.ts - last_ts).total_seconds()
+                if gap > burst_gap_sec:
+                    finalize_burst(burst_start, burst_end, send_count, bytes_total, protocol)
+                    burst_start = ev.ts
+                    burst_end = ev.ts
+                    send_count = 0
+                    bytes_total = 0
+                    protocol = None
+                    comm = ev.comm
+                    ppid = ev.ppid
+                    uid = ev.uid
+                    gid = ev.gid
+            burst_end = ev.ts
+            send_count += 1
+            bytes_total += ev.bytes
+            if not comm and ev.comm:
+                comm = ev.comm
+            if ppid is None and ev.ppid is not None:
+                ppid = ev.ppid
+            if uid is None and ev.uid is not None:
+                uid = ev.uid
+            if gid is None and ev.gid is not None:
+                gid = ev.gid
+            if protocol is None:
+                protocol = protocol_candidate(ev.protocol)
+            last_ts = ev.ts
+
+        finalize_burst(burst_start, burst_end, send_count, bytes_total, protocol)
 
     rows.extend(passthrough_rows)
     rows.sort(key=lambda item: item[0])

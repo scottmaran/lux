@@ -1,0 +1,10 @@
+{
+  "command": "codex -C /work -s danger-full-access",
+  "ended_at": "2026-01-30T21:26:36.135677+00:00",
+  "exit_code": 0,
+  "mode": "tui",
+  "session_id": "session_20260130_212428_4197",
+  "started_at": "2026-01-30T21:24:28.519620+00:00",
+  "stdin_path": "/logs/sessions/session_20260130_212428_4197/stdin.log",
+  "stdout_path": "/logs/sessions/session_20260130_212428_4197/stdout.log"
+}

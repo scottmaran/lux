@@ -59,6 +59,7 @@ class EbpfSummaryTests(unittest.TestCase):
                 "schema_version": "ebpf.summary.v1",
                 "input": {"jsonl": input_path},
                 "output": {"jsonl": output_path},
+                "burst_gap_sec": 5,
             }
             Path(config_path).write_text(json.dumps(config), encoding="utf-8")
 
@@ -76,52 +77,74 @@ class EbpfSummaryTests(unittest.TestCase):
             lines = Path(output_path).read_text(encoding="utf-8").splitlines()
             return [json.loads(line) for line in lines if line.strip()]
 
-    def test_summary_aggregates_and_maps_dns(self) -> None:
+    def test_burst_grouping_and_dns_within_window(self) -> None:
         events = [
             make_event(
                 "dns_response",
-                "2026-01-22T00:00:00.900Z",
+                "2026-01-22T00:00:02.200Z",
                 dns={
-                    "query_name": "chatgpt.com",
+                    "query_name": "example.com",
                     "answers": ["1.2.3.4"],
                 },
             ),
             make_event(
                 "net_connect",
-                "2026-01-22T00:00:01.000Z",
+                "2026-01-22T00:00:02.500Z",
                 net={"dst_ip": "1.2.3.4", "dst_port": 443, "protocol": "tcp"},
             ),
             make_event(
                 "net_send",
-                "2026-01-22T00:00:01.100Z",
+                "2026-01-22T00:00:02.000Z",
                 net={"dst_ip": "1.2.3.4", "dst_port": 443, "protocol": "tcp", "bytes": 10},
             ),
             make_event(
                 "net_send",
-                "2026-01-22T00:00:01.200Z",
+                "2026-01-22T00:00:03.000Z",
                 net={"dst_ip": "1.2.3.4", "dst_port": 443, "protocol": "tcp", "bytes": 5},
             ),
             make_event(
+                "dns_response",
+                "2026-01-22T00:00:10.500Z",
+                dns={
+                    "query_name": "example2.com",
+                    "answers": ["1.2.3.4"],
+                },
+            ),
+            make_event(
+                "net_connect",
+                "2026-01-22T00:00:10.500Z",
+                net={"dst_ip": "1.2.3.4", "dst_port": 443, "protocol": "tcp"},
+            ),
+            make_event(
                 "net_send",
-                "2026-01-22T00:00:01.250Z",
-                net={"dst_ip": "127.0.0.11", "dst_port": 53, "protocol": "udp", "bytes": 30},
+                "2026-01-22T00:00:10.500Z",
+                net={"dst_ip": "1.2.3.4", "dst_port": 443, "protocol": "tcp", "bytes": 7},
             ),
         ]
 
         rows = self.run_summary(events)
         summary_rows = [row for row in rows if row.get("event_type") == "net_summary"]
-        self.assertEqual(len(summary_rows), 1)
-        row = summary_rows[0]
-        self.assertEqual(row["dst_ip"], "1.2.3.4")
-        self.assertEqual(row["dst_port"], 443)
-        self.assertEqual(row["connect_attempts"], 1)
-        self.assertEqual(row["send_count"], 2)
-        self.assertEqual(row["bytes_sent_total"], 15)
-        self.assertEqual(row["dns_names"], ["chatgpt.com"])
-        self.assertEqual(row["ts_first"], "2026-01-22T00:00:01.000Z")
-        self.assertEqual(row["ts_last"], "2026-01-22T00:00:01.200Z")
+        self.assertEqual(len(summary_rows), 2)
 
-    def test_summary_emits_connect_without_send(self) -> None:
+        first = summary_rows[0]
+        self.assertEqual(first["dst_ip"], "1.2.3.4")
+        self.assertEqual(first["dst_port"], 443)
+        self.assertEqual(first["send_count"], 2)
+        self.assertEqual(first["bytes_sent_total"], 15)
+        self.assertEqual(first["connect_count"], 1)
+        self.assertEqual(first["dns_names"], ["example.com"])
+        self.assertEqual(first["ts_first"], "2026-01-22T00:00:02.000Z")
+        self.assertEqual(first["ts_last"], "2026-01-22T00:00:03.000Z")
+
+        second = summary_rows[1]
+        self.assertEqual(second["send_count"], 1)
+        self.assertEqual(second["bytes_sent_total"], 7)
+        self.assertEqual(second["connect_count"], 1)
+        self.assertEqual(second["dns_names"], ["example2.com"])
+        self.assertEqual(second["ts_first"], "2026-01-22T00:00:10.500Z")
+        self.assertEqual(second["ts_last"], "2026-01-22T00:00:10.500Z")
+
+    def test_connects_only_do_not_emit_summary(self) -> None:
         events = [
             make_event(
                 "net_connect",
@@ -131,23 +154,20 @@ class EbpfSummaryTests(unittest.TestCase):
         ]
         rows = self.run_summary(events)
         summary_rows = [row for row in rows if row.get("event_type") == "net_summary"]
-        self.assertEqual(len(summary_rows), 1)
-        row = summary_rows[0]
-        self.assertEqual(row["send_count"], 0)
-        self.assertEqual(row["bytes_sent_total"], 0)
+        self.assertEqual(len(summary_rows), 0)
 
     def test_sorting_by_ts_first(self) -> None:
         events = [
             make_event(
-                "net_connect",
+                "net_send",
                 "2026-01-22T00:00:03.000Z",
-                net={"dst_ip": "3.3.3.3", "dst_port": 443, "protocol": "tcp"},
+                net={"dst_ip": "3.3.3.3", "dst_port": 443, "protocol": "tcp", "bytes": 5},
                 pid=300,
             ),
             make_event(
-                "net_connect",
+                "net_send",
                 "2026-01-22T00:00:01.500Z",
-                net={"dst_ip": "1.1.1.1", "dst_port": 443, "protocol": "tcp"},
+                net={"dst_ip": "1.1.1.1", "dst_port": 443, "protocol": "tcp", "bytes": 5},
                 pid=100,
             ),
         ]

@@ -41,7 +41,7 @@ Returns filtered timeline rows from `logs/filtered_timeline.jsonl`.
         "dst_ip": "104.18.27.120",
         "dst_port": 443,
         "dns_names": ["chatgpt.com"],
-        "connect_attempts": 1,
+        "connect_count": 1,
         "send_count": 3,
         "bytes_sent_total": 1200
       }

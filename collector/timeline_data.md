@@ -41,15 +41,15 @@ Typical keys inside `details`:
 
 ### ebpf (net_summary)
 When the merger consumes `filtered_ebpf_summary.jsonl`, network activity is summarized into
-`net_summary` rows. These rows contain aggregate fields instead of raw `net_connect` /
-`net_send` / DNS events.
+`net_summary` rows. These rows represent **send bursts** (split by idle gaps) instead of
+raw `net_connect` / `net_send` / DNS events.
 
 Typical keys inside `details` for `net_summary`:
 - `dst_ip` (string)
 - `dst_port` (int)
 - `protocol` (string)
-- `dns_names` (array)
-- `connect_attempts` (int)
+- `dns_names` (array) - DNS answers observed **within the burst window**
+- `connect_count` (int) - `net_connect` events within the burst window
 - `send_count` (int)
 - `bytes_sent_total` (int)
 - `ts_first` (string)
@@ -135,7 +135,7 @@ The merger outputs rows sorted by:
     "dst_port": 443,
     "protocol": "tcp",
     "dns_names": ["chatgpt.com"],
-    "connect_attempts": 1,
+    "connect_count": 1,
     "send_count": 5,
     "bytes_sent_total": 1240,
     "ts_first": "2026-01-22T00:16:30.535Z",

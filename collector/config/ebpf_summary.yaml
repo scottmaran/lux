@@ -1,4 +1,4 @@
-# Summary configuration for eBPF-derived JSONL output.
+# Summary configuration for eBPF-derived JSONL output (hybrid burst summary).
 schema_version: ebpf.summary.v1
 
 input:
@@ -6,3 +6,6 @@ input:
 
 output:
   jsonl: /logs/filtered_ebpf_summary.jsonl
+
+# Split bursts when idle gap exceeds this many seconds.
+burst_gap_sec: 5
