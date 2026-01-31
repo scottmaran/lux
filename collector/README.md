@@ -11,10 +11,12 @@ eBPF programs and loader (Aya), then copies the artifacts into the final image. 
 utilities.
 
 ## entrypoint.sh
-Bootstraps auditd and the custom eBPF loader without forcing the container to exit on
-non‑fatal rule errors. It ensures the log files exist and are writable by the audit group,
-starts auditd in daemon mode, then launches the eBPF loader with paths controlled by
-`COLLECTOR_AUDIT_LOG`, `COLLECTOR_EBPF_OUTPUT`, and `COLLECTOR_EBPF_BPF`.
+Bootstraps auditd, the audit log filter, and the custom eBPF loader without forcing the
+container to exit on non-fatal rule errors. It ensures the log files exist and are
+writable by the audit group, starts auditd in daemon mode, then launches the filter
+(`collector-audit-filter`) and the eBPF loader with paths controlled by
+`COLLECTOR_AUDIT_LOG`, `COLLECTOR_FILTER_CONFIG`, `COLLECTOR_FILTER_OUTPUT`,
+`COLLECTOR_EBPF_OUTPUT`, and `COLLECTOR_EBPF_BPF`.
 
 ## auditd.conf
 Configured to keep audit output local and file‑backed: `local_events = yes`, RAW log
@@ -45,3 +47,5 @@ can override these environment variables if needed:
 - `LOGS` (default: `ROOT_DIR/logs`)
 - `IMAGE` (default: `harness-collector:dev`)
 - `COLLECTOR_NAME` (default: `harness-collector`)
+
+See `TESTING.md` for filter test cases and expected outputs.

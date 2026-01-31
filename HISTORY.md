@@ -53,6 +53,16 @@ Subsequent iterations expanded coverage: sendmsg/recvmsg, TCP DNS parsing, /proc
 **Phase 9: Harness and agent container scaffolding (late Jan 2026)**
 The agent container became a real target workload: it installs Codex CLI and exposes SSH for the harness to attach. The harness container provides a control plane for non-interactive jobs and a PTY proxy for interactive sessions, writing its own stdio logs into the host sink. Integration scripts were added to run stub and Codex tests, and a Compose override was created to mount host Codex credentials when needed. This phase shifted the project from a collector-only testbed to an end-to-end harness.
 
+**Phase 10: Audit log filtering and human-readable output (late Jan 2026)**
+Once auditd logs were flowing, the focus shifted to making them reviewable by humans. A dedicated filter stage was introduced to collapse multi-record audit events into a concise JSONL stream of exec and filesystem events, with attribution to sessions and jobs. This included:
+- A configurable filter script that groups audit sequences, applies agent-ownership rules, and emits normalized JSONL.
+- A formal schema and filtering rules documented in `collector/auditd_data.md` and `collector/config/filtering_rules.md`.
+- Wiring the filter into the collector container so it can run alongside auditd and eBPF in live-tail mode or batch mode.
+- Unit tests and integration scripts covering no-harness, job, and TUI runs to validate expected exec/fs output and correct session/job mapping.
+
+**Phase 11: eBPF filtering follows exec lineage (Jan 28, 2026)**
+Once the eBPF filter was in place, it became clear that long-running sessions would miss new processes unless ownership was continuously updated. The filter was extended to tail raw audit exec events in `--follow` mode so the PID tree stays current without depending on the audit filter output format. An optional, bounded pending buffer was added to capture early eBPF events that arrive before ownership is learned.
+
 **Open questions and deliberate TODOs**
 Some choices were intentionally deferred and still appear as TODOs in the docs:
 - Stable log schema contract and deterministic merge/ordering rules.

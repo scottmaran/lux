@@ -1,0 +1,31 @@
+schema_version: auditd.filtered.v1
+input:
+  audit_log: /logs/audit.log
+sessions_dir: /logs/sessions
+jobs_dir: /logs/jobs
+output:
+  jsonl: /logs/filtered_audit.jsonl
+grouping:
+  strategy: audit_seq
+agent_ownership:
+  uid: 1001
+  root_comm: []
+exec:
+  include_keys:
+    - exec
+  shell_comm:
+    - bash
+    - sh
+  shell_cmd_flag: "-lc"
+  helper_exclude_comm: []
+  helper_exclude_argv_prefix: []
+fs:
+  include_keys:
+    - fs_watch
+    - fs_change
+    - fs_meta
+  include_paths_prefix:
+    - /work/
+linking:
+  attach_cmd_to_fs: true
+  attach_cmd_strategy: last_exec_same_pid

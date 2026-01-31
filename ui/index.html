@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Agent Harness Log Viewer</title>
+    <link rel="stylesheet" href="/styles.css" />
+    <link
+      rel="stylesheet"
+      href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;600&family=IBM+Plex+Serif:wght@600&family=IBM+Plex+Mono:wght@400;600&display=swap"
+    />
+  </head>
+  <body>
+    <div class="app">
+      <header class="top-band">
+        <div class="top-title">
+          <div class="status-indicator"></div>
+          <h1>Agent Harness</h1>
+        </div>
+        <div class="top-controls">
+          <div class="summary">
+            <div class="summary-tile">
+              <div class="summary-label">[ EXEC ]</div>
+              <div class="summary-value" data-summary="exec">--</div>
+            </div>
+            <div class="summary-tile">
+              <div class="summary-label">[ FS CREATE ]</div>
+              <div class="summary-value" data-summary="fs_create">--</div>
+            </div>
+            <div class="summary-tile">
+              <div class="summary-label">[ FS UNLINK ]</div>
+              <div class="summary-value" data-summary="fs_unlink">--</div>
+            </div>
+            <div class="summary-tile">
+              <div class="summary-label">[ FS META ]</div>
+              <div class="summary-value" data-summary="fs_meta">--</div>
+            </div>
+            <div class="summary-tile">
+              <div class="summary-label">[ NET ]</div>
+              <div class="summary-value" data-summary="net_summary">--</div>
+            </div>
+          </div>
+          <div class="filters">
+            <div class="filter-group">
+              <span class="filter-label">[ SOURCES ]</span>
+              <button class="filter-button is-active" data-source="audit">Audit</button>
+              <button class="filter-button is-active" data-source="ebpf">eBPF</button>
+            </div>
+            <div class="filter-group">
+              <span class="filter-label">[ TIME ]</span>
+              <button class="filter-button" data-range="15m">15m</button>
+              <button class="filter-button is-active" data-range="1h">1h</button>
+              <button class="filter-button" data-range="24h">24h</button>
+              <button class="filter-button" data-range="7d">7d</button>
+            </div>
+          </div>
+        </div>
+      </header>
+
+      <main class="content">
+        <section class="panel log-panel">
+          <div class="panel-header">
+            <span class="panel-label">[ TIMELINE ]</span>
+            <span class="panel-meta" id="timeline-meta">-- events</span>
+          </div>
+          <div class="panel-body" id="timeline">
+            <div class="empty-state">[ LOADING TIMELINE ]</div>
+          </div>
+        </section>
+
+        <aside class="panel runs-panel">
+          <div class="panel-header">
+            <span class="panel-label">[ RUNS ]</span>
+            <span class="panel-meta" id="runs-meta">-- items</span>
+          </div>
+          <div class="panel-body" id="runs">
+            <div class="empty-state">[ LOADING RUNS ]</div>
+          </div>
+        </aside>
+      </main>
+    </div>
+
+    <script src="/app.js"></script>
+  </body>
+</html>

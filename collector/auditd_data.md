@@ -158,4 +158,69 @@ type=PATH msg=audit(1768895520.574:1738): item=0 name="/work/" inode=5 dev=00:2d
 type=PATH msg=audit(1768895520.574:1738): item=1 name="/work/b.txt" inode=11 dev=00:2b mode=0100600 ouid=0 ogid=0 rdev=00:00 nametype=DELETE cap_fp=0 cap_fi=0 cap_fe=0 cap_fver=0 cap_frootid=0
 ```
 
+## Filtered output + rules
 
+Purpose: turn raw auditd events into a short, human-auditable JSONL timeline
+used by the UI. Display semantics are described in `UI_DESIGN.md`.
+Filter configuration lives in `collector/config/filtering.yaml`.
+
+Filtering steps (draft):
+1. Parse auditd records and group them by `msg=audit(...:<seq>)`.
+2. Build a process tree from `exec` events and derive "agent-owned" processes
+   from the session root (typically the `codex` process) or a known UID.
+3. Keep agent-owned `exec` events; for shell execs (`bash`/`sh`), extract the
+   command string from the `-lc` argument when present.
+4. Keep agent-owned filesystem events keyed by `fs_watch`, `fs_change`,
+   `fs_meta`, and derive a single logical event from their PATH/CWD records.
+5. Drop known helper execs (e.g., repo probes) based on the filter config.
+6. Emit JSONL, one event per line, with a stable schema version.
+
+### Filtered JSONL schema (draft v1)
+Common fields (all events):
+- `schema_version` (string): fixed `auditd.filtered.v1`
+- `session_id` (string): harness session identifier (`unknown` when no session
+  metadata is available)
+- `job_id` (string, optional): job identifier for server-mode runs
+- `ts` (string): RFC3339 timestamp derived from the audit event time
+- `source` (string): `audit`
+- `event_type` (string): `exec` or `fs_*`
+- `pid`/`ppid` (int): process IDs
+- `uid`/`gid` (int): user/group IDs
+- `comm` (string): kernel comm
+- `exe` (string): executable path
+- `audit_seq` (int): audit sequence number
+- `audit_key` (string): audit rule key
+- `agent_owned` (bool): true if the event is in the agent process tree
+
+Event-specific fields:
+- `exec`:
+  - `cmd` (string): command line (from argv; for shell, the `-lc` payload)
+  - `cwd` (string): current working directory
+- `fs_create`/`fs_write`/`fs_rename`/`fs_unlink`/`fs_meta`:
+  - `path` (string): file path derived from PATH records
+  - `cwd` (string, optional): CWD when available
+  - `cmd` (string, optional): originating command when linked by PID
+  - `op` (string, optional): derived operation label
+
+### Draft v0 (JSONL)
+
+Target shape for session `session_20260122_001630_de71`. Each line is one
+logical event. This example includes the minimal actions: `pwd` and creating
+`temp.txt`.
+
+```jsonl
+{"schema_version":"auditd.filtered.v1","session_id":"session_20260122_001630_de71","ts":"2026-01-22T00:16:46.927Z","source":"audit","event_type":"exec","cmd":"pwd","cwd":"/work","comm":"bash","exe":"/usr/bin/bash","pid":1037,"ppid":956,"uid":1001,"gid":1001,"audit_seq":353,"audit_key":"exec","agent_owned":true}
+{"schema_version":"auditd.filtered.v1","session_id":"session_20260122_001630_de71","ts":"2026-01-22T00:17:24.211Z","source":"audit","event_type":"exec","cmd":"printf '%s\\n' \"hello world! bringing verification to the ai agent world\" > temp.txt","cwd":"/work","comm":"bash","exe":"/usr/bin/bash","pid":1123,"ppid":956,"uid":1001,"gid":1001,"audit_seq":473,"audit_key":"exec","agent_owned":true}
+{"schema_version":"auditd.filtered.v1","session_id":"session_20260122_001630_de71","ts":"2026-01-22T00:17:24.214Z","source":"audit","event_type":"fs_create","path":"/work/temp.txt","comm":"bash","exe":"/usr/bin/bash","pid":1123,"ppid":956,"uid":1001,"gid":1001,"audit_seq":475,"audit_key":"fs_watch","agent_owned":true}
+```
+
+### Notes
+- `cmd` is derived from the exec argv for that PID.
+- `fs_create` uses the PATH record with `nametype=CREATE`.
+- Internal helper execs (e.g., `locale-check`, repo probes) are omitted.
+
+### Open questions
+- Should we include helper execs with a low-importance flag instead of
+  omitting them?
+- Should file events include the originating `cmd` to make the timeline more
+  readable (attach the last exec for the same PID)?

@@ -1,0 +1,18 @@
+# Summary configuration for eBPF-derived JSONL output (hybrid burst summary).
+schema_version: ebpf.summary.v1
+
+input:
+  jsonl: /logs/filtered_ebpf.jsonl
+
+output:
+  jsonl: /logs/filtered_ebpf_summary.jsonl
+
+# Split bursts when idle gap exceeds this many seconds.
+burst_gap_sec: 5
+
+# Include DNS answers observed within this many seconds *before* burst start.
+dns_lookback_sec: 2
+
+# Drop bursts only if BOTH thresholds are met (<=).
+min_send_count: 0
+min_bytes_sent_total: 0
