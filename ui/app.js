@@ -123,6 +123,21 @@ function formatRunMeta(run) {
   return `${run.mode || "tui"} | exit ${run.exit_code ?? "--"}`;
 }
 
+function formatRunTimeRange(run) {
+  const start = formatTimestamp(run.started_at);
+  const end = formatTimestamp(run.ended_at);
+  if (start === "--" && end === "--") {
+    return "--";
+  }
+  if (start !== "--" && end !== "--") {
+    return `${start} - ${end}`;
+  }
+  if (start !== "--") {
+    return start;
+  }
+  return end;
+}
+
 function renderRuns(runs) {
   runsEl.innerHTML = "";
   if (!runs.length) {
@@ -139,7 +154,7 @@ function renderRuns(runs) {
     item.innerHTML = `
       <div class="run-title">${formatRunTitle(run)}</div>
       <div class="run-meta">${formatRunMeta(run)}</div>
-      <div class="run-meta">${run.started_at || "--"}${run.ended_at ? ` - ${run.ended_at}` : ""}</div>
+      <div class="run-meta">${formatRunTimeRange(run)}</div>
     `;
     item.addEventListener("click", () => {
       state.activeRun = run;
@@ -194,7 +209,7 @@ function renderTimeline(rows) {
     div.innerHTML = `
       <div class="timeline-meta">${timestamp} | ${sourceLabel}</div>
       <div class="timeline-main">${target}</div>
-      <div class="timeline-meta">${row.comm || "--"} (pid ${row.pid ?? "--"})</div>
+      <div class="timeline-meta">Program: ${row.comm || "--"} (PID ${row.pid ?? "--"})</div>
     `;
     timelineEl.appendChild(div);
   });
@@ -221,8 +236,11 @@ function deriveTarget(row) {
       const ip = details.dst_ip || "--";
       const port = details.dst_port || "--";
       const names = Array.isArray(details.dns_names) ? details.dns_names : [];
-      const suffix = names.length ? ` (${names.join(", ")})` : "";
-      return `${ip}:${port}${suffix}`;
+      if (names.length) {
+        const mainName = names.join(", ");
+        return `${mainName} (IP: ${ip}:${port})`;
+      }
+      return `${ip}:${port}`;
     }
     case "dns_query":
     case "dns_response":
