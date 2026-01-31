@@ -1,9 +1,0 @@
-{
-  "command": "bash -lc {prompt}",
-  "cwd": "/work",
-  "env": {},
-  "job_id": "job_20260128_210928_1c71",
-  "prompt": "pwd; printf 'hello world' > /work/temp_8890_7103.txt; curl -sI https://example.com >/dev/null",
-  "started_at": "2026-01-28T21:09:28.244429+00:00",
-  "submitted_at": "2026-01-28T21:09:28.242865+00:00"
-}

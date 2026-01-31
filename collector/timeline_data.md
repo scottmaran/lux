@@ -12,7 +12,7 @@ The UI should consume this file rather than raw audit/eBPF logs.
 - `job_id` (string, optional): job identifier for server-mode runs
 - `ts` (string): RFC3339 timestamp (UTC, millisecond precision)
 - `source` (string): `audit`, `ebpf`, `proxy` (future)
-- `event_type` (string): `exec`, `fs_create`, `fs_unlink`, `fs_meta`, `net_connect`, `net_send`, `dns_query`, `dns_response`, `unix_connect`, `http` (future)
+- `event_type` (string): `exec`, `fs_create`, `fs_unlink`, `fs_meta`, `net_summary`, `unix_connect`, `http` (future)
 - `pid` (int, optional)
 - `ppid` (int, optional)
 - `uid` (int, optional)
@@ -34,11 +34,27 @@ Typical keys inside `details`:
 ### ebpf
 Typical keys inside `details`:
 - `net` (object)
-- `dns` (object)
 - `unix` (object)
 - `cgroup_id` (string)
 - `syscall_result` (int)
 - `cmd` (string, optional)
+
+### ebpf (net_summary)
+When the merger consumes `filtered_ebpf_summary.jsonl`, network activity is summarized into
+`net_summary` rows. These rows represent **send bursts** (split by idle gaps) instead of
+raw `net_connect` / `net_send` / DNS events.
+
+Typical keys inside `details` for `net_summary`:
+- `dst_ip` (string)
+- `dst_port` (int)
+- `protocol` (string)
+- `dns_names` (array) - DNS answers observed **within the burst window + lookback**
+- `connect_count` (int) - `net_connect` events within the burst window
+- `send_count` (int)
+- `bytes_sent_total` (int)
+- `ts_first` (string)
+- `ts_last` (string)
+- (bursts can be suppressed via `min_send_count` + `min_bytes_sent_total` in `ebpf_summary.yaml`)
 
 ### proxy (future)
 Typical keys inside `details`:
@@ -102,55 +118,29 @@ The merger outputs rows sorted by:
 }
 ```
 
-### Network connect
+### Network summary
 ```json
 {
   "schema_version": "timeline.filtered.v1",
   "session_id": "session_20260122_001630_de71",
   "ts": "2026-01-22T00:16:30.535Z",
   "source": "ebpf",
-  "event_type": "net_connect",
+  "event_type": "net_summary",
   "pid": 956,
   "ppid": 943,
   "uid": 1001,
   "gid": 1001,
   "comm": "tokio-runtime-w",
   "details": {
-    "net": {
-      "protocol": "tcp",
-      "family": "ipv4",
-      "src_ip": "172.18.0.3",
-      "src_port": 46420,
-      "dst_ip": "104.18.32.47",
-      "dst_port": 443
-    },
-    "cgroup_id": "0x0000000000000270",
-    "syscall_result": -115
-  }
-}
-```
-
-### DNS query
-```json
-{
-  "schema_version": "timeline.filtered.v1",
-  "session_id": "session_20260122_001630_de71",
-  "ts": "2026-01-22T00:16:30.533Z",
-  "source": "ebpf",
-  "event_type": "dns_query",
-  "pid": 956,
-  "ppid": 943,
-  "uid": 1001,
-  "gid": 1001,
-  "comm": "tokio-runtime-w",
-  "details": {
-    "dns": {
-      "transport": "udp",
-      "query_name": "chatgpt.com",
-      "query_type": "A",
-      "server_ip": "127.0.0.11",
-      "server_port": 53
-    }
+    "dst_ip": "104.18.32.47",
+    "dst_port": 443,
+    "protocol": "tcp",
+    "dns_names": ["chatgpt.com"],
+    "connect_count": 1,
+    "send_count": 5,
+    "bytes_sent_total": 1240,
+    "ts_first": "2026-01-22T00:16:30.535Z",
+    "ts_last": "2026-01-22T00:16:30.847Z"
   }
 }
 ```

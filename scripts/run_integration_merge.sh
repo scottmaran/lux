@@ -13,6 +13,7 @@ mkdir -p "${LOGS}"
 : > "${LOGS}/ebpf.jsonl"
 : > "${LOGS}/filtered_audit.jsonl"
 : > "${LOGS}/filtered_ebpf.jsonl"
+: > "${LOGS}/filtered_ebpf_summary.jsonl"
 : > "${LOGS}/filtered_timeline.jsonl"
 rm -rf "${LOGS}/jobs" "${LOGS}/sessions"
 
@@ -81,12 +82,20 @@ linking:
   attach_cmd_strategy: last_exec_same_pid
 YAML
 
+cat > "${LOGS}/ebpf_summary_test.yaml" <<'YAML'
+schema_version: ebpf.summary.v1
+input:
+  jsonl: /logs/filtered_ebpf.jsonl
+output:
+  jsonl: /logs/filtered_ebpf_summary.jsonl
+YAML
+
 cat > "${LOGS}/merge_filtering_test.yaml" <<'YAML'
 schema_version: timeline.filtered.v1
 inputs:
   - path: /logs/filtered_audit.jsonl
     source: audit
-  - path: /logs/filtered_ebpf.jsonl
+  - path: /logs/filtered_ebpf_summary.jsonl
     source: ebpf
 output:
   jsonl: /logs/filtered_timeline.jsonl
@@ -173,6 +182,7 @@ done
 
 "${compose[@]}" exec -T collector collector-audit-filter --config /logs/filtering_test.yaml
 "${compose[@]}" exec -T collector collector-ebpf-filter --config /logs/ebpf_filtering_test.yaml
+"${compose[@]}" exec -T collector collector-ebpf-summary --config /logs/ebpf_summary_test.yaml
 "${compose[@]}" exec -T collector collector-merge-filtered --config /logs/merge_filtering_test.yaml
 
 python3 - <<'PY'

@@ -4,7 +4,7 @@ schema_version: timeline.filtered.v1
 inputs:
   - path: /logs/filtered_audit.jsonl
     source: audit
-  - path: /logs/filtered_ebpf.jsonl
+  - path: /logs/filtered_ebpf_summary.jsonl
     source: ebpf
 
 output:

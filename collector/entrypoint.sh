@@ -12,6 +12,10 @@ EBPF_FILTER_CONFIG=${COLLECTOR_EBPF_FILTER_CONFIG:-/etc/collector/ebpf_filtering
 EBPF_FILTER_LOG=${COLLECTOR_EBPF_FILTER_OUTPUT:-/logs/filtered_ebpf.jsonl}
 EBPF_FILTER_BIN=${COLLECTOR_EBPF_FILTER_BIN:-/usr/local/bin/collector-ebpf-filter}
 EBPF_FILTER_POLL=${COLLECTOR_EBPF_FILTER_POLL:-0.5}
+EBPF_SUMMARY_CONFIG=${COLLECTOR_EBPF_SUMMARY_CONFIG:-/etc/collector/ebpf_summary.yaml}
+EBPF_SUMMARY_LOG=${COLLECTOR_EBPF_SUMMARY_OUTPUT:-/logs/filtered_ebpf_summary.jsonl}
+EBPF_SUMMARY_BIN=${COLLECTOR_EBPF_SUMMARY_BIN:-/usr/local/bin/collector-ebpf-summary}
+EBPF_SUMMARY_INTERVAL=${COLLECTOR_EBPF_SUMMARY_INTERVAL:-2}
 MERGE_FILTER_CONFIG=${COLLECTOR_MERGE_FILTER_CONFIG:-/etc/collector/merge_filtering.yaml}
 MERGE_FILTER_LOG=${COLLECTOR_MERGE_FILTER_OUTPUT:-/logs/filtered_timeline.jsonl}
 MERGE_FILTER_BIN=${COLLECTOR_MERGE_FILTER_BIN:-/usr/local/bin/collector-merge-filtered}
@@ -48,6 +52,10 @@ touch "${EBPF_FILTER_LOG}" 2>/dev/null || true
 chown root:adm "${EBPF_FILTER_LOG}" 2>/dev/null || chown root:root "${EBPF_FILTER_LOG}" 2>/dev/null || true
 chmod 0640 "${EBPF_FILTER_LOG}" 2>/dev/null || true
 
+touch "${EBPF_SUMMARY_LOG}" 2>/dev/null || true
+chown root:adm "${EBPF_SUMMARY_LOG}" 2>/dev/null || chown root:root "${EBPF_SUMMARY_LOG}" 2>/dev/null || true
+chmod 0640 "${EBPF_SUMMARY_LOG}" 2>/dev/null || true
+
 touch "${MERGE_FILTER_LOG}" 2>/dev/null || true
 chown root:adm "${MERGE_FILTER_LOG}" 2>/dev/null || chown root:root "${MERGE_FILTER_LOG}" 2>/dev/null || true
 chmod 0640 "${MERGE_FILTER_LOG}" 2>/dev/null || true
@@ -78,6 +86,19 @@ EBPF_FILTER_PID=$!
 /usr/bin/env COLLECTOR_EBPF_OUTPUT="${EBPF_LOG}" COLLECTOR_EBPF_BPF="${EBPF_OBJ}" "${EBPF_BIN}" &
 EBPF_PID=$!
 
+if [ -f "${EBPF_SUMMARY_CONFIG}" ]; then
+  (
+    while true; do
+      /usr/bin/env COLLECTOR_EBPF_SUMMARY_CONFIG="${EBPF_SUMMARY_CONFIG}" \
+        "${EBPF_SUMMARY_BIN}" --config "${EBPF_SUMMARY_CONFIG}" >/dev/null 2>&1 || true
+      sleep "${EBPF_SUMMARY_INTERVAL}"
+    done
+  ) &
+  EBPF_SUMMARY_PID=$!
+else
+  echo "collector: warning: missing eBPF summary config at ${EBPF_SUMMARY_CONFIG}" >&2
+fi
+
 if [ -f "${MERGE_FILTER_CONFIG}" ]; then
   (
     while true; do
@@ -94,5 +115,5 @@ fi
 tail -F "${AUDIT_LOG}" &
 TAIL_PID=$!
 
-trap 'kill ${TAIL_PID} 2>/dev/null || true; kill ${FILTER_PID} 2>/dev/null || true; kill ${EBPF_FILTER_PID} 2>/dev/null || true; kill ${MERGE_PID} 2>/dev/null || true; kill ${EBPF_PID} 2>/dev/null || true; kill ${AUDITD_PID} 2>/dev/null || true' TERM INT
+trap 'kill ${TAIL_PID} 2>/dev/null || true; kill ${FILTER_PID} 2>/dev/null || true; kill ${EBPF_FILTER_PID} 2>/dev/null || true; kill ${EBPF_SUMMARY_PID} 2>/dev/null || true; kill ${MERGE_PID} 2>/dev/null || true; kill ${EBPF_PID} 2>/dev/null || true; kill ${AUDITD_PID} 2>/dev/null || true' TERM INT
 wait "${EBPF_PID}"
