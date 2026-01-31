@@ -14,14 +14,16 @@
   - Right (narrow rail): session & jobs list and metadata expansion.
 
 ## Top Band (Summary and Controls)
-- Summary tiles (current view): counts for exec, fs_create, fs_unlink, fs_meta, net_summary, unix_connect.
-- Source toggles: Audit, eBPF (Proxy reserved for later).
-- Event type filters reflect the timeline schema (see below).
+- Summary tiles (current view): Processes, File Changes, Network Calls.
+  - Processes = `exec`
+  - File Changes = `fs_create + fs_unlink + fs_meta`
+  - Network Calls = `net_summary`
+- Source toggles: Files (audit), Searches (ebpf). (Proxy reserved for later.)
 - Time controls:
   - Presets: 15m, 1h, 24h, 7d.
-  - Absolute range picker.
-- Live tail control is present but can be disabled in the prototype.
-- Run scope filter: Sessions / Jobs / Unattributed.
+  - Absolute range picker (future).
+- Live tail control (future).
+- Run scope filter (future): Sessions / Jobs / Unattributed.
 
 ## Runs Column (Right)
 - Combined list (sessions + jobs) sorted by `started_at`.
@@ -31,7 +33,7 @@
   - `session_id` or `job_id`
   - `mode` (tui or exec) for sessions
   - `status`, `exit_code`
-  - `started_at`, `ended_at`, duration
+  - `started_at`, `ended_at` (formatted to America/New_York)
 - Selecting a session expands it to reveal `meta.json` fields.
 - Selecting a job expands it to reveal `input.json` + `status.json` fields.
 - Selecting a run filters the log timeline by `session_id` or `job_id`.
@@ -40,9 +42,8 @@
 ## Logs Column (Left)
 - Virtualized timeline list for performance.
 - Default row fields:
-  - Timestamp (RFC3339 with sub-second precision)
-  - Source (audit or ebpf)
-  - Event type
+  - Timestamp (localized to America/New_York)
+  - Source (Files or Searches)
   - Process (`comm`, `pid`, `ppid`)
   - Target (derived from `details`, see schema below)
 - No event inspector in phase 1.
@@ -50,7 +51,7 @@
 ### Target Derivation (from `details`)
 - `exec`: `details.cmd` (secondary: `details.cwd`)
 - `fs_create` / `fs_unlink` / `fs_meta`: `details.path` (secondary: `details.cmd`)
-- `net_summary`: `details.dst_ip:dst_port` + `details.dns_names`
+- `net_summary`: prefer DNS name as primary target, with IP/port in parentheses (e.g., `chatgpt.com (IP: 104.18.32.47:443)`).
 - `unix_connect`: `details.unix.path`
 
 ## Data Sources
@@ -81,7 +82,7 @@
 - Run selection filters by `session_id` or `job_id` from timeline rows.
 - Top band filters further narrow the stream by source and event type.
 - Time filters are additive (apply within the selected run or overall).
-- Default view shows all sources with the last 24h selected.
+- Default view shows all sources with the last 1h selected.
 - Unattributed events use `session_id: "unknown"` and no `job_id`.
 
 ## Performance Expectations
