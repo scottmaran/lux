@@ -14,37 +14,31 @@
     <div class="app">
       <header class="top-band">
         <div class="top-title">
-          <div class="status-indicator"></div>
           <h1>Agent Harness</h1>
+          <p class="top-subtitle">Verifiability & Auditability for your AI agents <br>
+            OS-level tracking of every call or change your agents make <br>
+          </p>
         </div>
         <div class="top-controls">
           <div class="summary">
             <div class="summary-tile">
-              <div class="summary-label">[ EXEC ]</div>
-              <div class="summary-value" data-summary="exec">--</div>
+              <div class="summary-label">[ PROCESSES ]</div>
+              <div class="summary-value" data-summary="processes">--</div>
             </div>
             <div class="summary-tile">
-              <div class="summary-label">[ FS CREATE ]</div>
-              <div class="summary-value" data-summary="fs_create">--</div>
+              <div class="summary-label">[ FILE CHANGES ]</div>
+              <div class="summary-value" data-summary="file_changes">--</div>
             </div>
             <div class="summary-tile">
-              <div class="summary-label">[ FS UNLINK ]</div>
-              <div class="summary-value" data-summary="fs_unlink">--</div>
-            </div>
-            <div class="summary-tile">
-              <div class="summary-label">[ FS META ]</div>
-              <div class="summary-value" data-summary="fs_meta">--</div>
-            </div>
-            <div class="summary-tile">
-              <div class="summary-label">[ NET ]</div>
-              <div class="summary-value" data-summary="net_summary">--</div>
+              <div class="summary-label">[ NETWORK CALLS ]</div>
+              <div class="summary-value" data-summary="network_calls">--</div>
             </div>
           </div>
           <div class="filters">
             <div class="filter-group">
-              <span class="filter-label">[ SOURCES ]</span>
-              <button class="filter-button is-active" data-source="audit">Audit</button>
-              <button class="filter-button is-active" data-source="ebpf">eBPF</button>
+              <span class="filter-label">[ VIEW CHANGES TO: ]</span>
+              <button class="filter-button is-active" data-source="audit">Files</button>
+              <button class="filter-button is-active" data-source="ebpf">Searches</button>
             </div>
             <div class="filter-group">
               <span class="filter-label">[ TIME ]</span>
@@ -70,11 +64,11 @@
 
         <aside class="panel runs-panel">
           <div class="panel-header">
-            <span class="panel-label">[ RUNS ]</span>
-            <span class="panel-meta" id="runs-meta">-- items</span>
+            <span class="panel-label">[ AGENTS ]</span>
+            <span class="panel-meta" id="runs-meta">-- agents</span>
           </div>
           <div class="panel-body" id="runs">
-            <div class="empty-state">[ LOADING RUNS ]</div>
+            <div class="empty-state">[ LOADING AGENTS ]</div>
           </div>
         </aside>
       </main>

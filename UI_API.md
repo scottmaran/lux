@@ -96,6 +96,11 @@ Returns job metadata from `logs/jobs/*/input.json` and `status.json`.
 Returns event counts for the current filtered view. Use the same query params
 as `/api/timeline`.
 
+The current UI derives three summary tiles from this data:
+- **Processes**: `exec`
+- **File changes**: `fs_create + fs_unlink + fs_meta`
+- **Network calls**: `net_summary`
+
 ### Response
 ```json
 {

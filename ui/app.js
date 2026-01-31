@@ -13,6 +13,17 @@ const timelineEl = document.getElementById("timeline");
 const timelineMetaEl = document.getElementById("timeline-meta");
 const runsEl = document.getElementById("runs");
 const runsMetaEl = document.getElementById("runs-meta");
+const timestampFormatter = new Intl.DateTimeFormat("en-US", {
+  timeZone: "America/New_York",
+  year: "numeric",
+  month: "short",
+  day: "2-digit",
+  hour: "numeric",
+  minute: "2-digit",
+  second: "2-digit",
+  hour12: true,
+  timeZoneName: "short",
+});
 
 function setText(el, value) {
   if (el) {
@@ -21,11 +32,31 @@ function setText(el, value) {
 }
 
 function summarize(rows) {
-  const counts = {};
+  let processes = 0;
+  let fileChanges = 0;
+  let networkCalls = 0;
   for (const row of rows) {
-    const key = row.event_type || "unknown";
-    counts[key] = (counts[key] || 0) + 1;
+    switch (row.event_type) {
+      case "exec":
+        processes += 1;
+        break;
+      case "fs_create":
+      case "fs_unlink":
+      case "fs_meta":
+        fileChanges += 1;
+        break;
+      case "net_summary":
+        networkCalls += 1;
+        break;
+      default:
+        break;
+    }
   }
+  const counts = {
+    processes,
+    file_changes: fileChanges,
+    network_calls: networkCalls,
+  };
   document.querySelectorAll("[data-summary]").forEach((node) => {
     const key = node.getAttribute("data-summary");
     const value = counts[key] || 0;
@@ -92,11 +123,26 @@ function formatRunMeta(run) {
   return `${run.mode || "tui"} | exit ${run.exit_code ?? "--"}`;
 }
 
+function formatRunTimeRange(run) {
+  const start = formatTimestamp(run.started_at);
+  const end = formatTimestamp(run.ended_at);
+  if (start === "--" && end === "--") {
+    return "--";
+  }
+  if (start !== "--" && end !== "--") {
+    return `${start} - ${end}`;
+  }
+  if (start !== "--") {
+    return start;
+  }
+  return end;
+}
+
 function renderRuns(runs) {
   runsEl.innerHTML = "";
   if (!runs.length) {
-    runsEl.innerHTML = `<div class="empty-state">[ NO RUNS FOUND ]</div>`;
-    setText(runsMetaEl, "0 items");
+    runsEl.innerHTML = `<div class="empty-state">[ NO AGENTS FOUND ]</div>`;
+    setText(runsMetaEl, "0 agents");
     return;
   }
   runs.forEach((run) => {
@@ -108,7 +154,7 @@ function renderRuns(runs) {
     item.innerHTML = `
       <div class="run-title">${formatRunTitle(run)}</div>
       <div class="run-meta">${formatRunMeta(run)}</div>
-      <div class="run-meta">${run.started_at || "--"}${run.ended_at ? ` - ${run.ended_at}` : ""}</div>
+      <div class="run-meta">${formatRunTimeRange(run)}</div>
     `;
     item.addEventListener("click", () => {
       state.activeRun = run;
@@ -117,7 +163,32 @@ function renderRuns(runs) {
     });
     runsEl.appendChild(item);
   });
-  setText(runsMetaEl, `${runs.length} items`);
+  setText(runsMetaEl, `${runs.length} agents`);
+}
+
+function formatTimestamp(ts) {
+  if (!ts) {
+    return "--";
+  }
+  const date = new Date(ts);
+  if (Number.isNaN(date.getTime())) {
+    return "--";
+  }
+  return timestampFormatter.format(date);
+}
+
+function formatSourceLabel(source) {
+  if (!source) {
+    return "--";
+  }
+  const normalized = String(source).toLowerCase();
+  if (normalized === "audit") {
+    return "Files";
+  }
+  if (normalized === "ebpf") {
+    return "Searches";
+  }
+  return source;
 }
 
 function renderTimeline(rows) {
@@ -133,10 +204,12 @@ function renderTimeline(rows) {
     const div = document.createElement("div");
     div.className = "timeline-row";
     const target = deriveTarget(row);
+    const sourceLabel = formatSourceLabel(row.source);
+    const timestamp = formatTimestamp(row.ts);
     div.innerHTML = `
-      <div class="timeline-meta">${row.ts || "--"} | ${row.source || "--"} | ${row.event_type || "--"}</div>
+      <div class="timeline-meta">${timestamp} | ${sourceLabel}</div>
       <div class="timeline-main">${target}</div>
-      <div class="timeline-meta">${row.comm || "--"} (pid ${row.pid ?? "--"})</div>
+      <div class="timeline-meta">Program: ${row.comm || "--"} (PID ${row.pid ?? "--"})</div>
     `;
     timelineEl.appendChild(div);
   });
@@ -163,8 +236,11 @@ function deriveTarget(row) {
       const ip = details.dst_ip || "--";
       const port = details.dst_port || "--";
       const names = Array.isArray(details.dns_names) ? details.dns_names : [];
-      const suffix = names.length ? ` (${names.join(", ")})` : "";
-      return `${ip}:${port}${suffix}`;
+      if (names.length) {
+        const mainName = names.join(", ");
+        return `${mainName} (IP: ${ip}:${port})`;
+      }
+      return `${ip}:${port}`;
     }
     case "dns_query":
     case "dns_response":

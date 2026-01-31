@@ -41,15 +41,17 @@ h1 {
 
 .top-title {
   display: flex;
-  align-items: center;
-  gap: 12px;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
   margin-bottom: 16px;
 }
 
-.status-indicator {
-  width: 12px;
-  height: 12px;
-  background: var(--green);
+.top-subtitle {
+  margin: 0;
+  font-family: "IBM Plex Sans", sans-serif;
+  font-size: 14px;
+  color: var(--gray);
 }
 
 .top-controls {
