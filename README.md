@@ -2,6 +2,39 @@
 
 Containerized harness + agent + collector stack for auditing agent activity inside a VM.
 
+## Documentation Map
+```
+README.md (you are here)
+├─ Orientation
+│  ├─ overview.md — system summary and goals
+│  ├─ platform.md — platform assumptions and constraints
+│  └─ kernel_auditing_info.md — kernel audit/eBPF notes
+├─ VM boundary & layout
+│  ├─ docker_desktop_vm.md — Docker Desktop VM behavior
+│  └─ agent_harness_vm_layout.md — VM/container layout
+├─ Components
+│  ├─ agent/README.md — agent container setup
+│  ├─ harness/README.md — harness behavior and config
+│  └─ collector/README.md — collector setup and pipeline
+│     ├─ collector/auditd_data.md — audit log schema
+│     ├─ collector/eBPF_data.md — eBPF log schema
+│     ├─ collector/timeline_data.md — merged timeline schema
+│     └─ collector/config/filtering_rules.md — filtering rules
+├─ UI
+│  ├─ UI_DESIGN.md — UI behavior and layout
+│  ├─ UI_API.md — UI API contract
+│  ├─ ui/README.md — UI build/run notes
+│  └─ ui/src/Attributions.md — asset attributions
+├─ Testing & examples
+│  ├─ TESTING.md — filter test cases and expected outcomes
+│  └─ EXAMPLE_FLOW.md — end-to-end example walkthroughs
+├─ Past work & rationale
+│  ├─ HISTORY.md — narrative history and decisions
+│  └─ dev_log.md — implementation log
+└─ Scratch
+   └─ scratch_notes.md — working notes
+```
+
 ## Compose files
 - `compose.yml`: base stack (agent-agnostic).
 - `compose.codex.yml`: adds host Codex auth + skills mounts for the agent container.
