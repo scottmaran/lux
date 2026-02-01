@@ -1,17 +1,17 @@
 #!/usr/bin/env python3
 import json
+import mimetypes
 import os
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
 ROOT = Path(__file__).resolve().parent
-STATIC_FILES = {
-    "/": "index.html",
-    "/index.html": "index.html",
-    "/styles.css": "styles.css",
-    "/app.js": "app.js",
-}
+BUILD_DIR = ROOT / "build"
+
+mimetypes.add_type("text/javascript", ".js")
+mimetypes.add_type("text/css", ".css")
+mimetypes.add_type("image/svg+xml", ".svg")
 
 
 def detect_log_root() -> Path:
@@ -152,29 +152,40 @@ class UIHandler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
-    def _text(self, payload: str, status: int = 200, content_type: str = "text/plain") -> None:
-        body = payload.encode("utf-8")
+    def _bytes(self, payload: bytes, status: int = 200, content_type: str = "application/octet-stream") -> None:
         self.send_response(status)
         self.send_header("Content-Type", content_type)
-        self.send_header("Content-Length", str(len(body)))
+        self.send_header("Content-Length", str(len(payload)))
         self.end_headers()
-        self.wfile.write(body)
+        self.wfile.write(payload)
+
+    def _send_file(self, path: Path) -> None:
+        content_type, _ = mimetypes.guess_type(path.name)
+        payload = path.read_bytes()
+        self._bytes(payload, 200, content_type or "application/octet-stream")
+
+    def _resolve_static(self, request_path: str) -> Path | None:
+        if request_path in ("/", "/index.html"):
+            target = BUILD_DIR / "index.html"
+            return target if target.exists() else None
+        target = BUILD_DIR / request_path.lstrip("/")
+        if target.exists() and target.is_file():
+            return target
+        return None
 
     def do_GET(self) -> None:
         parsed = urlparse(self.path)
         if parsed.path.startswith("/api/"):
             return self.handle_api(parsed)
-        if parsed.path in STATIC_FILES:
-            target = ROOT / STATIC_FILES[parsed.path]
-            if not target.exists():
-                return self._text("Not found", 404)
-            content = target.read_text(encoding="utf-8")
-            if target.suffix == ".css":
-                return self._text(content, 200, "text/css")
-            if target.suffix == ".js":
-                return self._text(content, 200, "text/javascript")
-            return self._text(content, 200, "text/html")
-        return self._text("Not found", 404)
+
+        target = self._resolve_static(parsed.path)
+        if target:
+            return self._send_file(target)
+
+        index_path = BUILD_DIR / "index.html"
+        if index_path.exists():
+            return self._send_file(index_path)
+        return self._bytes(b"Not found", 404, "text/plain")
 
     def handle_api(self, parsed) -> None:
         if parsed.path == "/api/sessions":
