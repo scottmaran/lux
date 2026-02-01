@@ -68,6 +68,26 @@ session/job mapping and live-tail buffering.
 - Fixed the pending-buffer race by re-checking ownership under consistent lock ordering before enqueueing.
 - Enabled the pending buffer by default and covered follow-mode behaviors with unit tests.
 
+## Block 6:
+- Added an eBPF summary stage and a merge step to produce a unified, UI-friendly timeline.
+- Wired the new stages into the collector entrypoint to keep summary + merged outputs refreshed.
+
+### Details
+- Created `collector/scripts/summarize_ebpf_logs.py` to emit `net_summary` rows from filtered eBPF logs.
+- Added `collector/scripts/merge_filtered_logs.py` plus configs in `collector/config/ebpf_summary.yaml` and
+  `collector/config/merge_filtering.yaml`.
+- Updated `collector/timeline_data.md` to describe `timeline.filtered.v1` and the normalized `details` payload.
+- Updated `collector/entrypoint.sh` to run summary + merge loops on an interval.
+
+## Block 7:
+- Reworked network summaries around send-burst aggregation and enriched them with DNS look-back.
+- Added suppression thresholds to drop tiny bursts and refreshed fixtures/tests to match the new semantics.
+
+### Details
+- Replaced the summary logic to split bursts by idle gaps, track `connect_count`, and emit `ts_first/ts_last`.
+- Added `dns_lookback_sec`, `min_send_count`, and `min_bytes_sent_total` handling in the summary config.
+- Updated `collector/tests/test_ebpf_summary.py`, `collector/timeline_data.md`, and example/fixture logs under `example_logs/`.
+
 # Agent 
 
 ## Block 1: 
@@ -75,6 +95,37 @@ Added an agent container skeleton with SSH-only access and Codex CLI via npm.
 
 ### Details
 - Created the agent container files (`agent/Dockerfile`, `agent/sshd_config`, `agent/entrypoint.sh`, `agent/README.md`) with a locked-down SSH config, `agent` user (uid 1001), `/work` workspace, `/logs` read-only contract, and Codex CLI installed via `npm install -g @openai/codex`.
+
+# UI
+
+Blocks of Work
+
+## Block 1:
+- Added a zero-build log viewer UI and a tiny API server to read timeline, sessions, and jobs from `/logs`.
+- Documented the UI contract and added a compose service for running the UI.
+
+### Details
+- Introduced `ui/server.py`, `ui/index.html`, `ui/app.js`, and `ui/styles.css` for a static UI served with an
+  embedded JSON API.
+- Added `UI_API.md`, `UI_DESIGN.md`, and `compose.ui.yml` to document and run the UI service.
+
+## Block 2:
+- Iterated on the zero-build UI with clearer naming and better formatting.
+
+### Details
+- Simplified labels and layout in `ui/app.js`, `ui/index.html`, and `ui/styles.css`.
+- Formatted process metadata and surfaced domains ahead of IPs for network rows.
+- Updated `UI_DESIGN.md`/`UI_API.md` to align with the filtered timeline pipeline.
+
+## Block 3:
+- Rebuilt the UI from the Figma export as a React + Vite app with reusable components.
+- Updated the UI container to build and serve the compiled frontend.
+
+### Details
+- Added `ui/src` with `App.tsx`, timeline/runs/filters/metrics components, and a shared UI component library.
+- Added `ui/package.json`, `ui/vite.config.ts`, `ui/src/index.css`, and `ui/src/styles/globals.css`.
+- Updated `ui/Dockerfile` and `ui/README.md` to build the Vite app and serve it through the Python API server.
+- Updated `UI_DESIGN.md` to describe the new layout and behavior.
 
 # To Do:
 - DNS parsing now covers UDP/TCP port 53 via sendto/recvfrom/sendmsg/recvmsg and detects TCP by length prefix, but DoH/DoT traffic is
@@ -104,3 +155,10 @@ host-side logs.
 - New scripts: `scripts/run_integration_filter_no_harness.sh`, `scripts/run_integration_filter_job.sh`,
   `scripts/run_integration_filter_tui.sh`.
 - Tests validate expected exec/fs rows and session/job attribution in the filtered JSONL output.
+
+## Block 3:
+- Added an end-to-end example flow doc and stable fixtures for validating the merged timeline output.
+
+### Details
+- Created `EXAMPLE_FLOW.md` with TUI + server-mode scenarios, expected commands, and UI outputs.
+- Added `example_logs/` fixtures and YAML configs for summary + merge filtering examples.
