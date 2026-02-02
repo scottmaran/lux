@@ -224,3 +224,4 @@ The primary focus is creating a file someone can read with 0 knowledge of the pr
 
 #### reminders
 - some tests may have sleeps in them that we want to investigate/replace for more determinstic things
+- Should the rename endpoints be unauthenticated (current UI behavior), or do you want a simple token check like the harness API?

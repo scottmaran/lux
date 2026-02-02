@@ -60,6 +60,7 @@ Returns session metadata from `logs/sessions/*/meta.json`.
   "sessions": [
     {
       "session_id": "session_20260122_001630_de71",
+      "name": "TUI debug run",
       "mode": "tui",
       "command": "codex -C /work -s danger-full-access",
       "started_at": "2026-01-22T00:16:30.250227+00:00",
@@ -79,6 +80,7 @@ Returns job metadata from `logs/jobs/*/input.json` and `status.json`.
   "jobs": [
     {
       "job_id": "job_20260128_204429_9680",
+      "name": "Quick filesystem check",
       "status": "complete",
       "prompt": "pwd; printf 'hello world' > /work/temp.txt",
       "command": "bash -lc {prompt}",
@@ -89,6 +91,40 @@ Returns job metadata from `logs/jobs/*/input.json` and `status.json`.
       "exit_code": 0
     }
   ]
+}
+```
+
+## PATCH /api/sessions/<id>
+Updates the display name for a session using label files under `logs/labels/sessions/`.
+
+### Request body
+```json
+{ "name": "Readable session name" }
+```
+
+### Response
+```json
+{
+  "id": "session_20260122_001630_de71",
+  "name": "Readable session name",
+  "updated_at": "2026-02-02T21:44:29.981395+00:00"
+}
+```
+
+## PATCH /api/jobs/<id>
+Updates the display name for a job using label files under `logs/labels/jobs/`.
+
+### Request body
+```json
+{ "name": "Readable job name" }
+```
+
+### Response
+```json
+{
+  "id": "job_20260128_204429_9680",
+  "name": "Readable job name",
+  "updated_at": "2026-02-02T21:44:29.981395+00:00"
 }
 ```
 

@@ -173,7 +173,8 @@ export function Timeline({ selectedSources, timeRange, selectedRun }: TimelinePr
           <h2 className="text-lg font-semibold text-gray-900">Timeline</h2>
           <p className="text-sm text-gray-500 mt-1">
             {events.length} event{events.length !== 1 ? 's' : ''}
-            {selectedRun && ` • Filtered by ${selectedRun.type} ${selectedRun.id.substring(0, 8)}`}
+            {selectedRun &&
+              ` • Filtered by ${selectedRun.name?.trim() || `${selectedRun.type} ${selectedRun.id.substring(0, 8)}`}`}
           </p>
         </div>
         <div className="flex items-center gap-2 text-xs text-gray-500">

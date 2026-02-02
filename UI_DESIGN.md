@@ -1,6 +1,6 @@
 # UI Design - Agent Harness Log Viewer
 
-This document describes the current UI design for the log viewer. The source of truth is the Figma redesign export in `ui/` (React + Vite). The UI remains read-only and focused on fast scanning of agent activity.
+This document describes the current UI design for the log viewer. The source of truth is the Figma redesign export in `ui/` (React + Vite). The UI is focused on fast scanning of agent activity, with lightweight inline renaming for runs via labels.
 
 ## Goals
 - Provide a clean, modern, card-based interface for reviewing agent activity.
@@ -63,11 +63,16 @@ Single card containing:
 - Scrollable list (max height ~600px).
 - Each row shows:
   - Type badge (session/job).
+  - Display name (if present) with inline edit affordance.
   - Truncated run ID.
   - Status badge (for jobs) and mode (for sessions).
   - Started/ended timestamps.
 - Clicking a run toggles selection and filters the timeline.
 - Selected row shows a subtle blue highlight and left border.
+- Inline rename:
+  - Edit icon appears on each row.
+  - Clicking it swaps the name for an input field.
+  - Enter/blur saves; Escape cancels; empty names are rejected.
 
 ## Behavior & Data
 - **Auto-refresh**: timeline polls every 2 seconds when the tab is visible.
@@ -81,4 +86,4 @@ Single card containing:
 ## Non-Goals (Phase 1)
 - No event inspector panel.
 - No annotation/export tools.
-- No edit capabilities.
+- No editing of evidence logs or timeline rows (run labels only).
