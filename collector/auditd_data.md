@@ -196,6 +196,10 @@ Event-specific fields:
 - `exec`:
   - `cmd` (string): command line (from argv; for shell, the `-lc` payload)
   - `cwd` (string): current working directory
+  - `exec_success` (bool): true if the exec succeeded
+  - `exec_exit` (int): raw syscall return value (negative on failure)
+  - `exec_errno_name` (string, optional): errno name for failures (e.g. ENOENT)
+  - `exec_attempted_path` (string, optional): path from PATH records for the attempted executable
 - `fs_create`/`fs_write`/`fs_rename`/`fs_unlink`/`fs_meta`:
   - `path` (string): file path derived from PATH records
   - `cwd` (string, optional): CWD when available
@@ -216,6 +220,7 @@ logical event. This example includes the minimal actions: `pwd` and creating
 
 ### Notes
 - `cmd` is derived from the exec argv for that PID.
+- When exec fails and argv is unavailable, `cmd` falls back to `exec_attempted_path` for clarity.
 - `fs_create` uses the PATH record with `nametype=CREATE`.
 - Internal helper execs (e.g., `locale-check`, repo probes) are omitted.
 

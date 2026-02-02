@@ -40,9 +40,12 @@ README.md (you are here)
 #### Interactive mode (Codex)
 Requires `~/.codex/auth.json` and `~/.codex/skills` on the host.
 ```bash
+docker compose -f compose.yml -f compose.codex.yml up -d --build agent collector
+
 docker compose -f compose.yml -f compose.codex.yml run --rm --service-ports \
   -e HARNESS_MODE=tui harness
 ```
+The harness connects to the `agent` service over SSH; the collector must be running to emit audit/eBPF logs. `docker compose run` does not start dependencies.
 The default TUI command uses `/work` and disables Codex sandboxing (`codex -C /work -s danger-full-access`); override via `HARNESS_TUI_CMD`.
 
 #### Non-interactive mode (Codex)
@@ -60,6 +63,8 @@ The harness runs in server mode when stdin is not a TTY; use `HARNESS_MODE=serve
 
 #### Interactive mode (no Codex; plain shell)
 ```bash
+docker compose -f compose.yml up -d --build agent collector
+
 docker compose -f compose.yml run --rm --service-ports \
   -e HARNESS_MODE=tui \
   -e "HARNESS_TUI_CMD=bash -l" \

@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 import argparse
 import datetime as dt
+import errno
 import json
 import os
 import re
@@ -101,6 +102,22 @@ def parse_int(value: str | None) -> int | None:
         return int(value)
     except ValueError:
         return None
+
+
+def parse_success(value: str | None, exit_code: int | None) -> bool | None:
+    if value == "yes":
+        return True
+    if value == "no":
+        return False
+    if exit_code is None:
+        return None
+    return exit_code >= 0
+
+
+def errno_name(exit_code: int | None) -> str | None:
+    if exit_code is None or exit_code >= 0:
+        return None
+    return errno.errorcode.get(-exit_code)
 
 
 def sanitize_key(value: str | None) -> str | None:
@@ -338,6 +355,11 @@ def build_event(records: list[dict], cfg: dict, state: FilterState) -> tuple[dic
     exe = fields.get("exe") or ""
     cwd_record = next((r for r in records if r["type"] == "CWD"), None)
     cwd = cwd_record["fields"].get("cwd") if cwd_record else None
+    path_records = [
+        {"name": record["fields"].get("name"), "nametype": record["fields"].get("nametype")}
+        for record in records
+        if record["type"] == "PATH"
+    ]
     seq = syscall["seq"]
     ts = syscall["ts"]
     ts_iso = syscall["ts_iso"]
@@ -352,6 +374,12 @@ def build_event(records: list[dict], cfg: dict, state: FilterState) -> tuple[dic
         exec_records = [r for r in records if r["type"] == "EXECVE"]
         argv = parse_execve_args(exec_records)
         cmd = derive_cmd(argv, comm, shell_comm, exec_cfg.get("shell_cmd_flag", "-lc"))
+        exec_exit = parse_int(fields.get("exit"))
+        exec_success = parse_success(fields.get("success"), exec_exit)
+        exec_errno = errno_name(exec_exit)
+        exec_attempted_path = select_path(path_records, "NORMAL")
+        if exec_success is False and exec_attempted_path and (not argv or cmd == comm or not cmd):
+            cmd = exec_attempted_path
 
         owned = state.mark_owned(pid, ppid, uid, agent_uid, comm, root_comm)
         excluded = comm in set(exec_cfg.get("helper_exclude_comm", []))
@@ -378,6 +406,14 @@ def build_event(records: list[dict], cfg: dict, state: FilterState) -> tuple[dic
             "audit_key": audit_key,
             "agent_owned": True,
         }
+        if exec_success is not None:
+            event["exec_success"] = exec_success
+        if exec_exit is not None:
+            event["exec_exit"] = exec_exit
+        if exec_errno:
+            event["exec_errno_name"] = exec_errno
+        if exec_attempted_path:
+            event["exec_attempted_path"] = exec_attempted_path
 
         if cfg.get("linking", {}).get("attach_cmd_to_fs", False) and pid is not None:
             state.last_exec_by_pid[pid] = cmd
@@ -387,16 +423,6 @@ def build_event(records: list[dict], cfg: dict, state: FilterState) -> tuple[dic
     if audit_key in include_fs:
         if not state.is_owned(pid):
             return None
-        path_records = []
-        for record in records:
-            if record["type"] != "PATH":
-                continue
-            path_records.append(
-                {
-                    "name": record["fields"].get("name"),
-                    "nametype": record["fields"].get("nametype"),
-                }
-            )
         nametypes = {record.get("nametype") for record in path_records if record.get("nametype")}
         event_type = derive_fs_event_type(audit_key, nametypes)
         preferred = None

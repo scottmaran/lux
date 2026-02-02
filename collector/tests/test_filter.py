@@ -13,9 +13,21 @@ FILTER_SCRIPT = Path(__file__).resolve().parents[1] / "scripts" / "filter_audit_
 
 
 
-def make_syscall(ts: str, seq: int, pid: int, ppid: int, uid: int, gid: int, comm: str, exe: str, key: str) -> str:
+def make_syscall(
+    ts: str,
+    seq: int,
+    pid: int,
+    ppid: int,
+    uid: int,
+    gid: int,
+    comm: str,
+    exe: str,
+    key: str,
+    success: str = "yes",
+    exit_code: int = 0,
+) -> str:
     return (
-        f'type=SYSCALL msg=audit({ts}:{seq}): arch=c00000b7 syscall=221 success=yes exit=0 '
+        f'type=SYSCALL msg=audit({ts}:{seq}): arch=c00000b7 syscall=221 success={success} exit={exit_code} '
         f'pid={pid} ppid={ppid} uid={uid} gid={gid} comm="{comm}" exe="{exe}" key="{key}"'
     )
 
@@ -217,6 +229,37 @@ class AuditFilterTests(unittest.TestCase):
         events = self.run_filter(audit_lines, self.base_config(), jobs=jobs, sessions=sessions)
         self.assertEqual(events[0]["session_id"], session_id)
         self.assertNotIn("job_id", events[0])
+
+    def test_exec_failure_includes_status_and_attempted_path(self) -> None:
+        base = datetime(2026, 1, 22, 0, 0, 0, tzinfo=timezone.utc)
+        ts = f"{int(base.timestamp())}.777"
+        attempted = "/home/agent/.codex/tmp/path/codex-arg0/tmp_git"
+        audit_lines = [
+            make_syscall(
+                ts,
+                1,
+                600,
+                1,
+                1001,
+                1001,
+                "codex",
+                "/usr/bin/codex",
+                "exec",
+                success="no",
+                exit_code=-2,
+            ),
+            make_cwd(ts, 1, "/work"),
+            make_path(ts, 1, attempted, "UNKNOWN"),
+        ]
+
+        events = self.run_filter(audit_lines, self.base_config())
+        self.assertEqual(len(events), 1)
+        event = events[0]
+        self.assertEqual(event.get("exec_success"), False)
+        self.assertEqual(event.get("exec_exit"), -2)
+        self.assertEqual(event.get("exec_errno_name"), "ENOENT")
+        self.assertEqual(event.get("exec_attempted_path"), attempted)
+        self.assertEqual(event.get("cmd"), attempted)
 
 
 if __name__ == "__main__":
