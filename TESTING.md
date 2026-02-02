@@ -12,6 +12,22 @@ filter behavior.
 - Unified merge tests (spec-driven, pending implementation).
 - Unit tests with fixture logs for deterministic parsing.
 
+## Integration Tests (Quick Start)
+
+### Stub (no Codex required)
+```bash
+export HARNESS_API_TOKEN=dev-token
+export HARNESS_RUN_CMD_TEMPLATE='echo stub-ok'
+./scripts/run_integration_stub.sh
+```
+
+### Codex
+Requires `~/.codex/auth.json` and `~/.codex/skills` on the host.
+```bash
+export HARNESS_API_TOKEN=dev-token
+./scripts/run_integration_codex.sh
+```
+
 ## Collector Smoke Test (raw logs)
 
 Script: `collector/scripts/run_test.sh`
