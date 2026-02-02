@@ -1,4 +1,4 @@
-# UI Design - Agent Harness Log Viewer (Redesign)
+# UI Design - Agent Harness Log Viewer
 
 This document describes the current UI design for the log viewer. The source of truth is the Figma redesign export in `ui/` (React + Vite). The UI remains read-only and focused on fast scanning of agent activity.
 
