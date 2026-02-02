@@ -1,16 +1,24 @@
-# Zero-Build UI
 
-This UI is plain HTML/CSS/JS served by a tiny Python HTTP server.
+  # Agent Harness UI (Redesign)
 
-## Run locally (host)
-```bash
-python3 ui/server.py
-```
+  This UI is a React + Vite build served by the local Python API server.
 
-Environment variables:
-- `UI_BIND` (default: 0.0.0.0)
-- `UI_PORT` (default: 8090)
-- `UI_LOG_ROOT` (default: /logs, falls back to ./logs)
+  ## Development
 
-## API
-See `UI_API.md` for the minimal API contract.
+  Install dependencies:
+
+  ```bash
+  npm install
+  ```
+
+  Run the Vite dev server:
+
+  ```bash
+  npm run dev
+  ```
+
+  ## Production (container)
+
+  The `ui/Dockerfile` builds the Vite app and serves it with `ui/server.py`.
+  The server also exposes the local-only API under `/api/*` for timeline and runs.
+  
