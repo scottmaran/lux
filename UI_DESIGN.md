@@ -17,6 +17,7 @@ This document describes the current UI design for the log viewer. The source of 
   3. **Split content**
      - **Timeline** (left, 2/3 width on large screens)
      - **Runs** (right, 1/3 width on large screens)
+     - Panels are resizable on large screens via a draggable divider.
 
 ## Visual System
 - **Background**: light gray (`gray-50`) for the canvas.

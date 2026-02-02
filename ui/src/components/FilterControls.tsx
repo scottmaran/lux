@@ -46,7 +46,7 @@ export function FilterControls({
                   : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
               }`}
             >
-              Audit
+              Commands
             </button>
             <button
               onClick={() => toggleSource('ebpf')}
@@ -56,7 +56,7 @@ export function FilterControls({
                   : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
               }`}
             >
-              eBPF
+              Network
             </button>
           </div>
         </div>
