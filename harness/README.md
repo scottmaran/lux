@@ -28,6 +28,7 @@ Launches Codex via `ssh -tt agent@agent` and proxies stdin/stdout through a PTY,
 
 By default the TUI uses `/work` as the working root and disables Codex sandboxing (`codex -C /work -s danger-full-access`).
 You can override the command with `HARNESS_TUI_CMD`.
+You can optionally set a human-friendly TUI name via `HARNESS_TUI_NAME` or pass `--tui-name` when invoking `harness.py` directly.
 
 ### Server mode
 Exposes a minimal HTTP API for non-interactive runs:
@@ -39,6 +40,7 @@ Requests must include `X-Harness-Token` matching `HARNESS_API_TOKEN`.
 
 The run command is controlled by `HARNESS_RUN_CMD_TEMPLATE` (default: `codex -C /work -s danger-full-access exec {prompt}`).
 The `{prompt}` placeholder is replaced with a shell-quoted prompt; omit the placeholder to ignore the prompt.
+You can optionally include a `name` field in the `/run` payload to create a display label for the job.
 
 ## Environment
 - `HARNESS_AGENT_HOST` (default: `agent`)
@@ -50,6 +52,7 @@ The `{prompt}` placeholder is replaced with a shell-quoted prompt; omit the plac
 - `HARNESS_HTTP_PORT` (default: `8081`)
 - `HARNESS_API_TOKEN` (required for server mode)
 - `HARNESS_TUI_CMD` (default: `codex -C /work -s danger-full-access`)
+- `HARNESS_TUI_NAME` (optional: display label for TUI sessions)
 - `HARNESS_RUN_CMD_TEMPLATE` (default: `codex -C /work -s danger-full-access exec {prompt}`)
 - `HARNESS_AGENT_WORKDIR` (default: `/work`)
 

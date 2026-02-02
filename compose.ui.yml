@@ -4,5 +4,6 @@ services:
     image: harness-ui:dev
     volumes:
       - ./logs:/logs:ro
+      - ./logs/labels:/logs/labels:rw
     ports:
       - "127.0.0.1:8090:8090"

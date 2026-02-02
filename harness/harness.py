@@ -21,6 +21,9 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 LOG_DIR = os.getenv("HARNESS_LOG_DIR", "/logs")
 JOB_DIR = os.path.join(LOG_DIR, "jobs")
 SESSION_DIR = os.path.join(LOG_DIR, "sessions")
+LABELS_DIR = os.path.join(LOG_DIR, "labels")
+SESSION_LABEL_DIR = os.path.join(LABELS_DIR, "sessions")
+JOB_LABEL_DIR = os.path.join(LABELS_DIR, "jobs")
 
 AGENT_HOST = os.getenv("HARNESS_AGENT_HOST", "agent")
 AGENT_PORT = int(os.getenv("HARNESS_AGENT_PORT", "22"))
@@ -173,6 +176,24 @@ def write_json(path: str, payload: dict) -> None:
         json.dump(payload, handle, indent=2, sort_keys=True)
 
 
+def normalize_label_name(value: str | None) -> tuple[str | None, str | None]:
+    if value is None:
+        return None, None
+    if not isinstance(value, str):
+        return None, "name must be a string"
+    trimmed = value.strip()
+    if not trimmed:
+        return None, "name must not be empty"
+    return trimmed, None
+
+
+def write_label(dir_path: str, run_id: str, name: str) -> None:
+    ensure_dir(dir_path)
+    label_path = os.path.join(dir_path, f"{run_id}.json")
+    payload = {"name": name, "updated_at": now_iso()}
+    write_json(label_path, payload)
+
+
 def run_job(job_id: str, prompt: str, logged_prompt: str, cwd: str, env: dict, timeout: int | None) -> None:
     job_path = os.path.join(JOB_DIR, job_id)
     ensure_dir(job_path)
@@ -246,6 +267,10 @@ def handle_run(payload: dict) -> tuple[dict, int]:
     capture_input = payload.get("capture_input", True)
     logged_prompt = prompt if capture_input else "[redacted]"
 
+    name, name_err = normalize_label_name(payload.get("name"))
+    if name_err:
+        return {"error": name_err}, 400
+
     cwd = sanitize_cwd(str(payload.get("cwd", DEFAULT_CWD)))
     env = sanitize_env(payload.get("env", {}))
     timeout = payload.get("timeout_sec")
@@ -267,6 +292,8 @@ def handle_run(payload: dict) -> tuple[dict, int]:
         }
 
     ensure_dir(JOB_DIR)
+    if name:
+        write_label(JOB_LABEL_DIR, job_id, name)
 
     thread = threading.Thread(
         target=run_job,
@@ -275,11 +302,14 @@ def handle_run(payload: dict) -> tuple[dict, int]:
     )
     thread.start()
 
-    return {
+    response = {
         "job_id": job_id,
         "status": "queued",
         "submitted_at": JOBS[job_id]["submitted_at"],
-    }, 202
+    }
+    if name:
+        response["name"] = name
+    return response, 202
 
 
 class HarnessHandler(BaseHTTPRequestHandler):
@@ -343,9 +373,29 @@ def run_server() -> None:
     server.serve_forever()
 
 
-def run_tui() -> int:
+def resolve_tui_name(cli_name: str | None) -> tuple[str | None, str | None]:
+    if cli_name is not None:
+        trimmed = cli_name.strip()
+        if not trimmed:
+            return None, "tui name must not be empty"
+        return trimmed, None
+    env_value = os.getenv("HARNESS_TUI_NAME")
+    if env_value is None:
+        return None, None
+    trimmed = env_value.strip()
+    if not trimmed:
+        return None, "HARNESS_TUI_NAME must not be empty"
+    return trimmed, None
+
+
+def run_tui(tui_name: str | None) -> int:
     ensure_dir(LOG_DIR)
     ensure_dir(SESSION_DIR)
+
+    label_name, label_err = resolve_tui_name(tui_name)
+    if label_err:
+        print(label_err, file=sys.stderr)
+        return 2
 
     if not wait_for_agent_ssh(SSH_WAIT_SEC):
         print("Agent SSH is not ready (auth failed or port unreachable). Try again in a few seconds.", file=sys.stderr)
@@ -366,6 +416,8 @@ def run_tui() -> int:
         "command": TUI_CMD,
     }
     write_json(meta_path, meta)
+    if label_name:
+        write_label(SESSION_LABEL_DIR, session_id, label_name)
 
     remote_cmd = f"cd {shlex.quote(DEFAULT_CWD)} && {TUI_CMD}" # e.g. cd /work && codex
     cmd = ssh_base_args() + ["-tt", ssh_target(), "bash", "-lc", remote_cmd] # Build the ssh command with -tt (force PTY allocation)
@@ -440,12 +492,13 @@ def run_tui() -> int:
 def main() -> int:
     parser = argparse.ArgumentParser(description="Harness control")
     parser.add_argument("mode", choices=["server", "tui"])
+    parser.add_argument("--tui-name", dest="tui_name", help="Human-friendly name for TUI sessions")
     args = parser.parse_args()
 
     if args.mode == "server":
         run_server()
         return 0
-    return run_tui()
+    return run_tui(args.tui_name)
 
 
 if __name__ == "__main__":

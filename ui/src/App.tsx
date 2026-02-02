@@ -21,6 +21,7 @@ export interface TimelineEvent {
 export interface Run {
   id: string;
   type: 'session' | 'job';
+  name?: string;
   mode?: string;
   status?: string;
   exit_code?: number;
