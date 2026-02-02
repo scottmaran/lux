@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react';
 import { Timeline } from './components/Timeline';
 import { RunsList } from './components/RunsList';
 import { SummaryMetrics } from './components/SummaryMetrics';
@@ -33,6 +33,87 @@ function App() {
   const [selectedSources, setSelectedSources] = useState<Source[]>(['audit', 'ebpf']);
   const [timeRange, setTimeRange] = useState<TimeRange>('1h');
   const [selectedRun, setSelectedRun] = useState<Run | null>(null);
+  const [splitPercent, setSplitPercent] = useState(66);
+  const [isWide, setIsWide] = useState(false);
+  const splitRef = useRef<HTMLDivElement | null>(null);
+  const draggingRef = useRef(false);
+  const wideBreakpoint = 960;
+
+  useEffect(() => {
+    const saved = window.localStorage.getItem('ui.panelSplitPercent');
+    if (saved) {
+      const parsed = Number.parseFloat(saved);
+      if (!Number.isNaN(parsed)) {
+        setSplitPercent(Math.min(80, Math.max(20, parsed)));
+      }
+    }
+  }, []);
+
+  useEffect(() => {
+    window.localStorage.setItem('ui.panelSplitPercent', splitPercent.toFixed(2));
+  }, [splitPercent]);
+
+  useEffect(() => {
+    const node = splitRef.current;
+    if (!node) {
+      return;
+    }
+    const update = () => {
+      const width = node.getBoundingClientRect().width;
+      setIsWide(width >= wideBreakpoint);
+    };
+    update();
+    if (typeof ResizeObserver !== 'undefined') {
+      const observer = new ResizeObserver(update);
+      observer.observe(node);
+      return () => observer.disconnect();
+    }
+    window.addEventListener('resize', update);
+    return () => window.removeEventListener('resize', update);
+  }, [wideBreakpoint]);
+
+  useEffect(() => {
+    const handlePointerMove = (event: PointerEvent) => {
+      if (!draggingRef.current || !splitRef.current) {
+        return;
+      }
+      const rect = splitRef.current.getBoundingClientRect();
+      const minLeft = 320;
+      const minRight = 280;
+      if (rect.width <= minLeft + minRight) {
+        setSplitPercent(50);
+        return;
+      }
+      const raw = event.clientX - rect.left;
+      const clamped = Math.min(rect.width - minRight, Math.max(minLeft, raw));
+      const next = (clamped / rect.width) * 100;
+      setSplitPercent(next);
+    };
+
+    const handlePointerUp = () => {
+      if (!draggingRef.current) {
+        return;
+      }
+      draggingRef.current = false;
+      document.body.style.cursor = '';
+    };
+
+    window.addEventListener('pointermove', handlePointerMove);
+    window.addEventListener('pointerup', handlePointerUp);
+    return () => {
+      window.removeEventListener('pointermove', handlePointerMove);
+      window.removeEventListener('pointerup', handlePointerUp);
+    };
+  }, []);
+
+  const startDrag = (event: ReactPointerEvent<HTMLButtonElement>) => {
+    if (!isWide) {
+      return;
+    }
+    draggingRef.current = true;
+    event.currentTarget.setPointerCapture(event.pointerId);
+    document.body.style.cursor = 'col-resize';
+  };
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -63,9 +144,18 @@ function App() {
         />
 
         {/* Split Content: Timeline + Runs */}
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          {/* Timeline - Takes 2 columns */}
-          <div className="lg:col-span-2">
+        <div
+          ref={splitRef}
+          className={`flex ${isWide ? 'flex-row' : 'flex-col gap-6'}`}
+        >
+          <div
+            className={isWide ? 'pr-3' : ''}
+            style={
+              isWide
+                ? { flexBasis: `${splitPercent}%`, flexGrow: 0, flexShrink: 0 }
+                : undefined
+            }
+          >
             <Timeline
               selectedSources={selectedSources}
               timeRange={timeRange}
@@ -73,8 +163,28 @@ function App() {
             />
           </div>
 
-          {/* Runs List - Takes 1 column */}
-          <div className="lg:col-span-1">
+          <div className={isWide ? 'flex items-stretch' : 'hidden'}>
+            <button
+              type="button"
+              aria-label="Resize panels"
+              onPointerDown={startDrag}
+              className="group flex items-stretch focus:outline-none"
+              style={{ touchAction: 'none' }}
+            >
+              <div className="w-4 cursor-col-resize flex items-center justify-center">
+                <div className="w-1 h-full rounded-full bg-gray-200 group-hover:bg-gray-300 transition-colors"></div>
+              </div>
+            </button>
+          </div>
+
+          <div
+            className={isWide ? 'pl-3' : ''}
+            style={
+              isWide
+                ? { flexBasis: `${100 - splitPercent}%`, flexGrow: 0, flexShrink: 0 }
+                : undefined
+            }
+          >
             <RunsList
               selectedRun={selectedRun}
               onSelectRun={setSelectedRun}
