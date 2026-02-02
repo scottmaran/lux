@@ -38,7 +38,7 @@ function App() {
   const [isWide, setIsWide] = useState(false);
   const splitRef = useRef<HTMLDivElement | null>(null);
   const draggingRef = useRef(false);
-  const wideBreakpoint = 960;
+  const wideBreakpoint = 640;
 
   useEffect(() => {
     const saved = window.localStorage.getItem('ui.panelSplitPercent');
