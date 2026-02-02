@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react';
+import { ArrowLeftRight } from 'lucide-react';
 import { Timeline } from './components/Timeline';
 import { RunsList } from './components/RunsList';
 import { SummaryMetrics } from './components/SummaryMetrics';
@@ -120,9 +121,9 @@ function App() {
       {/* Header */}
       <header className="bg-white border-b border-gray-200">
         <div className="px-6 py-4">
-          <h1 className="text-xl font-semibold text-gray-900">Agent Harness</h1>
+          <h1 className="text-xl font-semibold text-gray-900">Lasso</h1>
           <p className="text-sm text-gray-500 mt-1">Verifiability & Auditability for your AI agents</p>
-          <p className="text-sm text-gray-500 mt-1">OS-level tracking of every call or change your agents make</p>
+          <p className="text-sm text-gray-500 mt-1">A dedicated harness for OS-level tracking of everything your agents do</p>
         </div>
       </header>
 
@@ -171,8 +172,10 @@ function App() {
               className="group flex items-stretch focus:outline-none"
               style={{ touchAction: 'none' }}
             >
-              <div className="w-4 cursor-col-resize flex items-center justify-center">
-                <div className="w-1 h-full rounded-full bg-gray-200 group-hover:bg-gray-300 transition-colors"></div>
+              <div className="w-6 cursor-col-resize flex items-center justify-center">
+                <div className="h-10 w-5 rounded-full border border-gray-200 bg-gray-50 text-gray-400 flex items-center justify-center transition-colors group-hover:bg-gray-100 group-hover:text-gray-600">
+                  <ArrowLeftRight className="w-3.5 h-3.5" />
+                </div>
               </div>
             </button>
           </div>
