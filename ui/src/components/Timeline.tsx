@@ -194,6 +194,7 @@ export function Timeline({ selectedSources, timeRange, selectedRun }: TimelinePr
 
 function TimelineEventRow({ event }: { event: TimelineEvent }) {
   const target = getEventTarget(event);
+  const execStatus = getExecStatus(event);
   const sourceColor = event.source === 'audit' 
     ? 'bg-indigo-100 text-indigo-700' 
     : 'bg-emerald-100 text-emerald-700';
@@ -219,6 +220,11 @@ function TimelineEventRow({ event }: { event: TimelineEvent }) {
           {target}
         </p>
         <div className="flex items-center gap-3 text-xs text-gray-600">
+          {execStatus && (
+            <span className={`flex items-center gap-1 font-medium px-2 py-0.5 rounded ${execStatus.className}`}>
+              {execStatus.label}
+            </span>
+          )}
           {event.comm && (
             <span className="flex items-center gap-1">
               <span className="text-gray-400">Process:</span>
@@ -243,7 +249,10 @@ function getEventTarget(event: TimelineEvent): string {
 
   switch (event_type) {
     case 'exec':
-      return details.cmd || details.cwd || 'Unknown command';
+      if (details.exec_success === false && details.exec_attempted_path) {
+        return details.exec_attempted_path;
+      }
+      return details.cmd || details.exec_attempted_path || details.cwd || 'Unknown command';
     
     case 'fs_create':
     case 'fs_unlink':
@@ -289,6 +298,27 @@ function getEventTypeColor(eventType: string): string {
     return 'bg-orange-100 text-orange-700';
   }
   return 'bg-gray-100 text-gray-700';
+}
+
+function getExecStatus(event: TimelineEvent): { label: string; className: string } | null {
+  if (event.event_type !== 'exec') {
+    return null;
+  }
+  const details = event.details || {};
+  if (details.exec_success === undefined) {
+    return null;
+  }
+  const success = Boolean(details.exec_success);
+  if (success) {
+    return { label: 'exec ok', className: 'bg-emerald-100 text-emerald-700' };
+  }
+  let label = 'exec failed';
+  if (details.exec_errno_name) {
+    label = `exec failed (${details.exec_errno_name})`;
+  } else if (typeof details.exec_exit === 'number') {
+    label = `exec failed (exit=${details.exec_exit})`;
+  }
+  return { label, className: 'bg-red-100 text-red-700' };
 }
 
 function formatTimestamp(timestamp: string): string {

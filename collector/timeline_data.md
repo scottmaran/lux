@@ -89,6 +89,8 @@ The merger outputs rows sorted by:
   "details": {
     "cmd": "pwd",
     "cwd": "/work",
+    "exec_success": true,
+    "exec_exit": 0,
     "audit_seq": 353,
     "audit_key": "exec"
   }
