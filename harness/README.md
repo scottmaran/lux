@@ -25,6 +25,7 @@ You can override with `HARNESS_MODE=tui` or `HARNESS_MODE=server`.
 Launches Codex via `ssh -tt agent@agent` and proxies stdin/stdout through a PTY, logging both streams:
 - `logs/sessions/<session_id>/stdin.log`
 - `logs/sessions/<session_id>/stdout.log`
+- `logs/sessions/<session_id>/tui.cast` (asciinema v2, for replay)
 
 By default the TUI uses `/work` as the working root and disables Codex sandboxing (`codex -C /work -s danger-full-access`).
 You can override the command with `HARNESS_TUI_CMD`.

@@ -18,6 +18,8 @@ import tty
 import uuid
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
+from asciinema import build_header, decode_bytes, write_event, write_header
+
 LOG_DIR = os.getenv("HARNESS_LOG_DIR", "/logs")
 JOB_DIR = os.path.join(LOG_DIR, "jobs")
 SESSION_DIR = os.path.join(LOG_DIR, "sessions")
@@ -407,6 +409,7 @@ def run_tui(tui_name: str | None) -> int:
 
     stdin_path = os.path.join(session_path, "stdin.log")
     stdout_path = os.path.join(session_path, "stdout.log")
+    cast_path = os.path.join(session_path, "tui.cast")
     meta_path = os.path.join(session_path, "meta.json")
 
     meta = {
@@ -414,6 +417,8 @@ def run_tui(tui_name: str | None) -> int:
         "started_at": now_iso(),
         "mode": "tui",
         "command": TUI_CMD,
+        "tui_cast_path": cast_path,
+        "tui_cast_format": "asciinema-v2",
     }
     write_json(meta_path, meta)
     if label_name:
@@ -451,7 +456,23 @@ def run_tui(tui_name: str | None) -> int:
     sel.register(master_fd, selectors.EVENT_READ)
 
     exit_code = 1
-    with open(stdin_path, "ab") as stdin_log, open(stdout_path, "ab") as stdout_log:
+    start_epoch = int(time.time())
+    start_monotonic = time.monotonic()
+    cast_header = build_header(
+        term_size.columns,
+        term_size.lines,
+        start_epoch,
+        command=TUI_CMD,
+        title=label_name or session_id,
+        env={"TERM": os.getenv("TERM", "xterm-256color")},
+    )
+
+    with (
+        open(stdin_path, "ab") as stdin_log,
+        open(stdout_path, "ab") as stdout_log,
+        open(cast_path, "w", encoding="utf-8") as cast_log,
+    ):
+        write_header(cast_log, cast_header)
         try:
             while True:
                 for key, _ in sel.select():
@@ -463,6 +484,12 @@ def run_tui(tui_name: str | None) -> int:
                         os.write(master_fd, data)
                         stdin_log.write(data)
                         stdin_log.flush()
+                        write_event(
+                            cast_log,
+                            time.monotonic() - start_monotonic,
+                            "i",
+                            decode_bytes(data),
+                        )
                     else:
                         data = os.read(master_fd, 1024)
                         if not data:
@@ -470,6 +497,12 @@ def run_tui(tui_name: str | None) -> int:
                         os.write(sys.stdout.fileno(), data)
                         stdout_log.write(data)
                         stdout_log.flush()
+                        write_event(
+                            cast_log,
+                            time.monotonic() - start_monotonic,
+                            "o",
+                            decode_bytes(data),
+                        )
         except (EOFError, OSError):
             _, status = os.waitpid(pid, 0)
             if os.WIFEXITED(status):

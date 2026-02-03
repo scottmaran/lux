@@ -14,6 +14,7 @@ BUILD_DIR = ROOT / "build"
 mimetypes.add_type("text/javascript", ".js")
 mimetypes.add_type("text/css", ".css")
 mimetypes.add_type("image/svg+xml", ".svg")
+mimetypes.add_type("application/x-asciinema", ".cast")
 
 
 def detect_log_root() -> Path:
@@ -107,6 +108,13 @@ def load_sessions() -> list[dict]:
             continue
         session_id = meta.get("session_id") or entry.name
         meta["session_id"] = session_id
+        cast_path = entry / "tui.cast"
+        if cast_path.exists():
+            meta.setdefault("tui_cast_path", str(cast_path))
+            meta.setdefault("tui_cast_format", "asciinema-v2")
+            meta["tui_available"] = True
+        else:
+            meta["tui_available"] = False
         label = load_label(SESSION_LABELS_DIR / f"{session_id}.json")
         if label:
             meta["name"] = label["name"]
@@ -234,6 +242,9 @@ class UIHandler(BaseHTTPRequestHandler):
         return self.handle_api_patch(parsed)
 
     def handle_api(self, parsed) -> None:
+        if parsed.path.startswith("/api/sessions/") and parsed.path.endswith("/tui.cast"):
+            run_id = parsed.path[len("/api/sessions/") : -len("/tui.cast")]
+            return self._send_session_cast(run_id)
         if parsed.path == "/api/sessions":
             return self._json({"sessions": load_sessions()})
         if parsed.path == "/api/jobs":
@@ -248,6 +259,14 @@ class UIHandler(BaseHTTPRequestHandler):
             total = sum(counts.values())
             return self._json({"counts": counts, "total": total})
         return self._json({"error": "not found"}, 404)
+
+    def _send_session_cast(self, run_id: str) -> None:
+        if not run_id or not is_valid_run_id(run_id):
+            return self._json({"error": "invalid id"}, 400)
+        cast_path = SESSIONS_DIR / run_id / "tui.cast"
+        if not cast_path.exists():
+            return self._json({"error": "not found"}, 404)
+        return self._send_file(cast_path)
 
     def handle_api_patch(self, parsed) -> None:
         if parsed.path.startswith("/api/sessions/"):

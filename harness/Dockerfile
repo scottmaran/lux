@@ -16,6 +16,7 @@ RUN useradd -m -u 1002 -s /bin/bash harness \
     && chmod 700 /harness/keys
 
 COPY harness.py /usr/local/bin/harness.py
+COPY asciinema.py /usr/local/bin/asciinema.py
 COPY entrypoint.sh /usr/local/bin/harness-entrypoint.sh
 RUN chmod +x /usr/local/bin/harness-entrypoint.sh
 

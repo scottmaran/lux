@@ -105,6 +105,7 @@ Log row counts:
 - `logs/sessions/session_20260128_200000_ab12/meta.json`: 1 JSON object
 - `logs/sessions/session_20260128_200000_ab12/stdin.log`: 2 lines
 - `logs/sessions/session_20260128_200000_ab12/stdout.log`: 2 lines
+- `logs/sessions/session_20260128_200000_ab12/tui.cast`: 1 header + N event lines
 
 Example snippets:
 `logs/sessions/session_20260128_200000_ab12/meta.json`
@@ -117,7 +118,9 @@ Example snippets:
   "session_id": "session_20260128_200000_ab12",
   "started_at": "2026-01-28T20:00:00.100Z",
   "stdin_path": "/logs/sessions/session_20260128_200000_ab12/stdin.log",
-  "stdout_path": "/logs/sessions/session_20260128_200000_ab12/stdout.log"
+  "stdout_path": "/logs/sessions/session_20260128_200000_ab12/stdout.log",
+  "tui_cast_format": "asciinema-v2",
+  "tui_cast_path": "/logs/sessions/session_20260128_200000_ab12/tui.cast"
 }
 ```
 
@@ -131,6 +134,12 @@ Create a new notes.txt file in a new directory personal_files.
 ```
 /work
 Created /work/personal_files/notes.txt
+```
+
+`logs/sessions/session_20260128_200000_ab12/tui.cast`
+```
+{"version":2,"width":80,"height":24,"timestamp":1769611200,"command":"codex -C /work -s danger-full-access","title":"session_20260128_200000_ab12","env":{"TERM":"xterm-256color"}}
+[0.150321,"o","/work\r\n"]
 ```
 
 ### Scenario B (server mode)

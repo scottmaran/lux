@@ -49,7 +49,10 @@ export function RunsList({ selectedRun, onSelectRun }: RunsListProps) {
           mode: s.mode,
           exit_code: s.exit_code,
           started_at: s.started_at,
-          ended_at: s.ended_at
+          ended_at: s.ended_at,
+          tui_cast_path: s.tui_cast_path,
+          tui_cast_format: s.tui_cast_format,
+          tui_available: s.tui_available
         })),
         ...jobs.map((j: any) => ({
           id: j.job_id,

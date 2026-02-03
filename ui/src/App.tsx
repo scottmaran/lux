@@ -4,6 +4,7 @@ import { Timeline } from './components/Timeline';
 import { RunsList } from './components/RunsList';
 import { SummaryMetrics } from './components/SummaryMetrics';
 import { FilterControls } from './components/FilterControls';
+import { IncidentReplay } from './components/IncidentReplay';
 
 export type Source = 'audit' | 'ebpf';
 export type TimeRange = '15m' | '1h' | '24h' | '7d';
@@ -28,6 +29,9 @@ export interface Run {
   exit_code?: number;
   started_at?: string;
   ended_at?: string;
+  tui_cast_path?: string;
+  tui_cast_format?: string;
+  tui_available?: boolean;
 }
 
 function App() {
@@ -142,6 +146,12 @@ function App() {
           onSourcesChange={setSelectedSources}
           timeRange={timeRange}
           onTimeRangeChange={setTimeRange}
+        />
+
+        {/* Incident Replay */}
+        <IncidentReplay
+          selectedRun={selectedRun}
+          selectedSources={selectedSources}
         />
 
         {/* Split Content: Timeline + Runs */}

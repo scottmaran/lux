@@ -135,6 +135,11 @@ Unit tests live in `collector/tests/` and can be run with:
 python3 -m unittest discover -s collector/tests
 ```
 
+Harness unit tests live in `harness/tests/` and can be run with:
+```bash
+python3 -m unittest discover -s harness/tests
+```
+
 Suggested fixture coverage:
 - Grouping by `msg=audit(...:<seq>)`.
 - Exec argv parsing, shell `-lc` extraction.

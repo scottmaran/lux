@@ -63,6 +63,9 @@ Returns session metadata from `logs/sessions/*/meta.json`.
       "name": "TUI debug run",
       "mode": "tui",
       "command": "codex -C /work -s danger-full-access",
+      "tui_cast_path": "/logs/sessions/session_20260122_001630_de71/tui.cast",
+      "tui_cast_format": "asciinema-v2",
+      "tui_available": true,
       "started_at": "2026-01-22T00:16:30.250227+00:00",
       "ended_at": "2026-01-22T00:17:47.384702+00:00",
       "exit_code": 0
@@ -70,6 +73,13 @@ Returns session metadata from `logs/sessions/*/meta.json`.
   ]
 }
 ```
+
+## GET /api/sessions/<id>/tui.cast
+Returns the asciinema v2 cast for a TUI session (if present).
+
+### Response
+- 200 with `application/x-asciinema` payload when available.
+- 404 if the session or cast file is not found.
 
 ## GET /api/jobs
 Returns job metadata from `logs/jobs/*/input.json` and `status.json`.
