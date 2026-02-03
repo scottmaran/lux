@@ -1,0 +1,12 @@
+{
+  "command": "codex -C /work -s danger-full-access",
+  "ended_at": "2026-02-03T04:34:45.938835+00:00",
+  "exit_code": 0,
+  "mode": "tui",
+  "session_id": "session_20260203_043349_2ff2",
+  "started_at": "2026-02-03T04:33:49.228426+00:00",
+  "stdin_path": "/logs/sessions/session_20260203_043349_2ff2/stdin.log",
+  "stdout_path": "/logs/sessions/session_20260203_043349_2ff2/stdout.log",
+  "tui_cast_format": "asciinema-v2",
+  "tui_cast_path": "/logs/sessions/session_20260203_043349_2ff2/tui.cast"
+}

@@ -14,8 +14,7 @@ This document describes the current UI design for the log viewer. The source of 
 - **Main content (stacked sections)**
   1. **Summary Metrics**: three metric cards for Processes, File Changes, and Network Calls.
   2. **Filter Controls**: data source toggles and time range presets.
-  3. **Incident Replay**: playback controls + timeline replay and optional TUI recording.
-  4. **Split content**
+  3. **Split content**
      - **Timeline** (left, 2/3 width on large screens)
      - **Runs** (right, 1/3 width on large screens)
      - Panels are resizable on large screens via a draggable divider.
@@ -69,6 +68,7 @@ Single card containing:
   - Truncated run ID.
   - Status badge (for jobs) and mode (for sessions).
   - Started/ended timestamps.
+- An **Incident Replay** button on each run opens a dedicated replay view.
 - Clicking a run toggles selection and filters the timeline.
 - Selected row shows a subtle blue highlight and left border.
 - Inline rename:
@@ -91,8 +91,8 @@ Single card containing:
 - No annotation/export tools.
 - No editing of evidence logs or timeline rows (run labels only).
 
-## Incident Replay (New)
-- Visible when a run is selected; otherwise shows a prompt to select a run.
+## Incident Replay (Dedicated View)
+- Opened from the **Incident Replay** button in the Runs list.
+- Replaces the main dashboard with a single replay-focused page.
 - Timeline replay uses run-scoped events ordered by timestamp with play/pause, scrubber, and speed control.
-- If a TUI asciinema cast is available, the right-side panel embeds a terminal replay player.
-- If no cast exists (server jobs or older sessions), the panel shows a “TUI display not available” message.
+- TUI replay embeds the asciinema player when `tui.cast` is available; otherwise shows a fallback message.

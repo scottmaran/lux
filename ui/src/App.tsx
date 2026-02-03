@@ -38,6 +38,7 @@ function App() {
   const [selectedSources, setSelectedSources] = useState<Source[]>(['audit', 'ebpf']);
   const [timeRange, setTimeRange] = useState<TimeRange>('1h');
   const [selectedRun, setSelectedRun] = useState<Run | null>(null);
+  const [replayRun, setReplayRun] = useState<Run | null>(null);
   const [splitPercent, setSplitPercent] = useState(66);
   const [isWide, setIsWide] = useState(false);
   const splitRef = useRef<HTMLDivElement | null>(null);
@@ -59,23 +60,20 @@ function App() {
   }, [splitPercent]);
 
   useEffect(() => {
-    const node = splitRef.current;
-    if (!node) {
+    if (typeof window === 'undefined' || typeof window.matchMedia === 'undefined') {
+      setIsWide(true);
       return;
     }
-    const update = () => {
-      const width = node.getBoundingClientRect().width;
-      setIsWide(width >= wideBreakpoint);
-    };
+    const query = window.matchMedia(`(min-width: ${wideBreakpoint}px)`);
+    const update = () => setIsWide(query.matches);
     update();
-    if (typeof ResizeObserver !== 'undefined') {
-      const observer = new ResizeObserver(update);
-      observer.observe(node);
-      return () => observer.disconnect();
+    if (typeof query.addEventListener === 'function') {
+      query.addEventListener('change', update);
+      return () => query.removeEventListener('change', update);
     }
-    window.addEventListener('resize', update);
-    return () => window.removeEventListener('resize', update);
-  }, [wideBreakpoint]);
+    query.addListener(update);
+    return () => query.removeListener(update);
+  }, [wideBreakpoint, replayRun]);
 
   useEffect(() => {
     const handlePointerMove = (event: PointerEvent) => {
@@ -120,6 +118,35 @@ function App() {
     document.body.style.cursor = 'col-resize';
   };
 
+  if (replayRun) {
+    return (
+      <div className="min-h-screen bg-gray-50">
+        <header className="bg-white border-b border-gray-200">
+          <div className="px-6 py-4 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <h1 className="text-xl font-semibold text-gray-900">Lasso</h1>
+              <p className="text-sm text-gray-500 mt-1">Incident Replay</p>
+            </div>
+            <button
+              type="button"
+              onClick={() => setReplayRun(null)}
+              className="inline-flex items-center justify-center px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-200 rounded-md hover:bg-gray-50"
+            >
+              Back to overview
+            </button>
+          </div>
+        </header>
+
+        <div className="px-6 py-6">
+          <IncidentReplay
+            selectedRun={replayRun}
+            selectedSources={['audit', 'ebpf']}
+          />
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-gray-50">
       {/* Header */}
@@ -148,16 +175,10 @@ function App() {
           onTimeRangeChange={setTimeRange}
         />
 
-        {/* Incident Replay */}
-        <IncidentReplay
-          selectedRun={selectedRun}
-          selectedSources={selectedSources}
-        />
-
         {/* Split Content: Timeline + Runs */}
         <div
           ref={splitRef}
-          className={`flex ${isWide ? 'flex-row' : 'flex-col gap-6'}`}
+          className="flex flex-col gap-6 md:flex-row"
         >
           <div
             className={isWide ? 'pr-3' : ''}
@@ -201,6 +222,10 @@ function App() {
             <RunsList
               selectedRun={selectedRun}
               onSelectRun={setSelectedRun}
+              onReplayRun={(run) => {
+                setSelectedRun(run);
+                setReplayRun(run);
+              }}
             />
           </div>
         </div>

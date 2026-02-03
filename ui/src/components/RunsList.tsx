@@ -5,9 +5,10 @@ import type { Run } from '../App';
 interface RunsListProps {
   selectedRun: Run | null;
   onSelectRun: (run: Run | null) => void;
+  onReplayRun?: (run: Run) => void;
 }
 
-export function RunsList({ selectedRun, onSelectRun }: RunsListProps) {
+export function RunsList({ selectedRun, onSelectRun, onReplayRun }: RunsListProps) {
   const [runs, setRuns] = useState<Run[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -249,14 +250,26 @@ export function RunsList({ selectedRun, onSelectRun }: RunsListProps) {
                       </span>
                     )}
                     {!isEditing && (
-                      <button
-                        type="button"
-                        onClick={(event) => startEdit(run, event)}
-                        className="ml-auto inline-flex items-center justify-center w-7 h-7 rounded-md text-gray-500 hover:text-gray-700 hover:bg-gray-100"
-                        aria-label="Rename run"
-                      >
-                        <Pencil className="w-4 h-4" />
-                      </button>
+                      <div className="ml-auto flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            onReplayRun?.(run);
+                          }}
+                          className="inline-flex items-center justify-center px-2.5 py-1 text-xs font-medium text-blue-700 bg-blue-50 border border-blue-200 rounded-md hover:bg-blue-100"
+                        >
+                          Incident Replay
+                        </button>
+                        <button
+                          type="button"
+                          onClick={(event) => startEdit(run, event)}
+                          className="inline-flex items-center justify-center w-7 h-7 rounded-md text-gray-500 hover:text-gray-700 hover:bg-gray-100"
+                          aria-label="Rename run"
+                        >
+                          <Pencil className="w-4 h-4" />
+                        </button>
+                      </div>
                     )}
                     {isEditing && savingRunId === run.id && (
                       <span className="ml-auto text-xs text-gray-400 flex items-center gap-1">

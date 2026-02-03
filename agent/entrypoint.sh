@@ -17,9 +17,30 @@ sync_authorized_keys() {
   fi
 
   if [[ -n "${src}" ]]; then
-    cp "${src}" "${AUTHORIZED_KEYS_FILE}"
-    chown agent:agent "${AUTHORIZED_KEYS_FILE}"
-    chmod 600 "${AUTHORIZED_KEYS_FILE}"
+    local needs_copy="true"
+    if [[ -f "${AUTHORIZED_KEYS_FILE}" ]]; then
+      if cmp -s "${src}" "${AUTHORIZED_KEYS_FILE}"; then
+        needs_copy="false"
+      fi
+    fi
+
+    if [[ "${needs_copy}" == "true" ]]; then
+      cp "${src}" "${AUTHORIZED_KEYS_FILE}"
+    fi
+
+    if [[ -f "${AUTHORIZED_KEYS_FILE}" ]]; then
+      local current_uid current_gid current_mode
+      current_uid="$(stat -c '%u' "${AUTHORIZED_KEYS_FILE}")"
+      current_gid="$(stat -c '%g' "${AUTHORIZED_KEYS_FILE}")"
+      current_mode="$(stat -c '%a' "${AUTHORIZED_KEYS_FILE}")"
+
+      if [[ "${current_uid}" != "1001" || "${current_gid}" != "1001" ]]; then
+        chown agent:agent "${AUTHORIZED_KEYS_FILE}"
+      fi
+      if [[ "${current_mode}" != "600" ]]; then
+        chmod 600 "${AUTHORIZED_KEYS_FILE}"
+      fi
+    fi
   fi
 }
 
