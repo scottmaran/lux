@@ -16,7 +16,8 @@ container to exit on non-fatal rule errors. It ensures the log files exist and a
 writable by the audit group, starts auditd in daemon mode, then launches the filter
 (`collector-audit-filter`) and the eBPF loader with paths controlled by
 `COLLECTOR_AUDIT_LOG`, `COLLECTOR_FILTER_CONFIG`, `COLLECTOR_FILTER_OUTPUT`,
-`COLLECTOR_EBPF_OUTPUT`, and `COLLECTOR_EBPF_BPF`.
+`COLLECTOR_EBPF_OUTPUT`, and `COLLECTOR_EBPF_BPF`. It also runs the forbidden detection
+loop (`collector-forbidden-detect`) to emit policy alerts.
 
 ## auditd.conf
 Configured to keep audit output local and file‑backed: `local_events = yes`, RAW log
@@ -32,6 +33,7 @@ don’t exist on aarch64 kernels. This is a starter set intended to be refined f
 reduction and tighter scoping later.
 
 Schema reference: `collector/eBPF_data.md`.
+Policy reference: `collector/forbidden_policy.md`.
 
 # Testing
 Run the full test sequence with a single script:

@@ -20,6 +20,10 @@ MERGE_FILTER_CONFIG=${COLLECTOR_MERGE_FILTER_CONFIG:-/etc/collector/merge_filter
 MERGE_FILTER_LOG=${COLLECTOR_MERGE_FILTER_OUTPUT:-/logs/filtered_timeline.jsonl}
 MERGE_FILTER_BIN=${COLLECTOR_MERGE_FILTER_BIN:-/usr/local/bin/collector-merge-filtered}
 MERGE_FILTER_INTERVAL=${COLLECTOR_MERGE_FILTER_INTERVAL:-2}
+FORBIDDEN_CONFIG=${COLLECTOR_FORBIDDEN_CONFIG:-/etc/collector/forbidden_detection.yaml}
+FORBIDDEN_LOG=${COLLECTOR_FORBIDDEN_OUTPUT:-/logs/filtered_alerts.jsonl}
+FORBIDDEN_BIN=${COLLECTOR_FORBIDDEN_BIN:-/usr/local/bin/collector-forbidden-detect}
+FORBIDDEN_INTERVAL=${COLLECTOR_FORBIDDEN_INTERVAL:-2}
 
 mkdir -p /logs /sys/kernel/tracing /sys/kernel/debug /sys/fs/bpf
 
@@ -59,6 +63,10 @@ chmod 0640 "${EBPF_SUMMARY_LOG}" 2>/dev/null || true
 touch "${MERGE_FILTER_LOG}" 2>/dev/null || true
 chown root:adm "${MERGE_FILTER_LOG}" 2>/dev/null || chown root:root "${MERGE_FILTER_LOG}" 2>/dev/null || true
 chmod 0640 "${MERGE_FILTER_LOG}" 2>/dev/null || true
+
+touch "${FORBIDDEN_LOG}" 2>/dev/null || true
+chown root:adm "${FORBIDDEN_LOG}" 2>/dev/null || chown root:root "${FORBIDDEN_LOG}" 2>/dev/null || true
+chmod 0640 "${FORBIDDEN_LOG}" 2>/dev/null || true
 
 auditd
 AUDITD_PID=$(pidof auditd 2>/dev/null || cat /var/run/auditd.pid 2>/dev/null || true)
@@ -112,8 +120,21 @@ else
   echo "collector: warning: missing merge filter config at ${MERGE_FILTER_CONFIG}" >&2
 fi
 
+if [ -f "${FORBIDDEN_CONFIG}" ]; then
+  (
+    while true; do
+      /usr/bin/env COLLECTOR_FORBIDDEN_CONFIG="${FORBIDDEN_CONFIG}" \
+        "${FORBIDDEN_BIN}" --config "${FORBIDDEN_CONFIG}" >/dev/null 2>&1 || true
+      sleep "${FORBIDDEN_INTERVAL}"
+    done
+  ) &
+  FORBIDDEN_PID=$!
+else
+  echo "collector: warning: missing forbidden detection config at ${FORBIDDEN_CONFIG}" >&2
+fi
+
 tail -F "${AUDIT_LOG}" &
 TAIL_PID=$!
 
-trap 'kill ${TAIL_PID} 2>/dev/null || true; kill ${FILTER_PID} 2>/dev/null || true; kill ${EBPF_FILTER_PID} 2>/dev/null || true; kill ${EBPF_SUMMARY_PID} 2>/dev/null || true; kill ${MERGE_PID} 2>/dev/null || true; kill ${EBPF_PID} 2>/dev/null || true; kill ${AUDITD_PID} 2>/dev/null || true' TERM INT
+trap 'kill ${TAIL_PID} 2>/dev/null || true; kill ${FILTER_PID} 2>/dev/null || true; kill ${EBPF_FILTER_PID} 2>/dev/null || true; kill ${EBPF_SUMMARY_PID} 2>/dev/null || true; kill ${MERGE_PID} 2>/dev/null || true; kill ${FORBIDDEN_PID} 2>/dev/null || true; kill ${EBPF_PID} 2>/dev/null || true; kill ${AUDITD_PID} 2>/dev/null || true' TERM INT
 wait "${EBPF_PID}"

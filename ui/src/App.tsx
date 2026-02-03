@@ -5,7 +5,7 @@ import { RunsList } from './components/RunsList';
 import { SummaryMetrics } from './components/SummaryMetrics';
 import { FilterControls } from './components/FilterControls';
 
-export type Source = 'audit' | 'ebpf';
+export type Source = 'audit' | 'ebpf' | 'policy';
 export type TimeRange = '15m' | '1h' | '24h' | '7d';
 
 export interface TimelineEvent {
@@ -31,7 +31,7 @@ export interface Run {
 }
 
 function App() {
-  const [selectedSources, setSelectedSources] = useState<Source[]>(['audit', 'ebpf']);
+  const [selectedSources, setSelectedSources] = useState<Source[]>(['audit', 'ebpf', 'policy']);
   const [timeRange, setTimeRange] = useState<TimeRange>('1h');
   const [selectedRun, setSelectedRun] = useState<Run | null>(null);
   const [splitPercent, setSplitPercent] = useState(66);

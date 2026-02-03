@@ -12,7 +12,7 @@ This document describes the current UI design for the log viewer. The source of 
 - **Header bar**
   - Left-aligned product title (“Agent Harness”) and subtitle (“AI Agent Activity Audit Log”).
 - **Main content (stacked sections)**
-  1. **Summary Metrics**: three metric cards for Processes, File Changes, and Network Calls.
+  1. **Summary Metrics**: four metric cards for Processes, File Changes, Network Calls, and Alerts.
   2. **Filter Controls**: data source toggles and time range presets.
   3. **Split content**
      - **Timeline** (left, 2/3 width on large screens)
@@ -27,10 +27,11 @@ This document describes the current UI design for the log viewer. The source of 
 - **Icons**: lightweight line icons (lucide-react) for status, loading, and empty states.
 
 ## Summary Metrics
-Three cards display aggregate counts from the currently filtered timeline:
+Four cards display aggregate counts from the currently filtered timeline:
 - **Processes** = `exec` events.
 - **File Changes** = `fs_create` + `fs_unlink` + `fs_meta`.
 - **Network Calls** = `net_summary`.
+- **Alerts** = `alert`.
 
 Each card shows:
 - Label
@@ -39,7 +40,7 @@ Each card shows:
 
 ## Filter Controls
 Single card containing:
-- **Data Source toggles** (multi-select): `Audit`, `eBPF`.
+  - **Data Source toggles** (multi-select): `Audit`, `eBPF`, `Policy` (alerts).
 - **Time Range presets**: `15 min`, `1 hour`, `24 hours`, `7 days`.
 - Warning banner appears if no sources are selected.
 
@@ -48,7 +49,7 @@ Single card containing:
 - Body is a scrollable list (max height ~600px).
 - Rows include:
   - Timestamp (mono, muted).
-  - Source badge (Audit or eBPF).
+  - Source badge (Audit, eBPF, or Policy).
   - Event type badge (colored by category).
   - Target/description line derived from event details.
   - Process name and PID metadata.

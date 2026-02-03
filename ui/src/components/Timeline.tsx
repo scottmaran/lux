@@ -195,9 +195,12 @@ export function Timeline({ selectedSources, timeRange, selectedRun }: TimelinePr
 function TimelineEventRow({ event }: { event: TimelineEvent }) {
   const target = getEventTarget(event);
   const execStatus = getExecStatus(event);
+  const alertSeverity = getAlertSeverity(event);
   const sourceColor = event.source === 'audit' 
     ? 'bg-indigo-100 text-indigo-700' 
-    : 'bg-emerald-100 text-emerald-700';
+    : event.source === 'ebpf'
+      ? 'bg-emerald-100 text-emerald-700'
+      : 'bg-red-100 text-red-700';
 
   return (
     <div className="p-4 hover:bg-gray-50 transition-colors">
@@ -223,6 +226,11 @@ function TimelineEventRow({ event }: { event: TimelineEvent }) {
           {execStatus && (
             <span className={`flex items-center gap-1 font-medium px-2 py-0.5 rounded ${execStatus.className}`}>
               {execStatus.label}
+            </span>
+          )}
+          {alertSeverity && (
+            <span className={`flex items-center gap-1 font-medium px-2 py-0.5 rounded ${alertSeverity.className}`}>
+              {alertSeverity.label}
             </span>
           )}
           {event.comm && (
@@ -271,6 +279,18 @@ function getEventTarget(event: TimelineEvent): string {
       }
       return parts.length > 0 ? parts.join(' → ') : 'Network connection';
     }
+    case 'alert': {
+      const ruleId = details.rule_id ? String(details.rule_id) : 'alert';
+      const ruleDesc = details.rule_description ? String(details.rule_description) : '';
+      const subject = details.trigger_subject ? String(details.trigger_subject) : '';
+      if (ruleDesc && subject) {
+        return `${ruleDesc} → ${subject}`;
+      }
+      if (subject) {
+        return subject;
+      }
+      return ruleDesc || ruleId;
+    }
     
     case 'unix_connect':
       return details.unix?.path || details.path || 'Unix socket connection';
@@ -297,6 +317,9 @@ function getEventTypeColor(eventType: string): string {
   if (eventType.startsWith('unix_')) {
     return 'bg-orange-100 text-orange-700';
   }
+  if (eventType === 'alert') {
+    return 'bg-red-100 text-red-700';
+  }
   return 'bg-gray-100 text-gray-700';
 }
 
@@ -319,6 +342,24 @@ function getExecStatus(event: TimelineEvent): { label: string; className: string
     label = `exec failed (exit=${details.exec_exit})`;
   }
   return { label, className: 'bg-red-100 text-red-700' };
+}
+
+function getAlertSeverity(event: TimelineEvent): { label: string; className: string } | null {
+  if (event.event_type !== 'alert') {
+    return null;
+  }
+  const details = event.details || {};
+  const severity = typeof details.severity === 'string' ? details.severity.toLowerCase() : '';
+  if (severity === 'high') {
+    return { label: 'high', className: 'bg-red-100 text-red-700' };
+  }
+  if (severity === 'medium') {
+    return { label: 'medium', className: 'bg-amber-100 text-amber-700' };
+  }
+  if (severity === 'low') {
+    return { label: 'low', className: 'bg-slate-100 text-slate-700' };
+  }
+  return { label: 'alert', className: 'bg-red-50 text-red-700' };
 }
 
 function formatTimestamp(timestamp: string): string {

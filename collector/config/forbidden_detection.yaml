@@ -1,0 +1,13 @@
+schema_version: forbidden.detect.v1
+
+policy: /etc/collector/forbidden_policy.yaml
+
+inputs:
+  - path: /logs/filtered_audit.jsonl
+  - path: /logs/filtered_ebpf_summary.jsonl
+
+output:
+  jsonl: /logs/filtered_alerts.jsonl
+
+sorting:
+  strategy: ts_rule_pid

@@ -18,8 +18,8 @@ Returns filtered timeline rows from `logs/filtered_timeline.jsonl`.
 - `limit`: integer; if set, returns only the last N rows in the filtered set.
 - `session_id`: filter by session id.
 - `job_id`: filter by job id.
-- `source`: comma-separated list (`audit,ebpf`).
-- `event_type`: comma-separated list (`exec,fs_create,fs_unlink,fs_meta,net_summary,unix_connect`).
+- `source`: comma-separated list (`audit,ebpf,policy`).
+- `event_type`: comma-separated list (`exec,fs_create,fs_unlink,fs_meta,net_summary,unix_connect,alert`).
 
 ### Response
 ```json
@@ -136,6 +136,7 @@ The current UI derives three summary tiles from this data:
 - **Processes**: `exec`
 - **File changes**: `fs_create + fs_unlink + fs_meta`
 - **Network calls**: `net_summary`
+- **Alerts**: `alert`
 
 ### Response
 ```json

@@ -41,10 +41,13 @@ COPY scripts/filter_audit_logs.py /usr/local/bin/collector-audit-filter
 COPY scripts/filter_ebpf_logs.py /usr/local/bin/collector-ebpf-filter
 COPY scripts/summarize_ebpf_logs.py /usr/local/bin/collector-ebpf-summary
 COPY scripts/merge_filtered_logs.py /usr/local/bin/collector-merge-filtered
+COPY scripts/detect_forbidden.py /usr/local/bin/collector-forbidden-detect
 COPY config/filtering.yaml /etc/collector/filtering.yaml
 COPY config/ebpf_filtering.yaml /etc/collector/ebpf_filtering.yaml
 COPY config/ebpf_summary.yaml /etc/collector/ebpf_summary.yaml
 COPY config/merge_filtering.yaml /etc/collector/merge_filtering.yaml
+COPY config/forbidden_detection.yaml /etc/collector/forbidden_detection.yaml
+COPY config/forbidden_policy.yaml /etc/collector/forbidden_policy.yaml
 COPY config/auditd.conf /etc/audit/auditd.conf
 COPY config/rules.d/harness.rules /etc/audit/rules.d/harness.rules
 
@@ -52,6 +55,7 @@ RUN chmod +x /usr/local/bin/collector-entrypoint.sh \
     /usr/local/bin/collector-audit-filter \
     /usr/local/bin/collector-ebpf-filter \
     /usr/local/bin/collector-ebpf-summary \
-    /usr/local/bin/collector-merge-filtered
+    /usr/local/bin/collector-merge-filtered \
+    /usr/local/bin/collector-forbidden-detect
 
 ENTRYPOINT ["/usr/local/bin/collector-entrypoint.sh"]

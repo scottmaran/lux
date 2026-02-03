@@ -58,6 +58,16 @@ export function FilterControls({
             >
               Network
             </button>
+            <button
+              onClick={() => toggleSource('policy')}
+              className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${
+                selectedSources.includes('policy')
+                  ? 'bg-red-600 text-white'
+                  : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+              }`}
+            >
+              Alerts
+            </button>
           </div>
         </div>
 

@@ -1,0 +1,91 @@
+# Forbidden command detection policy (detection-first).
+schema_version: forbidden.policy.v1
+
+policy:
+  name: "default-pack"
+  description: "Compact detection-first rules for common risky behaviors."
+  defaults:
+    action: "alert"
+    severity: "medium"
+    enabled: true
+
+  rules:
+    - id: "exec.net_tools"
+      description: "Network transfer tools (ssh/scp/rsync/curl/wget/nc/socat)."
+      event_type: "exec"
+      match:
+        comm:
+          any: ["ssh", "scp", "sftp", "rsync", "curl", "wget", "nc", "ncat", "socat"]
+      severity: "high"
+
+    - id: "exec.package_installs"
+      description: "Package manager installs."
+      event_type: "exec"
+      match:
+        comm:
+          any: ["apt", "apt-get", "apk", "yum", "dnf", "pip", "pip3", "npm", "yarn", "pnpm", "gem", "cargo", "go"]
+        cmd_regex:
+          any:
+            - "\\bapt(-get)?\\s+install\\b"
+            - "\\bapk\\s+add\\b"
+            - "\\byum\\s+install\\b"
+            - "\\bdnf\\s+install\\b"
+            - "\\bpip(3)?\\s+install\\b"
+            - "\\bnpm\\s+install\\b"
+            - "\\byarn\\s+add\\b"
+            - "\\bpnpm\\s+add\\b"
+            - "\\bgem\\s+install\\b"
+            - "\\bcargo\\s+install\\b"
+            - "\\bgo\\s+install\\b"
+      severity: "medium"
+
+    - id: "exec.destructive_flags"
+      description: "Common destructive flags."
+      event_type: "exec"
+      match:
+        cmd_regex:
+          any:
+            - "\\brm\\s+-rf\\b"
+            - "\\bchown\\s+-R\\b"
+            - "\\bchmod\\s+777\\b"
+            - "\\bgit\\s+push\\s+--force\\b"
+      severity: "high"
+
+    - id: "exec.privilege_escalation"
+      description: "Privilege escalation tools."
+      event_type: "exec"
+      match:
+        comm:
+          any: ["sudo", "su"]
+      severity: "high"
+
+    - id: "net.smtp_ports"
+      description: "Outbound SMTP ports (email sending)."
+      event_type: "net_summary"
+      match:
+        dst_port:
+          any: [25, 465, 587]
+        protocol:
+          any: ["tcp"]
+      severity: "high"
+
+    - id: "net.email_apis"
+      description: "Email API providers."
+      event_type: "net_summary"
+      enabled: false
+      match:
+        dns_suffix:
+          any: ["sendgrid.net", "mailgun.org", "ses.amazonaws.com", "smtp.gmail.com", "api.mailgun.net"]
+      severity: "medium"
+
+    - id: "fs.deletes"
+      description: "File deletions."
+      event_type: "fs_unlink"
+      enabled: false
+      severity: "medium"
+
+    - id: "fs.permissions"
+      description: "chmod/chown/xattr/utime."
+      event_type: "fs_meta"
+      enabled: false
+      severity: "medium"

@@ -6,6 +6,8 @@ inputs:
     source: audit
   - path: /logs/filtered_ebpf_summary.jsonl
     source: ebpf
+  - path: /logs/filtered_alerts.jsonl
+    source: policy
 
 output:
   jsonl: /logs/filtered_timeline.jsonl

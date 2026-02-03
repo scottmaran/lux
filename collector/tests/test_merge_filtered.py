@@ -63,11 +63,34 @@ def make_ebpf_event(ts: str, session_id: str, job_id: str | None = None) -> dict
     return event
 
 
+def make_policy_event(ts: str, session_id: str, job_id: str | None = None) -> dict:
+    event = {
+        "schema_version": "forbidden.alert.v1",
+        "session_id": session_id,
+        "ts": ts,
+        "source": "policy",
+        "event_type": "alert",
+        "rule_id": "exec.net_tools",
+        "rule_description": "Network transfer tools.",
+        "severity": "high",
+        "action": "alert",
+        "trigger_source": "audit",
+        "trigger_event_type": "exec",
+        "trigger_subject": "curl https://example.com",
+        "pid": 102,
+    }
+    if job_id:
+        event["job_id"] = job_id
+    return event
+
+
 class MergeFilteredTests(unittest.TestCase):
-    def run_merge(self, audit_events: list[dict], ebpf_events: list[dict], config: dict) -> list[dict]:
+    def run_merge(self, audit_events: list[dict], ebpf_events: list[dict], config: dict,
+                  policy_events: list[dict] | None = None) -> list[dict]:
         with tempfile.TemporaryDirectory() as tmpdir:
             audit_path = os.path.join(tmpdir, "filtered_audit.jsonl")
             ebpf_path = os.path.join(tmpdir, "filtered_ebpf.jsonl")
+            policy_path = os.path.join(tmpdir, "filtered_alerts.jsonl")
             output_path = os.path.join(tmpdir, "filtered_timeline.jsonl")
 
             Path(audit_path).write_text(
@@ -78,12 +101,19 @@ class MergeFilteredTests(unittest.TestCase):
                 "\n".join(json.dumps(ev) for ev in ebpf_events) + "\n",
                 encoding="utf-8",
             )
+            if policy_events is not None:
+                Path(policy_path).write_text(
+                    "\n".join(json.dumps(ev) for ev in policy_events) + "\n",
+                    encoding="utf-8",
+                )
 
             cfg = dict(config)
             cfg["inputs"] = [
                 {"path": audit_path, "source": "audit"},
                 {"path": ebpf_path, "source": "ebpf"},
             ]
+            if policy_events is not None:
+                cfg["inputs"].append({"path": policy_path, "source": "policy"})
             cfg["output"] = {"jsonl": output_path}
 
             config_path = os.path.join(tmpdir, "config.json")
@@ -140,6 +170,17 @@ class MergeFilteredTests(unittest.TestCase):
         rows = self.run_merge([audit_event], [], self.base_config())
         self.assertEqual(len(rows), 1)
         self.assertEqual(rows[0]["source"], "audit")
+
+    def test_merge_includes_policy_alerts(self) -> None:
+        audit_event = make_audit_event("2026-01-22T00:00:01.000Z", "session_1")
+        policy_event = make_policy_event("2026-01-22T00:00:00.750Z", "session_1")
+
+        rows = self.run_merge([audit_event], [], self.base_config(), policy_events=[policy_event])
+        sources = [row["source"] for row in rows]
+        self.assertIn("policy", sources)
+        alert_row = next(row for row in rows if row["source"] == "policy")
+        self.assertEqual(alert_row["event_type"], "alert")
+        self.assertIn("rule_id", alert_row.get("details", {}))
 
 
 if __name__ == "__main__":

@@ -11,8 +11,8 @@ The UI should consume this file rather than raw audit/eBPF logs.
 - `session_id` (string): session identifier, or `unknown`
 - `job_id` (string, optional): job identifier for server-mode runs
 - `ts` (string): RFC3339 timestamp (UTC, millisecond precision)
-- `source` (string): `audit`, `ebpf`, `proxy` (future)
-- `event_type` (string): `exec`, `fs_create`, `fs_unlink`, `fs_meta`, `net_summary`, `unix_connect`, `http` (future)
+- `source` (string): `audit`, `ebpf`, `policy`, `proxy` (future)
+- `event_type` (string): `exec`, `fs_create`, `fs_unlink`, `fs_meta`, `net_summary`, `unix_connect`, `alert`, `http` (future)
 - `pid` (int, optional)
 - `ppid` (int, optional)
 - `uid` (int, optional)
@@ -63,6 +63,20 @@ Typical keys inside `details`:
 - `status` (int)
 - `host` (string)
 - `port` (int)
+
+### policy (alerts)
+Alert rows are emitted by the forbidden detection stage. They always use
+`source=policy` and `event_type=alert`.
+
+Typical keys inside `details`:
+- `rule_id` (string)
+- `rule_description` (string)
+- `severity` (string)
+- `action` (string)
+- `trigger_source` (string)
+- `trigger_event_type` (string)
+- `trigger_subject` (string)
+- `matched` (array) — list of `{ field, value, pattern }`
 
 ## Ordering
 The merger outputs rows sorted by:
