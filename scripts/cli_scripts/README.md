@@ -21,8 +21,18 @@ config, and drive `lasso` commands to validate artifacts.
 
 Each script creates a temporary config, log root, and workspace root under a
 fresh temp directory. No permanent files are written to your home directory.
+GHCR auth is handled by Docker’s credential store (no extra env vars needed).
 
 ## Run All Tests
+
+Step-by-step:
+1) Ensure the CLI is available:
+   - `lasso --help`
+   - Or set `LASSO_BIN=/path/to/lasso`
+2) Ensure Docker is running.
+3) Authenticate to GHCR (required for private images):
+   - `docker login ghcr.io`
+4) Run the full suite:
 
 ```bash
 scripts/cli_scripts/run_all.sh
