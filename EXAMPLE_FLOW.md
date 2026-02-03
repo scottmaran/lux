@@ -12,7 +12,7 @@ mkdir -p logs
 
 2) Start the stack for TUI (Scenario A).
 ```bash
-docker compose -f compose.yml -f compose.codex.yml up -d --build collector agent
+docker compose -f compose.yml -f compose.codex.yml up -d --build collector agent proxy
 ```
 
 3) Launch the harness TUI (Scenario A).
@@ -26,7 +26,7 @@ docker compose -f compose.yml -f compose.codex.yml run --rm --service-ports \
 ```bash
 export HARNESS_API_TOKEN=dev-token
 
-docker compose -f compose.yml -f compose.codex.yml up -d --build collector agent harness
+docker compose -f compose.yml -f compose.codex.yml up -d --build collector agent proxy harness
 ```
 
 5) Trigger a server-mode job (Scenario B).

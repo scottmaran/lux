@@ -32,7 +32,7 @@ Host OS
 
 - Proxy container
   - Logs method/URL/status for HTTP; for HTTPS without MITM, host/port only.
-  - Emits proxy logs to the host sink.
+  - Emits proxy logs to the host sink (`/logs/filtered_proxy.jsonl`).
 
 - Log sink (storage)
   - Host directory outside the VM.
@@ -97,7 +97,23 @@ services:
       - 127.0.0.1:8081:8081
     depends_on:
       - agent
+    networks:
+      - default
+      - internal
     # Harness connects to the agent via SSH for TTY and non-interactive runs.
+
+  agent:
+    image: harness-agent:latest
+    volumes:
+      - /vm/workspace:/work:rw
+      - /vm/logs:/logs:ro
+      - harness_keys:/config:ro
+    environment:
+      - HTTP_PROXY=http://proxy:3128
+      - HTTPS_PROXY=http://proxy:3128
+      - NO_PROXY=localhost,127.0.0.1,agent,harness,collector,proxy
+    networks:
+      - internal
 
   collector:
     image: harness-collector:latest
@@ -112,16 +128,22 @@ services:
     environment:
       - COLLECTOR_AUDIT_LOG=/logs/audit.log
       - COLLECTOR_EBPF_OUTPUT=/logs/ebpf.jsonl
+    networks:
+      - default
 
   proxy:
     image: harness-proxy:latest
     volumes:
       - /vm/logs:/logs:rw
-    environment:
-      - PROXY_LOG=/logs/http.jsonl
+    networks:
+      - default
+      - internal
 
 volumes:
   harness_keys:
+networks:
+  internal:
+    internal: true
 ```
 
 ## Notes
@@ -133,4 +155,4 @@ volumes:
 - Auditd emits raw audit logs; normalization to JSONL happens in a later processing step.
 - Trust boundary: the host is trusted; the agent container is untrusted; VM root is out of scope.
 - Host log export is the host-mounted ~/agent_harness/logs directory.
-- Enforce proxy use with firewall rules so the agent cannot bypass it.
+- Enforce proxy use by isolating the agent on an internal-only network and routing egress through the proxy (Docker's internal network acts as the firewall).

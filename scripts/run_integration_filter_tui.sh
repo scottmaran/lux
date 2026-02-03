@@ -56,7 +56,7 @@ cleanup() {
 }
 trap cleanup EXIT
 
-"${compose[@]}" up -d --build collector agent
+"${compose[@]}" up -d --build collector agent proxy
 
 TUI_CMD="bash -lc \"pwd; printf 'hello world' > ${FILTER_PATH}\""
 
@@ -65,6 +65,7 @@ script -q /dev/null "${compose[@]}" run --rm --service-ports \
   -e "HARNESS_TUI_CMD=${TUI_CMD}" \
   harness
 
+sleep 3
 "${compose[@]}" exec -T collector collector-audit-filter --config /logs/filtering_test.yaml
 
 python3 - <<'PY'

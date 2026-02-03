@@ -7,6 +7,7 @@ Purpose: run the third-party agent (Codex CLI) inside an isolated container whil
 - `/logs` is a read-only view of the host log sink.
 - SSH is key-only (no passwords), user `agent` (uid 1001).
 - The agent container does not need access to the container runtime socket.
+- HTTP(S) egress is expected to flow through the proxy service via environment variables injected by the harness.
 
 ## SSH configuration
 The container expects authorized keys via one of:
@@ -39,3 +40,4 @@ Non-interactive:
 - Port forwarding disabled.
 - `/logs` should be mounted read-only from the host sink.
 - SSH is internal-only (no host port mapping required).
+- The agent runs on an internal network; direct internet egress is blocked unless routed through the proxy.

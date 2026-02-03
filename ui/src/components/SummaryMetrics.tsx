@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Activity, FileEdit, Wifi } from 'lucide-react';
+import { Activity, FileEdit, Globe, Wifi } from 'lucide-react';
 import type { Source, TimeRange, Run, TimelineEvent } from '../App';
 
 interface SummaryMetricsProps {
@@ -12,7 +12,8 @@ export function SummaryMetrics({ selectedSources, timeRange, selectedRun }: Summ
   const [metrics, setMetrics] = useState({
     processes: 0,
     fileChanges: 0,
-    networkCalls: 0
+    networkCalls: 0,
+    httpCalls: 0
   });
   const [loading, setLoading] = useState(true);
 
@@ -28,7 +29,7 @@ export function SummaryMetrics({ selectedSources, timeRange, selectedRun }: Summ
       if (selectedSources.length > 0) {
         params.append('source', selectedSources.join(','));
       } else {
-        setMetrics({ processes: 0, fileChanges: 0, networkCalls: 0 });
+        setMetrics({ processes: 0, fileChanges: 0, networkCalls: 0, httpCalls: 0 });
         setLoading(false);
         return;
       }
@@ -62,8 +63,9 @@ export function SummaryMetrics({ selectedSources, timeRange, selectedRun }: Summ
         e.event_type === 'fs_meta'
       ).length;
       const networkCalls = events.filter(e => e.event_type === 'net_summary').length;
+      const httpCalls = events.filter(e => e.event_type === 'http').length;
 
-      setMetrics({ processes, fileChanges, networkCalls });
+      setMetrics({ processes, fileChanges, networkCalls, httpCalls });
     } catch (error) {
       console.error('Failed to fetch metrics:', error);
     } finally {
@@ -89,17 +91,24 @@ export function SummaryMetrics({ selectedSources, timeRange, selectedRun }: Summ
       value: metrics.networkCalls,
       icon: Wifi,
       color: 'purple'
+    },
+    {
+      label: 'HTTP Requests',
+      value: metrics.httpCalls,
+      icon: Globe,
+      color: 'indigo'
     }
   ];
 
   return (
-    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+    <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
       {metricCards.map((metric) => {
         const Icon = metric.icon;
         const colorClasses = {
           blue: 'bg-blue-50 text-blue-600',
           green: 'bg-green-50 text-green-600',
-          purple: 'bg-purple-50 text-purple-600'
+          purple: 'bg-purple-50 text-purple-600',
+          indigo: 'bg-indigo-50 text-indigo-600'
         }[metric.color];
 
         return (

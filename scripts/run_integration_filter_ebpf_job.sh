@@ -50,7 +50,7 @@ cleanup() {
 }
 trap cleanup EXIT
 
-"${compose[@]}" up -d --build collector agent harness
+"${compose[@]}" up -d --build collector agent proxy harness
 
 code=""
 for _ in $(seq 1 30); do
@@ -120,6 +120,7 @@ for _ in $(seq 1 10); do
   sleep 0.5
 done
 
+sleep 3
 "${compose[@]}" exec -T collector collector-ebpf-filter --config /logs/ebpf_filtering_test.yaml
 
 python3 - <<'PY'

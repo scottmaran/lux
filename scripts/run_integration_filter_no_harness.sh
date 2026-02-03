@@ -16,7 +16,7 @@ cleanup() {
 }
 trap cleanup EXIT
 
-"${compose[@]}" up -d --build collector agent
+"${compose[@]}" up -d --build collector agent proxy
 
 sleep 3
 "${compose[@]}" exec -T collector collector-audit-filter --config /etc/collector/filtering.yaml

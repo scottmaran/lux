@@ -18,6 +18,17 @@ services:
     environment:
       - COLLECTOR_AUDIT_LOG=/logs/audit.log
       - COLLECTOR_EBPF_OUTPUT=/logs/ebpf.jsonl
+    networks:
+      - default
+
+  proxy:
+    build: ./proxy
+    image: harness-proxy:dev
+    volumes:
+      - ./logs:/logs:rw
+    networks:
+      - default
+      - internal
 
   agent:
     build: ./agent
@@ -28,6 +39,8 @@ services:
       - ./logs:/logs:ro
       # the named docker volume to store the keys
       - harness_keys:/config:ro
+    networks:
+      - internal
 
   harness:
     build: ./harness
@@ -54,6 +67,13 @@ services:
       - HARNESS_RUN_CMD_TEMPLATE=${HARNESS_RUN_CMD_TEMPLATE:-}
     depends_on:
       - agent
+    networks:
+      - default
+      - internal
 
 volumes:
   harness_keys:
+
+networks:
+  internal:
+    internal: true

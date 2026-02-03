@@ -54,7 +54,7 @@ cleanup() {
 }
 trap cleanup EXIT
 
-"${compose[@]}" up -d --build collector agent harness
+"${compose[@]}" up -d --build collector agent proxy harness
 
 code=""
 for _ in $(seq 1 30); do
@@ -116,6 +116,7 @@ if [ "$state" != "complete" ]; then
   exit 1
 fi
 
+sleep 3
 "${compose[@]}" exec -T collector collector-audit-filter --config /logs/filtering_test.yaml
 
 python3 - <<'PY'

@@ -14,7 +14,7 @@ cleanup() {
 }
 trap cleanup EXIT
 
-"${compose[@]}" up -d --build collector agent harness
+"${compose[@]}" up -d --build collector agent proxy harness
 
 code=""
 for _ in $(seq 1 30); do

@@ -55,6 +55,9 @@ You can optionally include a `name` field in the `/run` payload to create a disp
 - `HARNESS_TUI_NAME` (optional: display label for TUI sessions)
 - `HARNESS_RUN_CMD_TEMPLATE` (default: `codex -C /work -s danger-full-access exec {prompt}`)
 - `HARNESS_AGENT_WORKDIR` (default: `/work`)
+- `HARNESS_PROXY_ENABLED` (default: `1`)
+- `HARNESS_PROXY_TEMPLATE` (default: `http://{user}@proxy:3128`)
+- `HARNESS_PROXY_NO_PROXY` (default: `localhost,127.0.0.1,agent,harness,collector,proxy`)
 
 ## Security posture
 - No Docker socket required; SSH is used for control-plane access.

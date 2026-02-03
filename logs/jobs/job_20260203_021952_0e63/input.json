@@ -1,0 +1,18 @@
+{
+  "command": "echo stub-ok",
+  "cwd": "/work",
+  "env": {
+    "ALL_PROXY": "http://job_20260203_021952_0e63@proxy:3128",
+    "HTTPS_PROXY": "http://job_20260203_021952_0e63@proxy:3128",
+    "HTTP_PROXY": "http://job_20260203_021952_0e63@proxy:3128",
+    "NO_PROXY": "localhost,127.0.0.1,agent,harness,collector,proxy",
+    "all_proxy": "http://job_20260203_021952_0e63@proxy:3128",
+    "http_proxy": "http://job_20260203_021952_0e63@proxy:3128",
+    "https_proxy": "http://job_20260203_021952_0e63@proxy:3128",
+    "no_proxy": "localhost,127.0.0.1,agent,harness,collector,proxy"
+  },
+  "job_id": "job_20260203_021952_0e63",
+  "prompt": "stub-run",
+  "started_at": "2026-02-03T02:19:52.178818+00:00",
+  "submitted_at": "2026-02-03T02:19:52.177022+00:00"
+}

@@ -11,8 +11,8 @@ The UI should consume this file rather than raw audit/eBPF logs.
 - `session_id` (string): session identifier, or `unknown`
 - `job_id` (string, optional): job identifier for server-mode runs
 - `ts` (string): RFC3339 timestamp (UTC, millisecond precision)
-- `source` (string): `audit`, `ebpf`, `proxy` (future)
-- `event_type` (string): `exec`, `fs_create`, `fs_unlink`, `fs_meta`, `net_summary`, `unix_connect`, `http` (future)
+- `source` (string): `audit`, `ebpf`, `proxy`
+- `event_type` (string): `exec`, `fs_create`, `fs_unlink`, `fs_meta`, `net_summary`, `unix_connect`, `http`
 - `pid` (int, optional)
 - `ppid` (int, optional)
 - `uid` (int, optional)
@@ -56,13 +56,20 @@ Typical keys inside `details` for `net_summary`:
 - `ts_last` (string)
 - (bursts can be suppressed via `min_send_count` + `min_bytes_sent_total` in `ebpf_summary.yaml`)
 
-### proxy (future)
+### proxy
 Typical keys inside `details`:
 - `method` (string)
 - `url` (string)
 - `status` (int)
 - `host` (string)
 - `port` (int)
+- `client_ip` (string)
+- `bytes` (int)
+- `elapsed_ms` (int)
+- `proxy_user` (string, optional)
+
+Proxy rows do not include PID attribution; `session_id`/`job_id` are only set when a
+proxy user is present that matches those prefixes (the harness injects these via proxy auth).
 
 ## Ordering
 The merger outputs rows sorted by:

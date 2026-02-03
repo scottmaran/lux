@@ -110,7 +110,7 @@ cleanup() {
 }
 trap cleanup EXIT
 
-"${compose[@]}" up -d --build collector agent harness
+"${compose[@]}" up -d --build collector agent proxy harness
 
 code=""
 for _ in $(seq 1 30); do
@@ -180,6 +180,7 @@ for _ in $(seq 1 10); do
   sleep 0.5
 done
 
+sleep 3
 "${compose[@]}" exec -T collector collector-audit-filter --config /logs/filtering_test.yaml
 "${compose[@]}" exec -T collector collector-ebpf-filter --config /logs/ebpf_filtering_test.yaml
 "${compose[@]}" exec -T collector collector-ebpf-summary --config /logs/ebpf_summary_test.yaml

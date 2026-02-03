@@ -39,6 +39,9 @@ API_TOKEN = os.getenv("HARNESS_API_TOKEN", "")
 TUI_CMD = os.getenv("HARNESS_TUI_CMD", "codex -C /work -s danger-full-access")
 RUN_CMD_TEMPLATE = os.getenv("HARNESS_RUN_CMD_TEMPLATE", "").strip() or "codex -C /work -s danger-full-access exec {prompt}"
 DEFAULT_CWD = os.getenv("HARNESS_AGENT_WORKDIR", "/work")
+PROXY_ENABLED = os.getenv("HARNESS_PROXY_ENABLED", "1").strip().lower() not in ("0", "false", "no")
+PROXY_TEMPLATE = os.getenv("HARNESS_PROXY_TEMPLATE", "http://{user}@proxy:3128").strip()
+PROXY_NO_PROXY = os.getenv("HARNESS_PROXY_NO_PROXY", "localhost,127.0.0.1,agent,harness,collector,proxy").strip()
 
 JOBS = {}
 JOBS_LOCK = threading.Lock()
@@ -109,6 +112,35 @@ def sanitize_cwd(cwd: str) -> str:
     return base
 
 
+def format_env_prefix(env: dict) -> str:
+    env_parts = []
+    for key, value in env.items():
+        env_parts.append(f"{key}={shlex.quote(str(value))}")
+    return " ".join(env_parts)
+
+
+def build_proxy_env(user: str) -> dict:
+    if not PROXY_ENABLED:
+        return {}
+    if not PROXY_TEMPLATE:
+        return {}
+    if not user:
+        return {}
+    proxy_url = PROXY_TEMPLATE.replace("{user}", user)
+    env = {
+        "HTTP_PROXY": proxy_url,
+        "http_proxy": proxy_url,
+        "HTTPS_PROXY": proxy_url,
+        "https_proxy": proxy_url,
+        "ALL_PROXY": proxy_url,
+        "all_proxy": proxy_url,
+    }
+    if PROXY_NO_PROXY:
+        env["NO_PROXY"] = PROXY_NO_PROXY
+        env["no_proxy"] = PROXY_NO_PROXY
+    return env
+
+
 def ssh_base_args() -> list:
     return [
         "ssh",
@@ -154,10 +186,7 @@ def set_pty_size(fd: int, size: os.terminal_size | None = None) -> None:
 
 
 def build_remote_command(prompt: str, cwd: str, env: dict, timeout: int | None) -> str:
-    env_parts = []
-    for key, value in env.items():
-        env_parts.append(f"{key}={shlex.quote(value)}")
-    prefix = " ".join(env_parts)
+    prefix = format_env_prefix(env)
     cmd = f"cd {shlex.quote(cwd)} && "
     if prefix:
         cmd += f"{prefix} "
@@ -277,6 +306,9 @@ def handle_run(payload: dict) -> tuple[dict, int]:
     timeout = int(timeout) if isinstance(timeout, (int, float)) and timeout > 0 else None
 
     job_id = f"job_{dt.datetime.utcnow().strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:4]}"
+    proxy_env = build_proxy_env(job_id)
+    if proxy_env:
+        env.update(proxy_env)
 
     with JOBS_LOCK:
         JOBS[job_id] = {
@@ -419,7 +451,12 @@ def run_tui(tui_name: str | None) -> int:
     if label_name:
         write_label(SESSION_LABEL_DIR, session_id, label_name)
 
-    remote_cmd = f"cd {shlex.quote(DEFAULT_CWD)} && {TUI_CMD}" # e.g. cd /work && codex
+    proxy_env = build_proxy_env(session_id)
+    env_prefix = format_env_prefix(proxy_env)
+    remote_cmd = f"cd {shlex.quote(DEFAULT_CWD)} && "
+    if env_prefix:
+        remote_cmd += f"{env_prefix} "
+    remote_cmd += TUI_CMD  # e.g. cd /work && codex
     cmd = ssh_base_args() + ["-tt", ssh_target(), "bash", "-lc", remote_cmd] # Build the ssh command with -tt (force PTY allocation)
 
     ''' 

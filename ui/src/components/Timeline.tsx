@@ -197,7 +197,9 @@ function TimelineEventRow({ event }: { event: TimelineEvent }) {
   const execStatus = getExecStatus(event);
   const sourceColor = event.source === 'audit' 
     ? 'bg-indigo-100 text-indigo-700' 
-    : 'bg-emerald-100 text-emerald-700';
+    : event.source === 'ebpf'
+      ? 'bg-emerald-100 text-emerald-700'
+      : 'bg-sky-100 text-sky-700';
 
   return (
     <div className="p-4 hover:bg-gray-50 transition-colors">
@@ -278,6 +280,13 @@ function getEventTarget(event: TimelineEvent): string {
     case 'dns_query':
     case 'dns_response':
       return `${details.dns?.query_name || 'DNS'} (${details.dns?.query_type || 'unknown'})`;
+
+    case 'http': {
+      const method = details.method || 'HTTP';
+      const url = details.url || details.host || 'request';
+      const status = typeof details.status === 'number' ? ` (${details.status})` : '';
+      return `${method} ${url}${status}`;
+    }
     
     default:
       return JSON.stringify(details);
@@ -296,6 +305,9 @@ function getEventTypeColor(eventType: string): string {
   }
   if (eventType.startsWith('unix_')) {
     return 'bg-orange-100 text-orange-700';
+  }
+  if (eventType === 'http') {
+    return 'bg-sky-100 text-sky-700';
   }
   return 'bg-gray-100 text-gray-700';
 }

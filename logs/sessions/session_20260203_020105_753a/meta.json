@@ -1,0 +1,10 @@
+{
+  "command": "bash -lc \"pwd; printf 'hello world' > /work/temp_9807_36034.txt\"",
+  "ended_at": "2026-02-03T02:01:05.408434+00:00",
+  "exit_code": 0,
+  "mode": "tui",
+  "session_id": "session_20260203_020105_753a",
+  "started_at": "2026-02-03T02:01:05.245183+00:00",
+  "stdin_path": "/logs/sessions/session_20260203_020105_753a/stdin.log",
+  "stdout_path": "/logs/sessions/session_20260203_020105_753a/stdout.log"
+}
