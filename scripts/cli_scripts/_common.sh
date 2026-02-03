@@ -5,6 +5,14 @@ ROOT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)
 LASSO_BIN=${LASSO_BIN:-lasso}
 LASSO_VERSION=${LASSO_VERSION:-v0.1.0}
 HARNESS_API_TOKEN=${HARNESS_API_TOKEN:-dev-token}
+CONFIG_PATH=""
+ENV_FILE=""
+LOG_ROOT=""
+WORK_ROOT=""
+
+unset LASSO_CONFIG
+unset LASSO_CONFIG_DIR
+unset LASSO_ENV_FILE
 
 export LASSO_BUNDLE_DIR=${LASSO_BUNDLE_DIR:-$ROOT_DIR}
 
@@ -44,6 +52,10 @@ CONFIG
 }
 
 lasso() {
+  if [ -z "${CONFIG_PATH:-}" ]; then
+    echo "ERROR: CONFIG_PATH is not set. Did you call setup_env?" >&2
+    exit 1
+  fi
   "$LASSO_BIN" --config "$CONFIG_PATH" "$@"
 }
 
@@ -61,9 +73,8 @@ expect_fail() {
 }
 
 json_field() {
-  python3 - "$1" <<'PY'
-import json,sys
-path = sys.argv[1].split('.')
+  python3 -c 'import json,sys
+path = sys.argv[1].split(".")
 try:
     data = json.load(sys.stdin)
 except json.JSONDecodeError:
@@ -83,12 +94,11 @@ elif cur is None:
     print("")
 else:
     print(cur)
-PY
+' "$1"
 }
 
 json_len() {
-  python3 - <<'PY'
-import json,sys
+  python3 -c 'import json,sys
 try:
     data=json.load(sys.stdin)
 except json.JSONDecodeError:
@@ -98,7 +108,7 @@ if isinstance(data, list):
     print(len(data))
 else:
     print(len(data) if data is not None else 0)
-PY
+'
 }
 
 require_cmd "$LASSO_BIN"

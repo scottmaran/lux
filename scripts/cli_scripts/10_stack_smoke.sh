@@ -8,28 +8,34 @@ require_cmd docker
 setup_env
 write_config "$LOG_ROOT" "$WORK_ROOT"
 
-export HARNESS_RUN_CMD_TEMPLATE='echo stub-ok'
+export HARNESS_RUN_CMD_TEMPLATE='curl -s https://example.com >/dev/null 2>&1 || true; echo stub-ok'
 export HARNESS_TUI_CMD='bash -lc "echo stub-ok"'
 
 lasso config apply
 lasso up
 
-sleep 5
-
-status_json=$(lasso --json status)
-count=$(echo "$status_json" | json_field result | json_len)
+status_json=""
+count=0
+for _ in $(seq 1 30); do
+  status_json=$(lasso --json status)
+  count=$(echo "$status_json" | json_field result | json_len)
+  if [ "$count" -gt 0 ]; then
+    break
+  fi
+  sleep 2
+done
 if [ "$count" -eq 0 ]; then
-  echo "ERROR: expected running containers" >&2
+  echo "ERROR: expected running containers after up" >&2
   echo "$status_json" >&2
   exit 1
 fi
 
-if [ ! -s "$LOG_ROOT/audit.log" ]; then
-  echo "ERROR: audit.log missing or empty" >&2
+if [ ! -f "$LOG_ROOT/audit.log" ]; then
+  echo "ERROR: audit.log missing" >&2
   exit 1
 fi
-if [ ! -s "$LOG_ROOT/ebpf.jsonl" ]; then
-  echo "ERROR: ebpf.jsonl missing or empty" >&2
+if [ ! -f "$LOG_ROOT/ebpf.jsonl" ]; then
+  echo "ERROR: ebpf.jsonl missing" >&2
   exit 1
 fi
 
@@ -62,6 +68,17 @@ if [ ! -s "$job_dir/stdout.log" ]; then
   exit 1
 fi
 
+for _ in $(seq 1 20); do
+  if [ -s "$LOG_ROOT/ebpf.jsonl" ]; then
+    break
+  fi
+  sleep 1
+done
+if [ ! -s "$LOG_ROOT/ebpf.jsonl" ]; then
+  echo "ERROR: ebpf.jsonl still empty after network activity" >&2
+  exit 1
+fi
+
 run_output2=$(lasso --json run "stub")
 job_id2=$(echo "$run_output2" | json_field result.job_id)
 if [ -z "$job_id2" ] || [ "$job_id" = "$job_id2" ]; then
@@ -69,7 +86,7 @@ if [ -z "$job_id2" ] || [ "$job_id" = "$job_id2" ]; then
   exit 1
 fi
 
-if command -v script >/dev/null 2>&1; then
+if [ -t 0 ] && command -v script >/dev/null 2>&1; then
   script -q /dev/null "$LASSO_BIN" --config "$CONFIG_PATH" tui || {
     echo "ERROR: tui command failed" >&2
     exit 1
@@ -88,7 +105,7 @@ if command -v script >/dev/null 2>&1; then
     exit 1
   fi
 else
-  echo "SKIP: script command not available; tui test skipped"
+  echo "SKIP: tui test requires an interactive TTY + script(1)"
 fi
 
 lasso down

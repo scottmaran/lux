@@ -506,7 +506,22 @@ fn handle_status(ctx: &Context, codex: bool, ui: bool) -> Result<(), LassoError>
         return Err(LassoError::Process(String::from_utf8_lossy(&output.stderr).to_string()));
     }
     let text = String::from_utf8_lossy(&output.stdout);
-    let rows: serde_json::Value = serde_json::from_str(&text).unwrap_or_else(|_| json!([]));
+    let rows: serde_json::Value = match serde_json::from_str(&text) {
+        Ok(value) => value,
+        Err(_) => {
+            let mut items = Vec::new();
+            for line in text.lines() {
+                let line = line.trim();
+                if line.is_empty() {
+                    continue;
+                }
+                if let Ok(value) = serde_json::from_str::<serde_json::Value>(line) {
+                    items.push(value);
+                }
+            }
+            serde_json::Value::Array(items)
+        }
+    };
     if ctx.json {
         let payload = JsonResult {
             ok: true,
@@ -583,7 +598,6 @@ fn handle_tui(ctx: &Context, codex: bool) -> Result<(), LassoError> {
     let mut cmd = compose_base_command(ctx, codex, false)?;
     cmd.arg("run")
         .arg("--rm")
-        .arg("--service-ports")
         .arg("-e")
         .arg("HARNESS_MODE=tui")
         .arg("harness");

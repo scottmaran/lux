@@ -10,7 +10,7 @@ config, and drive `lasso` commands to validate artifacts.
 - Docker running locally.
 - GHCR auth for private images (run `docker login ghcr.io`).
 - Python 3 available in `PATH` (used for JSON parsing in scripts).
-- Optional: `script` command for TUI PTY tests (skips if missing).
+- Optional: `script` command + interactive TTY for TUI PTY tests (skips if missing).
 
 ## Environment Variables
 
@@ -18,6 +18,9 @@ config, and drive `lasso` commands to validate artifacts.
 - `LASSO_VERSION` — image tag to use (default: `v0.1.0`).
 - `HARNESS_API_TOKEN` — harness API token used by `lasso run` (default: `dev-token`).
 - `LASSO_BUNDLE_DIR` — directory containing compose files (default: repo root).
+
+If running from source, point `LASSO_BIN` at the built binary, e.g.:
+`LASSO_BIN=~/agent_harness/lasso/target/debug/lasso`.
 
 Each script creates a temporary config, log root, and workspace root under a
 fresh temp directory. No permanent files are written to your home directory.
@@ -66,7 +69,7 @@ scripts/cli_scripts/run_all.sh
 - `10_stack_smoke.sh`
   - Full stack smoke test: `up` → `status` → raw logs present → `run` job
     artifacts → second `run` has distinct job id → `tui` session artifacts
-    (if `script` exists) → `down` → status is empty.
+    (if interactive TTY + `script` exists) → `down` → status is empty.
 
 - `11_upgrade_env.sh`
   - Ensures `lasso config apply` rewrites the compose env file when the
