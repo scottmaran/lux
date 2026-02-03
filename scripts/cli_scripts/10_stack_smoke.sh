@@ -86,26 +86,31 @@ if [ -z "$job_id2" ] || [ "$job_id" = "$job_id2" ]; then
   exit 1
 fi
 
-if [ -t 0 ] && command -v script >/dev/null 2>&1; then
-  script -q /dev/null "$LASSO_BIN" --config "$CONFIG_PATH" tui || {
-    echo "ERROR: tui command failed" >&2
-    exit 1
-  }
-  latest_session=$(ls -td "$LOG_ROOT"/sessions/session_* 2>/dev/null | head -n 1 || true)
-  if [ -z "$latest_session" ]; then
-    echo "ERROR: no session directory created" >&2
-    exit 1
-  fi
-  if [ ! -s "$latest_session/meta.json" ]; then
-    echo "ERROR: session meta.json missing" >&2
-    exit 1
-  fi
-  if ! grep -q "stub-ok" "$latest_session/stdout.log"; then
-    echo "ERROR: session stdout missing expected output" >&2
-    exit 1
-  fi
-else
-  echo "SKIP: tui test requires an interactive TTY + script(1)"
+if ! command -v script >/dev/null 2>&1; then
+  echo "ERROR: tui test requires script(1) to allocate a PTY." >&2
+  exit 1
+fi
+if [ ! -t 0 ]; then
+  echo "ERROR: tui test must be run from an interactive TTY." >&2
+  exit 1
+fi
+
+script -q /dev/null "$LASSO_BIN" --config "$CONFIG_PATH" tui || {
+  echo "ERROR: tui command failed" >&2
+  exit 1
+}
+latest_session=$(ls -td "$LOG_ROOT"/sessions/session_* 2>/dev/null | head -n 1 || true)
+if [ -z "$latest_session" ]; then
+  echo "ERROR: no session directory created" >&2
+  exit 1
+fi
+if [ ! -s "$latest_session/meta.json" ]; then
+  echo "ERROR: session meta.json missing" >&2
+  exit 1
+fi
+if ! grep -q "stub-ok" "$latest_session/stdout.log"; then
+  echo "ERROR: session stdout missing expected output" >&2
+  exit 1
 fi
 
 lasso down

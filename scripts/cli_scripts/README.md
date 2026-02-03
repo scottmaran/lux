@@ -10,7 +10,7 @@ config, and drive `lasso` commands to validate artifacts.
 - Docker running locally.
 - GHCR auth for private images (run `docker login ghcr.io`).
 - Python 3 available in `PATH` (used for JSON parsing in scripts).
-- Optional: `script` command + interactive TTY for TUI PTY tests (skips if missing).
+- `script` command + interactive TTY for TUI PTY tests (required).
 
 ## Environment Variables
 
@@ -69,7 +69,7 @@ scripts/cli_scripts/run_all.sh
 - `10_stack_smoke.sh`
   - Full stack smoke test: `up` → `status` → raw logs present → `run` job
     artifacts → second `run` has distinct job id → `tui` session artifacts
-    (if interactive TTY + `script` exists) → `down` → status is empty.
+    (requires interactive TTY + `script`) → `down` → status is empty.
 
 - `11_upgrade_env.sh`
   - Ensures `lasso config apply` rewrites the compose env file when the
