@@ -28,6 +28,11 @@ services:
       - ./logs:/logs:ro
       # the named docker volume to store the keys
       - harness_keys:/config:ro
+    # prevent remounting /logs as rw inside the container
+    cap_drop:
+      - SYS_ADMIN
+    security_opt:
+      - no-new-privileges:true
 
   harness:
     build: ./harness
