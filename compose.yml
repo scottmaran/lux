@@ -1,7 +1,6 @@
 services:
   collector:
-    build: ./collector
-    image: harness-collector:dev
+    image: ghcr.io/scottmaran/lasso-collector:${LASSO_VERSION}
     #  Grants the container essentially full host‑level capabilities (all Linux capabilities + device access).
     #  Needed here so the collector can load eBPF programs and access kernel audit interfaces.
     privileged: true
@@ -10,8 +9,8 @@ services:
     pid: "host"
     # Each entry is host_path:container_path:mode
     volumes:
-      - ./logs:/logs:rw
-      - ./workspace:/work:ro
+      - ${LASSO_LOG_ROOT:-./logs}:/logs:rw
+      - ${LASSO_WORKSPACE_ROOT:-./workspace}:/work:ro
       - /sys/fs/bpf:/sys/fs/bpf:rw
       - /sys/kernel/tracing:/sys/kernel/tracing:rw
       - /sys/kernel/debug:/sys/kernel/debug:rw
@@ -20,21 +19,19 @@ services:
       - COLLECTOR_EBPF_OUTPUT=/logs/ebpf.jsonl
 
   agent:
-    build: ./agent
-    image: harness-agent:dev
+    image: ghcr.io/scottmaran/lasso-agent:${LASSO_VERSION}
     # agent has read-only access to logs
     volumes:
-      - ./workspace:/work:rw
-      - ./logs:/logs:ro
+      - ${LASSO_WORKSPACE_ROOT:-./workspace}:/work:rw
+      - ${LASSO_LOG_ROOT:-./logs}:/logs:ro
       # the named docker volume to store the keys
       - harness_keys:/config:ro
 
   harness:
-    build: ./harness
-    image: harness-harness:dev
+    image: ghcr.io/scottmaran/lasso-harness:${LASSO_VERSION}
     volumes:
-      - ./workspace:/work:rw
-      - ./logs:/logs:rw
+      - ${LASSO_WORKSPACE_ROOT:-./workspace}:/work:rw
+      - ${LASSO_LOG_ROOT:-./logs}:/logs:rw
       - harness_keys:/harness/keys:rw
     # host_ip:host_port:container_port
     ports:
