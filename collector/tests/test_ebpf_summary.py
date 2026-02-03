@@ -3,6 +3,7 @@ import os
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 from pathlib import Path
 
@@ -224,6 +225,82 @@ class EbpfSummaryTests(unittest.TestCase):
         self.assertEqual(len(rows), 1)
         self.assertEqual(rows[0]["event_type"], "unix_connect")
         self.assertEqual(rows[0]["schema_version"], "ebpf.summary.v1")
+
+    def test_follow_mode_appends_summary(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            input_path = os.path.join(tmpdir, "filtered_ebpf.jsonl")
+            output_path = os.path.join(tmpdir, "filtered_ebpf_summary.jsonl")
+            config_path = os.path.join(tmpdir, "config.json")
+
+            Path(input_path).write_text("", encoding="utf-8")
+            Path(output_path).write_text("", encoding="utf-8")
+
+            ts_first = "2026-01-22T00:00:01.000Z"
+            ts_second = "2026-01-22T00:00:10.000Z"
+            events = [
+                make_event(
+                    "net_send",
+                    ts_first,
+                    net={"dst_ip": "8.8.8.8", "dst_port": 443, "protocol": "tcp", "bytes": 5},
+                ),
+                make_event(
+                    "net_send",
+                    ts_second,
+                    net={"dst_ip": "8.8.8.8", "dst_port": 443, "protocol": "tcp", "bytes": 7},
+                ),
+            ]
+
+            config = {
+                "schema_version": "ebpf.summary.v1",
+                "input": {"jsonl": input_path},
+                "output": {"jsonl": output_path},
+                "burst_gap_sec": 1,
+                "max_late_sec": 0.1,
+            }
+            Path(config_path).write_text(json.dumps(config), encoding="utf-8")
+
+            proc = subprocess.Popen(
+                [
+                    sys.executable,
+                    str(SUMMARY_SCRIPT),
+                    "--config",
+                    config_path,
+                    "--follow",
+                    "--poll-interval",
+                    "0.05",
+                ],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                text=True,
+            )
+            try:
+                with open(input_path, "a", encoding="utf-8") as handle:
+                    for ev in events:
+                        handle.write(json.dumps(ev) + "\n")
+                    handle.flush()
+                    os.fsync(handle.fileno())
+
+                deadline = time.time() + 5
+                rows: list[dict] = []
+                while time.time() < deadline:
+                    if os.path.exists(output_path):
+                        lines = Path(output_path).read_text(encoding="utf-8").splitlines()
+                        rows = [json.loads(line) for line in lines if line.strip()]
+                        if any(row.get("ts_first") == ts_first for row in rows):
+                            break
+                    time.sleep(0.05)
+
+                self.assertTrue(rows, "expected summary rows in follow mode")
+                self.assertTrue(
+                    any(row.get("ts_first") == ts_first for row in rows),
+                    "expected burst summary for first send",
+                )
+            finally:
+                proc.terminate()
+                try:
+                    proc.wait(timeout=2)
+                except subprocess.TimeoutExpired:
+                    proc.kill()
 
 
 if __name__ == "__main__":

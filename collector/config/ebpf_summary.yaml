@@ -16,3 +16,6 @@ dns_lookback_sec: 2
 # Drop bursts only if BOTH thresholds are met (<=).
 min_send_count: 0
 min_bytes_sent_total: 0
+
+# Follow-mode buffering: hold completed bursts this long (seconds) to preserve ordering.
+max_late_sec: 5

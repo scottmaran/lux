@@ -87,26 +87,18 @@ EBPF_FILTER_PID=$!
 EBPF_PID=$!
 
 if [ -f "${EBPF_SUMMARY_CONFIG}" ]; then
-  (
-    while true; do
-      /usr/bin/env COLLECTOR_EBPF_SUMMARY_CONFIG="${EBPF_SUMMARY_CONFIG}" \
-        "${EBPF_SUMMARY_BIN}" --config "${EBPF_SUMMARY_CONFIG}" >/dev/null 2>&1 || true
-      sleep "${EBPF_SUMMARY_INTERVAL}"
-    done
-  ) &
+  /usr/bin/env COLLECTOR_EBPF_SUMMARY_CONFIG="${EBPF_SUMMARY_CONFIG}" \
+    "${EBPF_SUMMARY_BIN}" --config "${EBPF_SUMMARY_CONFIG}" --follow \
+    --poll-interval "${EBPF_SUMMARY_INTERVAL}" >/dev/null 2>&1 &
   EBPF_SUMMARY_PID=$!
 else
   echo "collector: warning: missing eBPF summary config at ${EBPF_SUMMARY_CONFIG}" >&2
 fi
 
 if [ -f "${MERGE_FILTER_CONFIG}" ]; then
-  (
-    while true; do
-      /usr/bin/env COLLECTOR_MERGE_CONFIG="${MERGE_FILTER_CONFIG}" \
-        "${MERGE_FILTER_BIN}" --config "${MERGE_FILTER_CONFIG}" >/dev/null 2>&1 || true
-      sleep "${MERGE_FILTER_INTERVAL}"
-    done
-  ) &
+  /usr/bin/env COLLECTOR_MERGE_CONFIG="${MERGE_FILTER_CONFIG}" \
+    "${MERGE_FILTER_BIN}" --config "${MERGE_FILTER_CONFIG}" --follow \
+    --poll-interval "${MERGE_FILTER_INTERVAL}" >/dev/null 2>&1 &
   MERGE_PID=$!
 else
   echo "collector: warning: missing merge filter config at ${MERGE_FILTER_CONFIG}" >&2

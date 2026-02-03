@@ -12,3 +12,9 @@ output:
 
 sorting:
   strategy: ts_source_pid
+
+# Follow-mode buffering and flow control.
+max_late_sec: 10
+idle_flush_sec: 5
+startup_grace_sec: 2
+max_buffer_rows: 5000
