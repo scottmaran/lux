@@ -12,6 +12,128 @@ filter behavior.
 - Unified merge tests (spec-driven, pending implementation).
 - Unit tests with fixture logs for deterministic parsing.
 
+## Lasso CLI + Installer Test Plan (proposed)
+
+These are target cases for the upcoming Rust CLI and install flow. They cover
+both the CLI binary itself and bash integration scripts that validate real
+artifacts on disk.
+
+CLI test execution (Rust):
+```bash
+cd lasso
+cargo test
+```
+
+### A) Rust CLI Unit Tests (pure logic)
+
+1) Config parse + defaults
+- Missing fields use defaults.
+- Invalid YAML returns error.
+- Unknown field returns error.
+
+2) Path resolution
+- `~` expansion for log root and config path.
+- Relative path handling in config.
+- `LASSO_CONFIG` env override.
+
+3) Compose env generation
+- `LASSO_VERSION` required; error if missing.
+- `LASSO_LOG_ROOT` set from config.
+- `LASSO_WORKSPACE_ROOT` set from config or default.
+- `HARNESS_API_TOKEN` presence checks (server mode).
+
+4) Command construction
+- `up/down/status` build correct compose args.
+- `tui` uses compose run with correct service and env.
+- `run` hits `/run` with the right headers and payload.
+
+5) Output formatting
+- Human output for `status`, `doctor`, `logs stats`.
+- JSON output mode is valid JSON and includes required fields.
+
+### B) Rust CLI Integration Tests (spawn CLI, no Docker)
+
+1) `config init`
+- Creates `~/.config/lasso/config.yaml` when missing.
+- Does not overwrite existing config.
+
+2) `config apply`
+- Emits compose env file with correct key/values.
+- If config is invalid, returns a clear, actionable message telling the user
+  to edit the config file.
+
+3) `doctor` (no Docker)
+- Returns clear error if Docker not running.
+- Returns clear error if log root not writable.
+
+4) `status` (no Docker)
+- Detects absence of compose stack and reports “not running.”
+
+### C) Bash Integration Tests (Docker + artifacts)
+
+Setup for all:
+- Use temp log root and workspace dir.
+- `docker login ghcr.io` required for private images.
+
+1) Install + config apply
+- Config created at `~/.config/lasso/config.yaml`.
+- Compose env file contains `LASSO_VERSION`, `LASSO_LOG_ROOT`,
+  `LASSO_WORKSPACE_ROOT`.
+
+2) `lasso up`
+- Stack running.
+- `lasso status` reports collector/agent/harness (and ui if enabled).
+- Log root contains `audit.log` and `ebpf.jsonl` within 60s.
+
+3) `lasso run --prompt "stub"`
+- `jobs/` created under log root.
+- `jobs/<id>/input.json` has prompt, cwd, env.
+- `jobs/<id>/status.json` has exit_code + timestamps.
+- `stdout.log` and `stderr.log` exist and are non-empty for stub run.
+
+4) `lasso tui` (interactive smoke test)
+- `sessions/<id>/meta.json` created with started/ended.
+- `stdout.log` contains expected output (stub command).
+- `stdin.log` exists (may be empty).
+
+5) `lasso down`
+- Stack stopped.
+- Logs remain intact on disk.
+
+### D) Logging Artifacts Validation (content-level)
+
+1) Raw logs
+- `audit.log` exists, non-zero.
+- `ebpf.jsonl` has valid JSONL (spot-check parse).
+
+2) Filtered + timeline (once partitioning is implemented)
+- `logs/sessions/<id>/filtered_audit.jsonl` exists with matching `session_id`.
+- `logs/sessions/<id>/filtered_ebpf.jsonl` exists.
+- `logs/sessions/<id>/timeline.jsonl` exists (ordered by timestamp).
+- Global `filtered_timeline.jsonl` exists and contains session events.
+
+### E) Error / Edge Cases
+
+1) Missing GHCR auth (private images)
+- `lasso up` fails with clear `docker login` guidance.
+
+2) Log root unwritable
+- CLI refuses to start; error explains fix.
+
+3) Invalid config
+- `lasso config validate` returns non-zero + helpful message.
+
+4) Missing Docker
+- `lasso doctor` and `lasso up` fail cleanly.
+
+5) Concurrent runs
+- Two `lasso run` calls create distinct job IDs, no clobber.
+
+6) Upgrade path
+- Install new version: `~/.lasso/current` switches.
+- Old config preserved.
+- `lasso up` uses new `LASSO_VERSION` in env.
+
 ## Integration Tests (Quick Start)
 
 ### Stub (no Codex required)
@@ -118,6 +240,8 @@ Suggested cases:
 
 - Stub: `scripts/run_integration_stub.sh`
 - Codex: `scripts/run_integration_codex.sh`
+- Lasso CLI smoke: `scripts/run_lasso_cli_integration.sh`
+- Lasso CLI suite: `scripts/cli_scripts/` (run `scripts/cli_scripts/run_all.sh`)
 - Filter (no harness): `scripts/run_integration_filter_no_harness.sh`
 - Filter (job/server): `scripts/run_integration_filter_job.sh`
 - Filter (tui): `scripts/run_integration_filter_tui.sh`

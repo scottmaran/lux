@@ -1,6 +1,25 @@
-# Agent Harness
+# Lasso (Agent Harness)
 
 Containerized harness + agent + collector stack for auditing agent activity inside a VM.
+
+## Lasso CLI (beta)
+The recommended way to run the stack is via the `lasso` CLI, which pulls the
+versioned Docker images from GHCR and manages config + compose wiring.
+
+Quick start (after install + config):
+```bash
+lasso config init
+lasso config apply
+lasso up --codex
+lasso tui --codex
+```
+
+Notes:
+- Default config: `~/.config/lasso/config.yaml` (override with `LASSO_CONFIG`).
+- Default log root: `~/lasso-logs`.
+- Default workspace root: `~/lasso-workspace`.
+- When running from source, set `LASSO_BUNDLE_DIR` to the repo root so the CLI
+  can find the compose files.
 
 ## Documentation Map
 ```
@@ -28,6 +47,8 @@ README.md (you are here)
 ├─ Testing & examples
 │  ├─ TESTING.md — filter test cases and expected outcomes
 │  └─ EXAMPLE_FLOW.md — end-to-end example walkthroughs
+├─ CLI
+│  └─ lasso/ — Rust CLI source (release bundles ship the binary only)
 ├─ Past work & rationale
 │  ├─ HISTORY.md — narrative history and decisions
 │  └─ dev_log.md — implementation log
@@ -36,7 +57,7 @@ README.md (you are here)
 ```
 
 ## How to
-### Start up commands
+### Start up commands (legacy/manual compose)
 #### Interactive mode (Codex)
 Requires `~/.codex/auth.json` and `~/.codex/skills` on the host.
 ```bash

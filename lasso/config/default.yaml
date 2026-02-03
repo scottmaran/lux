@@ -1,0 +1,16 @@
+version: 1
+
+paths:
+  log_root: ~/lasso-logs
+  workspace_root: ~/lasso-workspace
+
+release:
+  tag: ""
+
+docker:
+  project_name: lasso
+
+harness:
+  api_host: 127.0.0.1
+  api_port: 8081
+  api_token: ""
