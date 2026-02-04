@@ -5,7 +5,7 @@ This document explains the filtering configuration in
 
 ## Purpose
 - Input: raw auditd logs.
-- Output: compact JSONL timeline used by the UI (see `UI_DESIGN.md`).
+- Output: compact JSONL timeline used by the UI (see `docs/ui/UI_DESIGN.md`).
 - Schema and event meanings live in `collector/auditd_data.md`.
 
 ## Why a config file

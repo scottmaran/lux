@@ -70,13 +70,13 @@ The first follow-mode implementation exposed gaps around audit tailing and rotat
 Raw eBPF streams were still too noisy for human review, and the UI needed a single source of truth. A new summary stage (`collector-ebpf-summary`) collapses network activity into burst-level `net_summary` rows (send bursts split by idle gaps) and enriches them with DNS names, connect counts, byte totals, and burst timing. The summary gained a DNS look-back window and suppression thresholds to drop trivial bursts. In parallel, a merge stage now normalizes filtered audit + summarized eBPF into `logs/filtered_timeline.jsonl`, pushing source-specific fields under `details` and sorting deterministically (ts/source/pid). The collector entrypoint now runs both summary + merge loops on a short interval to keep the unified timeline up to date.
 
 **Phase 14: End-to-end example flow and stable fixtures (Jan 28-30, 2026)**
-To make the pipeline verifiable by new contributors, a comprehensive `EXAMPLE_FLOW.md` was added with step-by-step TUI and server-mode scenarios, expected commands, log row counts, and example UI outputs. Stable example logs and YAML fixtures were checked into `example_logs/` so tests and docs stay grounded in real output.
+To make the pipeline verifiable by new contributors, a comprehensive `docs/dev/EXAMPLE_FLOW.md` was added with step-by-step TUI and server-mode scenarios, expected commands, log row counts, and example UI outputs. Stable example logs and YAML fixtures were checked into `example_logs/` so tests and docs stay grounded in real output.
 
 **Phase 15: Log viewer UI arrives (Jan 28-31, 2026)**
 A lightweight UI + API contract was introduced to read the unified timeline and run metadata directly from `/logs`, with endpoints for sessions, jobs, timeline rows, and summary counts. The early zero-build prototype validated the data model (session/job selection, time-range filters, and summary tiles), and `compose.ui.yml` made the UI a first-class service.
 
 **Phase 16: Figma-driven redesign and build pipeline (Feb 1, 2026)**
-The UI was rebuilt from a Figma export into a React + Vite app with reusable components, preserving the read-only, filter-first behavior while improving layout and visual clarity. The `ui` container now builds the frontend and serves it via the Python API server, and `UI_DESIGN.md` was updated to describe the new structure (summary metrics, filter controls, timeline, and runs list).
+The UI was rebuilt from a Figma export into a React + Vite app with reusable components, preserving the read-only, filter-first behavior while improving layout and visual clarity. The `ui` container now builds the frontend and serves it via the Python API server, and `docs/ui/UI_DESIGN.md` was updated to describe the new structure (summary metrics, filter controls, timeline, and runs list).
 
 **Phase 17: Lasso rebrand + CLI-first packaging (Feb 2-4, 2026)**
 The project shifted from “agent_harness” as an internal code name to **Lasso** as the product name. A Rust CLI (`lasso`) became the primary entry point, standardizing config, compose wiring, and lifecycle commands. Key packaging choices were made:
@@ -85,7 +85,7 @@ The project shifted from “agent_harness” as an internal code name to **Lasso
 - **Parameterized compose**: `LASSO_VERSION`, `LASSO_LOG_ROOT`, and `LASSO_WORKSPACE_ROOT` drive consistent mounts across services.
 - **Installer flow**: a release-installed CLI (`install_lasso.sh`) places versions under `~/.lasso/` and symlinks into `~/.local/bin`.
 - **Release automation**: a GitHub Actions workflow builds bundles, optionally pushes images, and optionally publishes releases.
-This phase also introduced a dedicated CLI test suite (`scripts/cli_scripts`) and updated docs (`INSTALL.md`, `CLI.md`, `lasso/README.md`) to reflect the CLI-first workflow.
+This phase also introduced a dedicated CLI test suite (`scripts/cli_scripts`) and updated docs (`docs/guide/install.md`, `docs/guide/cli.md`, `lasso/README.md`) to reflect the CLI-first workflow.
 
 **Open questions and deliberate TODOs**
 Some choices were intentionally deferred and still appear as TODOs in the docs:

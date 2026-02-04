@@ -48,4 +48,4 @@ can override these environment variables if needed:
 - `IMAGE` (default: `harness-collector:dev`)
 - `COLLECTOR_NAME` (default: `harness-collector`)
 
-See `TESTING.md` for filter test cases and expected outputs.
+See `docs/dev/TESTING.md` for filter test cases and expected outputs.

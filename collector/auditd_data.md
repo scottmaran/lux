@@ -161,7 +161,7 @@ type=PATH msg=audit(1768895520.574:1738): item=1 name="/work/b.txt" inode=11 dev
 ## Filtered output + rules
 
 Purpose: turn raw auditd events into a short, human-auditable JSONL timeline
-used by the UI. Display semantics are described in `UI_DESIGN.md`.
+used by the UI. Display semantics are described in `docs/ui/UI_DESIGN.md`.
 Filter configuration lives in `collector/config/filtering.yaml`.
 
 Filtering steps (draft):

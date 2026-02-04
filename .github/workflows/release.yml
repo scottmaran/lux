@@ -80,6 +80,8 @@ jobs:
           cp compose.codex.yml "$BUNDLE_DIR/"
           cp compose.ui.yml "$BUNDLE_DIR/"
           cp lasso/config/default.yaml "$BUNDLE_DIR/config/default.yaml"
+          mkdir -p "$BUNDLE_DIR/docs"
+          cp -R docs/guide "$BUNDLE_DIR/docs/guide"
           cp README.md "$BUNDLE_DIR/README.md"
           if [ -f LICENSE ]; then cp LICENSE "$BUNDLE_DIR/LICENSE"; fi
           echo "${VERSION#v}" > "$BUNDLE_DIR/VERSION"
