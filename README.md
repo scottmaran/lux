@@ -6,6 +6,16 @@ Containerized harness + agent + collector stack for auditing agent activity insi
 The recommended way to run the stack is via the `lasso` CLI, which pulls the
 versioned Docker images from GHCR and manages config + compose wiring.
 
+### Install (beta)
+Download from GitHub Releases and run:
+```bash
+curl -fsSL https://github.com/scottmaran/agent_harness/releases/download/v0.1.0/install_lasso.sh -o install_lasso.sh
+bash install_lasso.sh --version v0.1.0
+```
+This installs the CLI bundle but does **not** create log/workspace directories.
+Edit `~/.config/lasso/config.yaml`, set `paths.log_root` and
+`paths.workspace_root`, then run `lasso config apply`.
+
 Quick start (after install + config):
 ```bash
 lasso config init
