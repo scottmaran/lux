@@ -8,15 +8,15 @@ filter behavior.
 - Collector smoke tests (raw auditd + eBPF logs).
 - Integration tests for harness + agent workflows.
 - Audit filter tests (spec-driven, implemented).
-- eBPF filter tests (spec-driven, pending implementation).
-- Unified merge tests (spec-driven, pending implementation).
+- eBPF filter tests (spec-driven, implemented).
+- Unified merge tests (spec-driven, implemented).
 - Unit tests with fixture logs for deterministic parsing.
 
-## Lasso CLI + Installer Test Plan (proposed)
+## Lasso CLI + Installer Test Plan (implemented)
 
-These are target cases for the upcoming Rust CLI and install flow. They cover
-both the CLI binary itself and bash integration scripts that validate real
-artifacts on disk.
+These are the target cases for the Rust CLI and install flow. They are covered
+by Rust unit/integration tests (`lasso/tests`) and bash integration scripts
+(`scripts/cli_scripts`) that validate real artifacts on disk.
 
 CLI test execution (Rust):
 ```bash
@@ -85,7 +85,7 @@ Setup for all:
 - `lasso status` reports collector/agent/harness (and ui if enabled).
 - Log root contains `audit.log` and `ebpf.jsonl` within 60s.
 
-3) `lasso run --prompt "stub"`
+3) `lasso run "stub"`
 - `jobs/` created under log root.
 - `jobs/<id>/input.json` has prompt, cwd, env.
 - `jobs/<id>/status.json` has exit_code + timestamps.

@@ -1,4 +1,4 @@
-# Agent Harness VM Layout (Option A: VM + Containers, Host Sink)
+# Lasso VM Layout (VM + Containers, Host Sink)
 
 ## Purpose
 - Provide a consistent local deployment that produces auditable, structured logs for third-party agents.
@@ -7,12 +7,11 @@
 ## Topology (conceptual)
 ```text
 Host OS
-  ├─ Log sink (~/agent_harness/logs)
+  ├─ Log sink (default: ~/lasso-logs)
   └─ Linux VM
       ├─ Harness container (orchestrates agent)
       ├─ Agent container (third-party agent)
       ├─ Collector container (OS audit)
-      └─ Proxy container (HTTP(S) logging)
 ```
 
 ## Components and responsibilities
@@ -27,25 +26,21 @@ Host OS
 
 - Collector container
   - Runs auditd rules for exec + file changes + metadata changes.
-  - Runs a custom eBPF loader (TBD) for network egress + IPC connection metadata (plus DNS lookups when available).
+  - Runs a custom eBPF loader for network egress + IPC connection metadata (plus DNS lookups when available).
   - Emits audit and eBPF events with PID/PPID + timestamps.
-
-- Proxy container
-  - Logs method/URL/status for HTTP; for HTTPS without MITM, host/port only.
-  - Emits proxy logs to the host sink.
 
 - Log sink (storage)
   - Host directory outside the VM.
-  - Writable by harness/collector/proxy; read-only to the agent.
+  - Writable by harness/collector; read-only to the agent.
 
 ## Mounts and permissions (exact model)
 Host directories
-- ~/agent_harness/workspace  (user workspace, normal read/write)
-- ~/agent_harness/logs       (log sink, protected)
+- ~/lasso-workspace  (user workspace, normal read/write; default)
+- ~/lasso-logs       (log sink, protected; default)
 
 VM mounts
-- /vm/workspace  -> host ~/agent_harness/workspace (rw)
-- /vm/logs       -> host ~/agent_harness/logs      (rw for harness/collector/proxy)
+- /vm/workspace  -> host ~/lasso-workspace (rw)
+- /vm/logs       -> host ~/lasso-logs      (rw for harness/collector)
 
 Agent container mounts
 - /work  -> /vm/workspace (rw for agent)
@@ -69,23 +64,26 @@ Collector container mounts
 - /sys/kernel/tracing -> /sys/kernel/tracing (rw, tracefs if mounted here)
 - /sys/kernel/debug -> /sys/kernel/debug (rw, debugfs/tracefs access)
 
-Proxy container mounts
-- /logs -> /vm/logs (rw, writes HTTP logs)
-
 ## Event flow
 1) Harness starts, creates session_id, writes session header to /logs.
 2) Harness creates the agent container with /logs mounted read-only and attaches to its stdio.
-3) Collector runs auditd for exec + file changes + metadata and eBPF (custom loader, TBD) for network + IPC (plus DNS lookups when available).
-4) Proxy logs method/URL/status for HTTP; for HTTPS without MITM, host/port only.
-5) Harness logs stdout/stderr in parallel; agent can read /logs during the session.
-6) Log merger (optional) correlates by PID/session_id into a unified timeline.
+3) Collector runs auditd for exec + file changes + metadata and eBPF (custom loader) for network + IPC (plus DNS lookups when available).
+4) Harness logs stdout/stderr in parallel; agent can read /logs during the session.
+5) Log merger (optional) correlates by PID/session_id into a unified timeline.
 
 ## Minimal compose sketch (inside VM)
 ```yaml
 version: "3.8"
 services:
+  agent:
+    image: ghcr.io/scottmaran/lasso-agent:${LASSO_VERSION}
+    volumes:
+      - /vm/workspace:/work:rw
+      - /vm/logs:/logs:ro
+      - harness_keys:/config:ro
+
   harness:
-    image: agent-harness:latest
+    image: ghcr.io/scottmaran/lasso-harness:${LASSO_VERSION}
     volumes:
       - /vm/workspace:/work:rw
       - /vm/logs:/logs:rw
@@ -100,7 +98,7 @@ services:
     # Harness connects to the agent via SSH for TTY and non-interactive runs.
 
   collector:
-    image: harness-collector:latest
+    image: ghcr.io/scottmaran/lasso-collector:${LASSO_VERSION}
     privileged: true
     pid: "host"
     volumes:
@@ -112,13 +110,6 @@ services:
     environment:
       - COLLECTOR_AUDIT_LOG=/logs/audit.log
       - COLLECTOR_EBPF_OUTPUT=/logs/ebpf.jsonl
-
-  proxy:
-    image: harness-proxy:latest
-    volumes:
-      - /vm/logs:/logs:rw
-    environment:
-      - PROXY_LOG=/logs/http.jsonl
 
 volumes:
   harness_keys:
@@ -132,5 +123,5 @@ volumes:
 - Only one audit daemon can consume audit events; the collector should be the sole audit consumer in the VM.
 - Auditd emits raw audit logs; normalization to JSONL happens in a later processing step.
 - Trust boundary: the host is trusted; the agent container is untrusted; VM root is out of scope.
-- Host log export is the host-mounted ~/agent_harness/logs directory.
-- Enforce proxy use with firewall rules so the agent cannot bypass it.
+- Host log export is the host-mounted `~/lasso-logs` directory by default (configurable via `LASSO_LOG_ROOT`).
+- If you add an HTTP proxy later, enforce its use with firewall rules so the agent cannot bypass it.

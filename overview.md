@@ -3,10 +3,10 @@
 
 # Prompt 
 
-I want to create a containerized harness to produce auditable, structured logs for third-party AI agent software. This will include:
+I want to create a containerized harness (Lasso) to produce auditable, structured logs for third-party AI agent software. This will include:
   - Process tree: exec events with args/uid/gid when available.
   - Filesystem changes: writes/renames/unlinks plus metadata changes (chmod/chown/xattr/utime); reads excluded for noise.
-  - Network egress: destination/protocol/port; DNS lookups when available; HTTP(S) proxy for method/URL/status.
+  - Network egress: destination/protocol/port; DNS lookups when available; optional HTTP(S) proxy for method/URL/status (future).
   - Local IPC/service: connections to local daemons (e.g. Unix domain sockets, D-Bus).
   - Stdout/stderr: captured by the harness (pipes for non-interactive, PTY for interactive).
 
@@ -20,7 +20,7 @@ reasoning.
 - Signals to capture: 
     - process exec events (cmdline, uid/gid, PID/PPID)
     - filesystem changes including metadata (write/rename/unlink/chmod/chown/xattr/utime)
-    - network egress metadata (dest/protocol/port, HTTP(S) proxy method/URL/status, and DNS lookups)
+    - network egress metadata (dest/protocol/port, optional HTTP(S) proxy method/URL/status, and DNS lookups)
     - local IPC connection metadata (endpoint + PID)
     - stdout/stderr (plus stdin if interactive)
 - Correlation: tag the root agent process with a session ID, inherit it across the PID tree, and
@@ -61,7 +61,7 @@ permission/ownership transitions.
 Network egress
 
 - Log outbound connections with destination IP/port, protocol, and timestamp; record DNS lookups if available.
-- Use an HTTP(S) proxy to log method + URL + status for HTTP traffic; payloads and response bodies are not required.
+- Optional HTTP(S) proxy (future) to log method + URL + status for HTTP traffic; payloads and response bodies are not required.
 - For HTTPS without MITM, the proxy logs host/port only and cannot see URL or status; raw connect metadata still
 provides coverage for non-HTTP protocols.
 - Network logging is for remote side effects/requests, not for full content capture.
@@ -84,7 +84,7 @@ Audit mechanism (hybrid)
 
 - Use auditd (kernel audit subsystem) for exec + filesystem writes/renames/unlinks + metadata changes (chmod/chown/xattr/utime).
 - Use eBPF for network egress and local IPC connection metadata with PID attribution; capture DNS lookups when available.
-- Use HTTP(S) proxy for method/URL/status; for HTTPS without MITM, host/port only.
+- Optional HTTP(S) proxy (future) for method/URL/status; for HTTPS without MITM, host/port only.
 - Emit separate audit and eBPF event streams and merge by timestamp + PID/PPID + session ID.
 
 Collection mechanics
@@ -116,5 +116,5 @@ in‑memory computation).
 
 - Harness: runs agent sessions over internal SSH, captures stdio/PTY, assigns session IDs, emits session‑level logs, and exposes a local‑only HTTP API for non‑interactive runs.
 - Collector: observes OS‑level events (exec, file changes, network, IPC); requires privileged access to VM kernel audit sources.
-- Proxy: logs method/URL/status for HTTP; for HTTPS without MITM, host/port only.
+- Proxy (optional/future): logs method/URL/status for HTTP; for HTTPS without MITM, host/port only.
 - Sink: where logs are stored (host directory outside the VM).

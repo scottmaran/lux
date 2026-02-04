@@ -34,6 +34,9 @@ Notes:
 ## Documentation Map
 ```
 README.md (you are here)
+├─ Install & CLI
+│  ├─ INSTALL.md — installer + manual install steps
+│  └─ CLI.md — CLI commands and behavior
 ├─ Orientation
 │  ├─ overview.md — system summary and goals
 │  ├─ platform.md — platform assumptions and constraints
@@ -73,7 +76,7 @@ Requires `~/.codex/auth.json` and `~/.codex/skills` on the host.
 ```bash
 docker compose -f compose.yml -f compose.codex.yml up -d --build agent collector
 
-docker compose -f compose.yml -f compose.codex.yml run --rm --service-ports \
+docker compose -f compose.yml -f compose.codex.yml run --rm \
   -e HARNESS_MODE=tui harness
 ```
 The harness connects to the `agent` service over SSH; the collector must be running to emit audit/eBPF logs. `docker compose run` does not start dependencies.
@@ -96,7 +99,7 @@ The harness runs in server mode when stdin is not a TTY; use `HARNESS_MODE=serve
 ```bash
 docker compose -f compose.yml up -d --build agent collector
 
-docker compose -f compose.yml run --rm --service-ports \
+docker compose -f compose.yml run --rm \
   -e HARNESS_MODE=tui \
   -e "HARNESS_TUI_CMD=bash -l" \
   harness
@@ -106,7 +109,7 @@ docker compose -f compose.yml run --rm --service-ports \
 ```bash
 docker compose -f compose.ui.yml up -d --build ui
 ```
-The UI reads from `./logs` and binds to `http://127.0.0.1:8090`.
+The UI reads from `${LASSO_LOG_ROOT:-./logs}` and binds to `http://127.0.0.1:8090`.
 
 ### Compose files
 - `compose.yml`: base stack (agent-agnostic).

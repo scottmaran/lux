@@ -1,7 +1,7 @@
-# Example Flow: Agent Harness
+# Example Flow: Lasso (Agent Harness)
 
 ## Overview summary
-This document is a fully self-contained, procedural example of what the agent_harness stack should do end to end. It shows two distinct scenarios (TUI and server-mode job), the user prompts, the underlying commands, the expected workspace changes, the log rows across all log files, and the final UI output derived from filtered logs. All timestamps are UTC.
+This document is a fully self-contained, procedural example of what the Lasso stack should do end to end. It shows two distinct scenarios (TUI and server-mode job), the user prompts, the underlying commands, the expected workspace changes, the log rows across all log files, and the final UI output derived from filtered logs. All timestamps are UTC.
 
 ## Setup and entry commands
 1) Reset logs before each scenario so counts are deterministic.
@@ -17,7 +17,7 @@ docker compose -f compose.yml -f compose.codex.yml up -d --build collector agent
 
 3) Launch the harness TUI (Scenario A).
 ```bash
-docker compose -f compose.yml -f compose.codex.yml run --rm --service-ports \
+docker compose -f compose.yml -f compose.codex.yml run --rm \
   -e HARNESS_MODE=tui \
   harness
 ```
@@ -55,6 +55,9 @@ YAML
 docker compose -f compose.yml exec -T collector \
   collector-merge-filtered --config /logs/merge_filtering_example.yaml
 ```
+Note: the current collector entrypoint also writes `filtered_ebpf_summary.jsonl`
+and the default merge config uses that summary file for UI-friendly `net_summary`
+rows. This example keeps raw `filtered_ebpf.jsonl` to keep the snippets small.
 
 7) (Optional) Tear down between scenarios.
 ```bash
@@ -180,6 +183,9 @@ Created /work/personal_files/notes.txt
 ```
 
 ## Agent container logs (agent-owned rows visible in the log sink)
+Note: when the summary stage is enabled, `filtered_ebpf_summary.jsonl` provides
+`net_summary` rows and is the default input to the merged timeline. The raw
+`filtered_ebpf.jsonl` still exists for lower-level inspection.
 ### Scenario A (TUI)
 Agent-owned row counts (all rows in these files are agent-owned for this scenario):
 - `logs/filtered_audit.jsonl`: 5 rows

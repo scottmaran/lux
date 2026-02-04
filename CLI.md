@@ -13,6 +13,8 @@ Override with: `--config <path>` or `LASSO_CONFIG`.
 `lasso config apply` writes a compose env file (default
 `~/.config/lasso/compose.env`) and creates the log/workspace directories defined
 in the config.
+For `lasso run`, `harness.api_token` must be set in the config (or provided via
+`HARNESS_API_TOKEN` in the compose env file).
 
 ## Global Options
 

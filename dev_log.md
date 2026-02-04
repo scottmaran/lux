@@ -1,6 +1,6 @@
 # Overview
 
-A running log of implementation work on agent_harness
+A running log of implementation work on Lasso (agent_harness)
 
 # Collector
 
@@ -162,3 +162,39 @@ host-side logs.
 ### Details
 - Created `EXAMPLE_FLOW.md` with TUI + server-mode scenarios, expected commands, and UI outputs.
 - Added `example_logs/` fixtures and YAML configs for summary + merge filtering examples.
+
+# Lasso CLI + Release
+
+## Block 1:
+- Parameterized compose files for `LASSO_VERSION`, `LASSO_LOG_ROOT`, and `LASSO_WORKSPACE_ROOT`.
+- Added UI compose wiring for the same log-root parameterization.
+
+### Details
+- `compose.yml` now mounts `${LASSO_LOG_ROOT}` and `${LASSO_WORKSPACE_ROOT}` and respects `LASSO_VERSION`.
+- `compose.ui.yml` mounts logs read-only and keeps labels writable under `/logs/labels`.
+
+## Block 2:
+- Implemented the Rust `lasso` CLI with config management, compose orchestration, and job/session tooling.
+
+### Details
+- CLI commands: `config init|edit|validate|apply`, `up|down|status`, `run`, `tui`, `jobs`, `doctor`, `logs`.
+- JSON output mode (`--json`) and deterministic compose env file generation (`~/.config/lasso/compose.env`).
+- Uses `LASSO_BUNDLE_DIR` for compose discovery and creates log/workspace directories on `config apply`.
+- Removed `--service-ports` from TUI runs to avoid port collisions.
+
+## Block 3:
+- Added CLI unit + integration tests and a dedicated bash test suite.
+
+### Details
+- Rust tests in `lasso/tests` cover config parsing, env generation, and command behavior.
+- New integration scripts in `scripts/cli_scripts/` validate real artifacts and require a PTY via `script`.
+- Updated `TESTING.md` to reflect the CLI test matrix and new scripts.
+
+## Block 4:
+- Added release packaging, installer, and workflow documentation.
+
+### Details
+- `install_lasso.sh` installs release bundles under `~/.lasso/` and links `~/.local/bin/lasso`.
+- `INSTALL.md`, `CLI.md`, and `lasso/README.md` document installation and CLI usage.
+- `.github/workflows/release.yml` builds bundles, optionally pushes GHCR images, and optionally publishes a GitHub Release.
+- Added `.github/workflows/README.md` to document the release workflow.

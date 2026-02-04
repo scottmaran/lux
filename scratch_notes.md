@@ -228,7 +228,9 @@ The primary focus is creating a file someone can read with 0 knowledge of the pr
 - we have an optional directory for where to install configs
 
 - surface stderr.log logs in the UI timeline
+- need to add --skip-git-repo-check to default harness command
 - and/or capture process exit (maybe with exit code) 
+- add delete to runs 
 ```
 - Add a new integration script (e.g., scripts/cli_scripts/13_codex_trust_check.sh) that:
     1. Sets HARNESS_RUN_CMD_TEMPLATE='codex -C /work exec {prompt}' (intentionally without --skip-git-repo-check).
