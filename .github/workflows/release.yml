@@ -21,22 +21,26 @@ permissions:
 
 jobs:
   build-cli:
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.runner }}
     strategy:
       matrix:
         include:
           - target: x86_64-unknown-linux-gnu
             os: linux
             arch: amd64
+            runner: ubuntu-latest
           - target: aarch64-unknown-linux-gnu
             os: linux
             arch: arm64
+            runner: ubuntu-latest
           - target: x86_64-apple-darwin
             os: darwin
             arch: amd64
+            runner: macos-14
           - target: aarch64-apple-darwin
             os: darwin
             arch: arm64
+            runner: macos-14
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -55,6 +59,12 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y gcc-aarch64-linux-gnu
 
+      - name: Configure cross-linker (linux arm64)
+        if: startsWith(matrix.target, 'aarch64-unknown-linux-gnu')
+        run: |
+          echo "CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER=aarch64-linux-gnu-gcc" >> $GITHUB_ENV
+          echo "CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_AR=aarch64-linux-gnu-ar" >> $GITHUB_ENV
+
       - name: Build CLI
         run: |
           cargo build --release --target ${{ matrix.target }}
@@ -71,10 +81,10 @@ jobs:
           cp compose.ui.yml "$BUNDLE_DIR/"
           cp lasso/config/default.yaml "$BUNDLE_DIR/config/default.yaml"
           cp README.md "$BUNDLE_DIR/README.md"
-          cp LICENSE "$BUNDLE_DIR/LICENSE"
+          if [ -f LICENSE ]; then cp LICENSE "$BUNDLE_DIR/LICENSE"; fi
           echo "${VERSION#v}" > "$BUNDLE_DIR/VERSION"
           (cd dist && tar -czf lasso_${VERSION_TAG}_${{ matrix.os }}_${{ matrix.arch }}.tar.gz "$(basename "$BUNDLE_DIR")")
-          (cd dist && shasum -a 256 lasso_${VERSION_TAG}_${{ matrix.os }}_${{ matrix.arch }}.tar.gz > lasso_${VERSION_TAG}_${{ matrix.os }}_${{ matrix.arch }}.tar.gz.sha256)
+          (cd dist && if command -v shasum >/dev/null 2>&1; then shasum -a 256 lasso_${VERSION_TAG}_${{ matrix.os }}_${{ matrix.arch }}.tar.gz; else sha256sum lasso_${VERSION_TAG}_${{ matrix.os }}_${{ matrix.arch }}.tar.gz; fi > lasso_${VERSION_TAG}_${{ matrix.os }}_${{ matrix.arch }}.tar.gz.sha256)
 
       - name: Upload bundle artifact
         uses: actions/upload-artifact@v4
@@ -99,6 +109,9 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
@@ -108,19 +121,19 @@ jobs:
           docker buildx build --platform linux/amd64,linux/arm64 \
             -t ghcr.io/${{ github.repository_owner }}/lasso-agent:${VERSION} \
             -t ghcr.io/${{ github.repository_owner }}/lasso-agent:${VERSION_TAG} \
-            -f agent/Dockerfile --push .
+            -f agent/Dockerfile --push agent
           docker buildx build --platform linux/amd64,linux/arm64 \
             -t ghcr.io/${{ github.repository_owner }}/lasso-harness:${VERSION} \
             -t ghcr.io/${{ github.repository_owner }}/lasso-harness:${VERSION_TAG} \
-            -f harness/Dockerfile --push .
+            -f harness/Dockerfile --push harness
           docker buildx build --platform linux/amd64,linux/arm64 \
             -t ghcr.io/${{ github.repository_owner }}/lasso-collector:${VERSION} \
             -t ghcr.io/${{ github.repository_owner }}/lasso-collector:${VERSION_TAG} \
-            -f collector/Dockerfile --push .
+            -f collector/Dockerfile --push collector
           docker buildx build --platform linux/amd64,linux/arm64 \
             -t ghcr.io/${{ github.repository_owner }}/lasso-ui:${VERSION} \
             -t ghcr.io/${{ github.repository_owner }}/lasso-ui:${VERSION_TAG} \
-            -f ui/Dockerfile --push .
+            -f ui/Dockerfile --push ui
 
   publish-release:
     runs-on: ubuntu-latest
