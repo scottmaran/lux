@@ -87,6 +87,9 @@ The project shifted from “agent_harness” as an internal code name to **Lasso
 - **Release automation**: a GitHub Actions workflow builds bundles, optionally pushes images, and optionally publishes releases.
 This phase also introduced a dedicated CLI test suite (`scripts/cli_scripts`) and updated docs (`docs/guide/install.md`, `docs/guide/cli.md`, `lasso/README.md`) to reflect the CLI-first workflow.
 
+**Phase 18: Documentation restructure + user guide bundling (Feb 4, 2026)**
+Docs were reorganized into a dedicated `docs/` tree with a user-first guide (`docs/guide/`) and a developer section (`docs/dev/`). The documentation map moved to `docs/README.md`, and the root `README.md` was simplified to point users to the guide while keeping a developer pointer. The release bundle was updated to ship `docs/guide/` for offline access, and the config reference was expanded (including a clear explanation of `HARNESS_API_TOKEN`).
+
 **Open questions and deliberate TODOs**
 Some choices were intentionally deferred and still appear as TODOs in the docs:
 - Kernel feature requirements and minimum versions for audit sources.
