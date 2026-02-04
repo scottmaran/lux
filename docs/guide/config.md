@@ -95,6 +95,40 @@ harness:
 - **Note:** If empty, you can also provide `HARNESS_API_TOKEN` in the
   environment (or in the compose env file) instead.
 
+## HARNESS_API_TOKEN Details
+
+`HARNESS_API_TOKEN` is the shared secret that protects the harness HTTP API
+used for non-interactive runs (`lasso run`).
+
+- **Why it exists:** The harness runs a small local web service on your computer
+  (only reachable from the same machine). It has two main endpoints:
+  - `POST /run` starts a new non‑interactive job.
+  - `GET /jobs/<id>` lets you check that job’s status and results.
+- **What the token protects:** Think of the token like a password for that local
+  service. Without it, any other program on your computer could send “start a
+  job” requests to the harness. The token makes sure only you (or the `lasso`
+  CLI you launched) can trigger runs.
+- **Where it’s used:** The harness server checks the `X-Harness-Token` request
+  header against `HARNESS_API_TOKEN`. The CLI reads `harness.api_token` from
+  `config.yaml` and includes it when calling the API.
+- **Why it’s in config:** Putting it in `config.yaml` ensures `lasso config apply`
+  writes it into `compose.env`, so the harness container and the CLI share the
+  same value.
+- **If you don’t set it:**
+  - `lasso run` fails with an error (token required).
+  - The harness refuses to start in server mode without a token.
+  - API requests without the header are rejected with `401 unauthorized`.
+- **What to set it to:** Any non-empty string works, but use a long random value
+  (e.g. 32+ chars). Example:
+  ```bash
+  openssl rand -hex 32
+  ```
+
+Notes:
+- This token is only for the local harness API; it is unrelated to GHCR auth or
+  SSH keys.
+- TUI/interactive sessions do not require this token.
+
 ## What `lasso config apply` does
 
 `lasso config apply` validates the file and then:
