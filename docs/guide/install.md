@@ -10,11 +10,17 @@ installation for users who prefer not to run scripts.
 
 ## Install (Recommended)
 
-Download the installer from GitHub Releases and run it:
+Run the versioned installer:
 
 ```bash
-curl -fsSL https://github.com/scottmaran/lasso/releases/download/v0.1.0/install_lasso.sh -o install_lasso.sh
-bash install_lasso.sh --version v0.1.0
+curl -fsSL https://raw.githubusercontent.com/scottmaran/lasso/v0.1.4/install_lasso.sh | bash -s -- --version v0.1.4
+```
+
+If you prefer to inspect the script first:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/scottmaran/lasso/v0.1.4/install_lasso.sh -o install_lasso.sh
+bash install_lasso.sh --version v0.1.4
 ```
 
 This:
@@ -31,27 +37,27 @@ choose those in the config.
 1) Download the correct bundle for your OS/arch:
 
 ```bash
-curl -fsSL https://github.com/scottmaran/lasso/releases/download/v0.1.0/lasso_0.1.0_darwin_arm64.tar.gz -o lasso.tar.gz
+curl -fsSL https://github.com/scottmaran/lasso/releases/download/v0.1.4/lasso_0.1.4_darwin_arm64.tar.gz -o lasso.tar.gz
 ```
 
 2) (Optional) Verify checksum:
 
 ```bash
-curl -fsSL https://github.com/scottmaran/lasso/releases/download/v0.1.0/checksums.txt -o checksums.txt
-shasum -a 256 -c checksums.txt | grep lasso_0.1.0_darwin_arm64.tar.gz
+curl -fsSL https://github.com/scottmaran/lasso/releases/download/v0.1.4/lasso_0.1.4_darwin_arm64.tar.gz.sha256 -o lasso.tar.gz.sha256
+shasum -a 256 -c lasso.tar.gz.sha256
 ```
 
 3) Extract to a versioned install dir:
 
 ```bash
-mkdir -p ~/.lasso/versions/0.1.0
- tar -xzf lasso.tar.gz -C ~/.lasso/versions/0.1.0
+mkdir -p ~/.lasso/versions/0.1.4
+tar -xzf lasso.tar.gz -C ~/.lasso/versions/0.1.4
 ```
 
 4) Create symlinks:
 
 ```bash
-ln -sfn ~/.lasso/versions/0.1.0 ~/.lasso/current
+ln -sfn ~/.lasso/versions/0.1.4 ~/.lasso/current
 mkdir -p ~/.local/bin
 ln -sfn ~/.lasso/current/lasso ~/.local/bin/lasso
 ```
