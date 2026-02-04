@@ -240,3 +240,4 @@ The primary focus is creating a file someone can read with 0 knowledge of the pr
     5. Cleans up and restores the previous template.
 ```
 - when you exit the TUI session, doesn't shut down the agent container.
+- update the legacy integration script scripts/run_integration_filter_tui.sh to drop --service-ports for consistency with the CLI
