@@ -226,3 +226,15 @@ The primary focus is creating a file someone can read with 0 knowledge of the pr
 - some tests may have sleeps in them that we want to investigate/replace for more determinstic things
 - Should the rename endpoints be unauthenticated (current UI behavior), or do you want a simple token check like the harness API?
 - we have an optional directory for where to install configs
+
+- surface stderr.log logs in the UI timeline
+- and/or capture process exit (maybe with exit code) 
+```
+- Add a new integration script (e.g., scripts/cli_scripts/13_codex_trust_check.sh) that:
+    1. Sets HARNESS_RUN_CMD_TEMPLATE='codex -C /work exec {prompt}' (intentionally without --skip-git-repo-check).
+    2. Runs lasso up, then lasso run "echo hi".
+    3. Polls lasso jobs get <job_id> until status=failed.
+    4. Verifies runs/<id>/stderr.log contains the “Not inside a trusted directory…” message.
+    5. Cleans up and restores the previous template.
+```
+- when you exit the TUI session, doesn't shut down the agent container.
