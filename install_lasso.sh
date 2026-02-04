@@ -58,7 +58,7 @@ esac
 BASE_URL="https://github.com/scottmaran/lasso/releases/download/${VERSION}"
 VERSION_TAG=${VERSION#v}
 BUNDLE="lasso_${VERSION_TAG}_${OS}_${ARCH}.tar.gz"
-CHECKSUMS="checksums.txt"
+CHECKSUM="${BUNDLE}.sha256"
 
 TMP_DIR=$(mktemp -d)
 
@@ -68,9 +68,15 @@ cleanup() {
 trap cleanup EXIT
 
 curl -fsSL "${BASE_URL}/${BUNDLE}" -o "${TMP_DIR}/${BUNDLE}"
-curl -fsSL "${BASE_URL}/${CHECKSUMS}" -o "${TMP_DIR}/${CHECKSUMS}"
+curl -fsSL "${BASE_URL}/${CHECKSUM}" -o "${TMP_DIR}/${CHECKSUM}"
 
-( cd "$TMP_DIR" && shasum -a 256 -c "${CHECKSUMS}" | grep "${BUNDLE}" )
+if command -v shasum >/dev/null 2>&1; then
+  ( cd "$TMP_DIR" && shasum -a 256 -c "${CHECKSUM}" )
+elif command -v sha256sum >/dev/null 2>&1; then
+  ( cd "$TMP_DIR" && sha256sum -c "${CHECKSUM}" )
+else
+  echo "WARNING: no sha256 verifier found; skipping checksum verification." >&2
+fi
 
 DEST_DIR="${INSTALL_DIR}/versions/${VERSION_TAG}"
 mkdir -p "$DEST_DIR"

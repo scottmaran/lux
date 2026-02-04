@@ -46,7 +46,7 @@ trigger `/proc` fallback in `collector/ebpf/loader/src/main.rs`.
 - Added `collector/scripts/filter_audit_logs.py` to parse auditd sequences, apply ownership rules, and emit filtered JSONL, including optional
 session/job mapping and live-tail buffering.
 - Wired the filter into the collector image and entrypoint; added `python3-yaml` dependency and config at `collector/config/filtering.yaml`.
-- Documented filtered output schema and rules in `collector/auditd_data.md` and `collector/config/filtering_rules.md`, and added `TESTING.md`.
+- Documented filtered output schema and rules in `collector/auditd_data.md` and `collector/config/filtering_rules.md`, and added `docs/dev/TESTING.md`.
 - Created audit-filter integration scripts for no-harness, job, and TUI flows under `scripts/`.
 
 ## Block 4:
@@ -107,7 +107,7 @@ Blocks of Work
 ### Details
 - Introduced `ui/server.py`, `ui/index.html`, `ui/app.js`, and `ui/styles.css` for a static UI served with an
   embedded JSON API.
-- Added `UI_API.md`, `UI_DESIGN.md`, and `compose.ui.yml` to document and run the UI service.
+- Added `docs/ui/UI_API.md`, `docs/ui/UI_DESIGN.md`, and `compose.ui.yml` to document and run the UI service.
 
 ## Block 2:
 - Iterated on the zero-build UI with clearer naming and better formatting.
@@ -115,7 +115,7 @@ Blocks of Work
 ### Details
 - Simplified labels and layout in `ui/app.js`, `ui/index.html`, and `ui/styles.css`.
 - Formatted process metadata and surfaced domains ahead of IPs for network rows.
-- Updated `UI_DESIGN.md`/`UI_API.md` to align with the filtered timeline pipeline.
+- Updated `docs/ui/UI_DESIGN.md`/`docs/ui/UI_API.md` to align with the filtered timeline pipeline.
 
 ## Block 3:
 - Rebuilt the UI from the Figma export as a React + Vite app with reusable components.
@@ -125,7 +125,7 @@ Blocks of Work
 - Added `ui/src` with `App.tsx`, timeline/runs/filters/metrics components, and a shared UI component library.
 - Added `ui/package.json`, `ui/vite.config.ts`, `ui/src/index.css`, and `ui/src/styles/globals.css`.
 - Updated `ui/Dockerfile` and `ui/README.md` to build the Vite app and serve it through the Python API server.
-- Updated `UI_DESIGN.md` to describe the new layout and behavior.
+- Updated `docs/ui/UI_DESIGN.md` to describe the new layout and behavior.
 
 # To Do:
 - DNS parsing now covers UDP/TCP port 53 via sendto/recvfrom/sendmsg/recvmsg and detects TCP by length prefix, but DoH/DoT traffic is
@@ -160,7 +160,7 @@ host-side logs.
 - Added an end-to-end example flow doc and stable fixtures for validating the merged timeline output.
 
 ### Details
-- Created `EXAMPLE_FLOW.md` with TUI + server-mode scenarios, expected commands, and UI outputs.
+- Created `docs/dev/EXAMPLE_FLOW.md` with TUI + server-mode scenarios, expected commands, and UI outputs.
 - Added `example_logs/` fixtures and YAML configs for summary + merge filtering examples.
 
 # Lasso CLI + Release
@@ -188,13 +188,13 @@ host-side logs.
 ### Details
 - Rust tests in `lasso/tests` cover config parsing, env generation, and command behavior.
 - New integration scripts in `scripts/cli_scripts/` validate real artifacts and require a PTY via `script`.
-- Updated `TESTING.md` to reflect the CLI test matrix and new scripts.
+- Updated `docs/dev/TESTING.md` to reflect the CLI test matrix and new scripts.
 
 ## Block 4:
 - Added release packaging, installer, and workflow documentation.
 
 ### Details
 - `install_lasso.sh` installs release bundles under `~/.lasso/` and links `~/.local/bin/lasso`.
-- `INSTALL.md`, `CLI.md`, and `lasso/README.md` document installation and CLI usage.
+- `docs/guide/install.md`, `docs/guide/cli.md`, and `lasso/README.md` document installation and CLI usage.
 - `.github/workflows/release.yml` builds bundles, optionally pushes GHCR images, and optionally publishes a GitHub Release.
 - Added `.github/workflows/README.md` to document the release workflow.

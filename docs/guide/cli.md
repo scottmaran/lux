@@ -5,23 +5,26 @@ single config file, generates a compose env file, and shells out to `docker
 compose` for lifecycle commands. For non‑interactive runs it calls the harness
 HTTP API; for TUI runs it starts the harness in TUI mode.
 
-## Configuration
+## How it works (brief)
 
-Default config path: `~/.config/lasso/config.yaml`  
-Override with: `--config <path>` or `LASSO_CONFIG`.
+1) Read config (`~/.config/lasso/config.yaml`).
+2) `config apply` generates `compose.env` with `LASSO_VERSION`,
+   `LASSO_LOG_ROOT`, and `LASSO_WORKSPACE_ROOT`.
+3) `up/down/status/tui` shell out to `docker compose` with the bundle’s compose
+   files and the generated env file.
+4) `run` and `jobs` call the harness HTTP API on `127.0.0.1:8081`.
 
-`lasso config apply` writes a compose env file (default
-`~/.config/lasso/compose.env`) and creates the log/workspace directories defined
-in the config.
-For `lasso run`, `harness.api_token` must be set in the config (or provided via
-`HARNESS_API_TOKEN` in the compose env file).
+## Examples
 
-## Global Options
-
-- `--config <path>`: Use a specific config file.
-- `--json`: Emit machine‑readable JSON output.
-- `--bundle-dir <path>`: Override bundle directory (advanced; for dev use).
-- `--env-file <path>`: Override compose env file path (advanced; for dev use).
+```bash
+lasso config init
+lasso config apply
+lasso up --codex
+lasso status
+lasso tui --codex
+lasso down
+lasso logs stats
+```
 
 ## Commands
 
@@ -102,22 +105,20 @@ Inspect logs at a high level.
   Tail common logs (`audit`, `ebpf`, `timeline`) or a specific file path
   relative to the log root.
 
-## How it works (brief)
+## Global Options
 
-1) Read config (`~/.config/lasso/config.yaml`).
-2) `config apply` generates `compose.env` with `LASSO_VERSION`,
-   `LASSO_LOG_ROOT`, and `LASSO_WORKSPACE_ROOT`.
-3) `up/down/status/tui` shell out to `docker compose` with the bundle’s compose
-   files and the generated env file.
-4) `run` and `jobs` call the harness HTTP API on `127.0.0.1:8081`.
+- `--config <path>`: Use a specific config file.
+- `--json`: Emit machine‑readable JSON output.
+- `--bundle-dir <path>`: Override bundle directory (advanced; for dev use).
+- `--env-file <path>`: Override compose env file path (advanced; for dev use).
 
-## Examples
+## Configuration
 
-```bash
-lasso config init
-lasso config apply
-lasso up --codex
-lasso run "say hello"
-lasso tui --codex
-lasso down
-```
+Default config path: `~/.config/lasso/config.yaml`  
+Override with: `--config <path>` or `LASSO_CONFIG`.
+
+`lasso config apply` writes a compose env file (default
+`~/.config/lasso/compose.env`) and creates the log/workspace directories defined
+in the config.
+For `lasso run`, `harness.api_token` must be set in the config (or provided via
+`HARNESS_API_TOKEN` in the compose env file).
