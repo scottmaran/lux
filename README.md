@@ -9,7 +9,7 @@ versioned Docker images from GHCR and manages config + compose wiring.
 ### Install (beta)
 Download from GitHub Releases and run:
 ```bash
-curl -fsSL https://github.com/scottmaran/agent_harness/releases/download/v0.1.0/install_lasso.sh -o install_lasso.sh
+curl -fsSL https://github.com/scottmaran/lasso/releases/download/v0.1.0/install_lasso.sh -o install_lasso.sh
 bash install_lasso.sh --version v0.1.0
 ```
 This installs the CLI bundle but does **not** create log/workspace directories.
@@ -43,7 +43,7 @@ README.md (you are here)
 │  └─ kernel_auditing_info.md — kernel audit/eBPF notes
 ├─ VM boundary & layout
 │  ├─ docker_desktop_vm.md — Docker Desktop VM behavior
-│  └─ agent_harness_vm_layout.md — VM/container layout
+│  └─ lasso_vm_layout.md — VM/container layout
 ├─ Components
 │  ├─ agent/README.md — agent container setup
 │  ├─ harness/README.md — harness behavior and config
