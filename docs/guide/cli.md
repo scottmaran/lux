@@ -99,7 +99,9 @@ Check local prerequisites (Docker available, log root writable).
 Inspect logs at a high level.
 
 - `lasso logs stats`  
-  Estimate average MB/hour from recent sessions.
+  Estimate average MB/hour from completed TUI sessions only (requires
+  `started_at` and `ended_at`; jobs and running sessions are excluded).
+  See `docs/guide/logs.md` for details.
 
 - `lasso logs tail [--lines N] [--file <name>]`  
   Tail common logs (`audit`, `ebpf`, `timeline`) or a specific file path

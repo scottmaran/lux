@@ -5,6 +5,7 @@ docs/README.md (you are here)
 ├─ guide/
 │  ├─ install.md — installer + manual install steps
 │  ├─ cli.md — CLI commands and behavior
+│  ├─ logs.md — log layout, `lasso logs` behavior, and stats caveats
 │  └─ config.md — config.yaml reference and defaults
 ├─ orientation/
 │  ├─ overview.md — system summary and goals
