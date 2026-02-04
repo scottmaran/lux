@@ -21,7 +21,6 @@ lasso config init
 lasso config apply
 lasso up --codex
 lasso status
-lasso run "say hello"
 lasso tui --codex
 lasso down
 lasso logs stats
