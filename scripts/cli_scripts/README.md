@@ -20,7 +20,7 @@ config, and drive `lasso` commands to validate artifacts.
 - `LASSO_BUNDLE_DIR` — directory containing compose files (default: repo root).
 
 If running from source, point `LASSO_BIN` at the built binary, e.g.:
-`LASSO_BIN=~/agent_harness/lasso/target/debug/lasso`.
+`LASSO_BIN=~/lasso/lasso/target/debug/lasso`.
 
 Each script creates a temporary config, log root, and workspace root under a
 fresh temp directory. No permanent files are written to your home directory.

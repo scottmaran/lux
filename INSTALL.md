@@ -13,7 +13,7 @@ installation for users who prefer not to run scripts.
 Download the installer from GitHub Releases and run it:
 
 ```bash
-curl -fsSL https://github.com/scottmaran/agent_harness/releases/download/v0.1.0/install_lasso.sh -o install_lasso.sh
+curl -fsSL https://github.com/scottmaran/lasso/releases/download/v0.1.0/install_lasso.sh -o install_lasso.sh
 bash install_lasso.sh --version v0.1.0
 ```
 
@@ -31,13 +31,13 @@ choose those in the config.
 1) Download the correct bundle for your OS/arch:
 
 ```bash
-curl -fsSL https://github.com/scottmaran/agent_harness/releases/download/v0.1.0/lasso_0.1.0_darwin_arm64.tar.gz -o lasso.tar.gz
+curl -fsSL https://github.com/scottmaran/lasso/releases/download/v0.1.0/lasso_0.1.0_darwin_arm64.tar.gz -o lasso.tar.gz
 ```
 
 2) (Optional) Verify checksum:
 
 ```bash
-curl -fsSL https://github.com/scottmaran/agent_harness/releases/download/v0.1.0/checksums.txt -o checksums.txt
+curl -fsSL https://github.com/scottmaran/lasso/releases/download/v0.1.0/checksums.txt -o checksums.txt
 shasum -a 256 -c checksums.txt | grep lasso_0.1.0_darwin_arm64.tar.gz
 ```
 

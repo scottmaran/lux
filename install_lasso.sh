@@ -55,7 +55,7 @@ case "$ARCH" in
   *) echo "Unsupported architecture: $ARCH" >&2; exit 1 ;;
 esac
 
-BASE_URL="https://github.com/scottmaran/agent_harness/releases/download/${VERSION}"
+BASE_URL="https://github.com/scottmaran/lasso/releases/download/${VERSION}"
 VERSION_TAG=${VERSION#v}
 BUNDLE="lasso_${VERSION_TAG}_${OS}_${ARCH}.tar.gz"
 CHECKSUMS="checksums.txt"
