@@ -45,5 +45,6 @@ The release assets include the CLI bundle tarballs + SHA256 checksums.
   - `compose.yml`, `compose.codex.yml`, `compose.ui.yml`
   - `config/default.yaml`
   - `docs/guide/` (user docs)
+  - `install_lasso.sh` (standalone installer)
   - `README.md`, `LICENSE`, `VERSION`
   - SHA256 checksum

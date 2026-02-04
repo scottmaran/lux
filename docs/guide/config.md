@@ -67,8 +67,8 @@ harness:
 - **Default:** empty
 - **Meaning:** container image tag to use for all services.
 - **Behavior:**
-  - If empty, the CLI uses its own version and prepends `v` (e.g. `v0.1.4`).
-  - If set, this exact value is used for image tags (e.g. `v0.1.4`, `latest`).
+  - If empty, the CLI uses its own version and prepends `v` (e.g. `v0.1.5`).
+  - If set, this exact value is used for image tags (e.g. `v0.1.5`, `latest`).
 
 ### docker.project_name
 - **Type:** string
@@ -160,5 +160,5 @@ paths:
 ### Pin a specific release tag
 ```yaml
 release:
-  tag: v0.1.4
+  tag: v0.1.5
 ```
