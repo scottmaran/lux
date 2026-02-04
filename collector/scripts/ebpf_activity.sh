@@ -1,7 +1,7 @@
 #!/bin/sh
 set -e
 
-ROOT_DIR=${ROOT_DIR:-$HOME/agent_harness}
+ROOT_DIR=${ROOT_DIR:-$HOME/lasso}
 WORKSPACE=${WORKSPACE:-${ROOT_DIR}/workspace}
 LOGS=${LOGS:-${ROOT_DIR}/logs}
 
