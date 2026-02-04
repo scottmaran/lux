@@ -1,10 +1,42 @@
-# Agent Harness
+# Lasso (Agent Harness)
 
 Containerized harness + agent + collector stack for auditing agent activity inside a VM.
+
+## Lasso CLI (beta)
+The recommended way to run the stack is via the `lasso` CLI, which pulls the
+versioned Docker images from GHCR and manages config + compose wiring.
+
+### Install (beta)
+Download from GitHub Releases and run:
+```bash
+curl -fsSL https://github.com/scottmaran/agent_harness/releases/download/v0.1.0/install_lasso.sh -o install_lasso.sh
+bash install_lasso.sh --version v0.1.0
+```
+This installs the CLI bundle but does **not** create log/workspace directories.
+Edit `~/.config/lasso/config.yaml`, set `paths.log_root` and
+`paths.workspace_root`, then run `lasso config apply`.
+
+Quick start (after install + config):
+```bash
+lasso config init
+lasso config apply
+lasso up --codex
+lasso tui --codex
+```
+
+Notes:
+- Default config: `~/.config/lasso/config.yaml` (override with `LASSO_CONFIG`).
+- Default log root: `~/lasso-logs`.
+- Default workspace root: `~/lasso-workspace`.
+- When running from source, set `LASSO_BUNDLE_DIR` to the repo root so the CLI
+  can find the compose files.
 
 ## Documentation Map
 ```
 README.md (you are here)
+├─ Install & CLI
+│  ├─ INSTALL.md — installer + manual install steps
+│  └─ CLI.md — CLI commands and behavior
 ├─ Orientation
 │  ├─ overview.md — system summary and goals
 │  ├─ platform.md — platform assumptions and constraints
@@ -28,6 +60,8 @@ README.md (you are here)
 ├─ Testing & examples
 │  ├─ TESTING.md — filter test cases and expected outcomes
 │  └─ EXAMPLE_FLOW.md — end-to-end example walkthroughs
+├─ CLI
+│  └─ lasso/ — Rust CLI source (release bundles ship the binary only)
 ├─ Past work & rationale
 │  ├─ HISTORY.md — narrative history and decisions
 │  └─ dev_log.md — implementation log
@@ -36,13 +70,13 @@ README.md (you are here)
 ```
 
 ## How to
-### Start up commands
+### Start up commands (legacy/manual compose)
 #### Interactive mode (Codex)
 Requires `~/.codex/auth.json` and `~/.codex/skills` on the host.
 ```bash
 docker compose -f compose.yml -f compose.codex.yml up -d --build agent collector
 
-docker compose -f compose.yml -f compose.codex.yml run --rm --service-ports \
+docker compose -f compose.yml -f compose.codex.yml run --rm \
   -e HARNESS_MODE=tui harness
 ```
 The harness connects to the `agent` service over SSH; the collector must be running to emit audit/eBPF logs. `docker compose run` does not start dependencies.
@@ -65,7 +99,7 @@ The harness runs in server mode when stdin is not a TTY; use `HARNESS_MODE=serve
 ```bash
 docker compose -f compose.yml up -d --build agent collector
 
-docker compose -f compose.yml run --rm --service-ports \
+docker compose -f compose.yml run --rm \
   -e HARNESS_MODE=tui \
   -e "HARNESS_TUI_CMD=bash -l" \
   harness
@@ -75,7 +109,7 @@ docker compose -f compose.yml run --rm --service-ports \
 ```bash
 docker compose -f compose.ui.yml up -d --build ui
 ```
-The UI reads from `./logs` and binds to `http://127.0.0.1:8090`.
+The UI reads from `${LASSO_LOG_ROOT:-./logs}` and binds to `http://127.0.0.1:8090`.
 
 ### Compose files
 - `compose.yml`: base stack (agent-agnostic).

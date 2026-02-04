@@ -3,7 +3,7 @@
 ## Scope
 - Supported hosts: macOS and Linux running Docker Desktop.
 - Execution boundary is the Docker Desktop Linux VM; all audit happens inside that VM.
-- Default container base distro: Ubuntu 22.04 LTS (for harness/collector/proxy images).
+- Default container base distro: Ubuntu 22.04 LTS (agent, harness, collector).
 - Container runtime: Docker; orchestration via Docker Compose.
 - Supported topology is locked to VM + containers + host sink (see agent_harness_vm_layout.md).
 - CPU architectures: x86_64 and arm64.

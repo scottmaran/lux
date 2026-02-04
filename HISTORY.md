@@ -1,9 +1,9 @@
-# Agent Harness History
+# Lasso History (formerly agent_harness)
 
-This document reconstructs how agent_harness came to be and why key design decisions were made, focusing on context that is not fully captured in the current docs. It is written as a linear narrative with phases and dates so a new reader can understand the intent behind the current structure.
+This document reconstructs how Lasso (formerly agent_harness) came to be and why key design decisions were made, focusing on context that is not fully captured in the current docs. It is written as a linear narrative with phases and dates so a new reader can understand the intent behind the current structure.
 
 **Phase 0: Foundations and audit mindset (Jan 2-3, 2026)**
-The project starts with a broader "NoBloat" philosophy: keep the system interpretable, make every session loggable, and keep knowledge and raw transcripts separate from work. That emphasis on traceability and clean, agent-readable artifacts became the backdrop for why agent_harness had to produce evidence-grade logs rather than rely on agent self-reporting.
+The project starts with a broader "NoBloat" philosophy: keep the system interpretable, make every session loggable, and keep knowledge and raw transcripts separate from work. That emphasis on traceability and clean, agent-readable artifacts became the backdrop for why the project (then called agent_harness) had to produce evidence-grade logs rather than rely on agent self-reporting.
 
 **Phase 1: Docker Desktop and the VM boundary (Jan 9, 2026)**
 While setting up Docker Desktop, it became clear that on macOS all containers run inside a Linux VM (LinuxKit). The audit boundary is the VM kernel, not the host OS. This clarified that any reliable process-level attribution had to happen inside the VM, because host-level tools only see the VM process, not container PIDs. That discovery shaped the entire "collector inside the VM" architecture.
@@ -77,6 +77,15 @@ A lightweight UI + API contract was introduced to read the unified timeline and 
 
 **Phase 16: Figma-driven redesign and build pipeline (Feb 1, 2026)**
 The UI was rebuilt from a Figma export into a React + Vite app with reusable components, preserving the read-only, filter-first behavior while improving layout and visual clarity. The `ui` container now builds the frontend and serves it via the Python API server, and `UI_DESIGN.md` was updated to describe the new structure (summary metrics, filter controls, timeline, and runs list).
+
+**Phase 17: Lasso rebrand + CLI-first packaging (Feb 2-4, 2026)**
+The project shifted from “agent_harness” as an internal code name to **Lasso** as the product name. A Rust CLI (`lasso`) became the primary entry point, standardizing config, compose wiring, and lifecycle commands. Key packaging choices were made:
+- **Thin release bundles**: ship only the CLI binary + compose files; the container images live in GHCR and are referenced by tag.
+- **Stable config location**: `~/.config/lasso/config.yaml` with default paths `~/lasso-logs` and `~/lasso-workspace`.
+- **Parameterized compose**: `LASSO_VERSION`, `LASSO_LOG_ROOT`, and `LASSO_WORKSPACE_ROOT` drive consistent mounts across services.
+- **Installer flow**: a release-installed CLI (`install_lasso.sh`) places versions under `~/.lasso/` and symlinks into `~/.local/bin`.
+- **Release automation**: a GitHub Actions workflow builds bundles, optionally pushes images, and optionally publishes releases.
+This phase also introduced a dedicated CLI test suite (`scripts/cli_scripts`) and updated docs (`INSTALL.md`, `CLI.md`, `lasso/README.md`) to reflect the CLI-first workflow.
 
 **Open questions and deliberate TODOs**
 Some choices were intentionally deferred and still appear as TODOs in the docs:

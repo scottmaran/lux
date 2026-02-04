@@ -1,9 +1,8 @@
 services:
   ui:
-    build: ./ui
-    image: harness-ui:dev
+    image: ghcr.io/scottmaran/lasso-ui:${LASSO_VERSION}
     volumes:
-      - ./logs:/logs:ro
-      - ./logs/labels:/logs/labels:rw
+      - ${LASSO_LOG_ROOT:-./logs}:/logs:ro
+      - ${LASSO_LOG_ROOT:-./logs}/labels:/logs/labels:rw
     ports:
       - "127.0.0.1:8090:8090"

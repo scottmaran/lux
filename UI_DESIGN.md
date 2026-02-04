@@ -1,4 +1,4 @@
-# UI Design - Agent Harness Log Viewer
+# UI Design - Lasso Log Viewer
 
 This document describes the current UI design for the log viewer. The source of truth is the Figma redesign export in `ui/` (React + Vite). The UI is focused on fast scanning of agent activity, with lightweight inline renaming for runs via labels.
 
@@ -10,7 +10,9 @@ This document describes the current UI design for the log viewer. The source of 
 
 ## Layout Overview
 - **Header bar**
-  - Left-aligned product title (“Agent Harness”) and subtitle (“AI Agent Activity Audit Log”).
+  - Left-aligned product title (“Lasso”) with two subtitle lines:
+    “Verifiability & Auditability for your AI agents” and
+    “A dedicated harness for OS-level tracking of everything your agents do”.
 - **Main content (stacked sections)**
   1. **Summary Metrics**: three metric cards for Processes, File Changes, and Network Calls.
   2. **Filter Controls**: data source toggles and time range presets.

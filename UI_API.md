@@ -1,8 +1,8 @@
-# UI API (Zero-Build Prototype)
+# UI API
 
-This API is the minimal contract for the zero-build UI. It is served by a tiny
-HTTP server colocated with the UI static files. No authentication is required
-for the local-only prototype.
+This API is the minimal contract for the Lasso UI. It is served by a tiny HTTP
+server colocated with the UI static files. No authentication is required for
+the local-only UI.
 
 ## Base
 - Same origin as the UI (e.g., `http://localhost:8090`).

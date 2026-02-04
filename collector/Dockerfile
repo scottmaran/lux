@@ -1,36 +1,47 @@
-FROM rust:1.86-bookworm AS ebpf-builder
+FROM rust:1.88.0-bookworm@sha256:af306cfa71d987911a781c37b59d7d67d934f49684058f96cf72079c3626bfe0 AS ebpf-builder
+
+ENV DEBIAN_FRONTEND=noninteractive
+ARG CLANG_VERSION=1:14.0-55.7~deb12u1
+ARG GIT_VERSION=1:2.39.5-0+deb12u3
+ARG LLVM_VERSION=1:14.0-55.7~deb12u1
+ARG LIBELF_DEV_VERSION=0.188-2.1
+ARG PKG_CONFIG_VERSION=1.8.1-1
+ARG ZLIB1G_DEV_VERSION=1:1.2.13.dfsg-1
+ARG RUST_NIGHTLY=nightly-2025-07-15
+ARG BPF_LINKER_VERSION=0.10.1
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
-        clang \
-        git \
-        llvm \
-        libelf-dev \
-        pkg-config \
-        zlib1g-dev \
+        clang=${CLANG_VERSION} \
+        git=${GIT_VERSION} \
+        llvm=${LLVM_VERSION} \
+        libelf-dev=${LIBELF_DEV_VERSION} \
+        pkg-config=${PKG_CONFIG_VERSION} \
+        zlib1g-dev=${ZLIB1G_DEV_VERSION} \
     && rm -rf /var/lib/apt/lists/*
 
-RUN rustup toolchain install nightly \
-    && rustup component add rust-src --toolchain nightly
-RUN cargo install bpf-linker --locked
+RUN rustup toolchain install ${RUST_NIGHTLY} --profile minimal -c rust-src
+RUN cargo install bpf-linker --version ${BPF_LINKER_VERSION} --locked
 
 WORKDIR /src
 COPY ebpf /src
 
-RUN cargo +nightly build -p collector-ebpf --release --target bpfel-unknown-none \
+RUN cargo +${RUST_NIGHTLY} build -p collector-ebpf --release --locked --target bpfel-unknown-none \
     -Z build-std=core -Z build-std-features=compiler-builtins-mem
-RUN cargo +nightly build -p collector-ebpf-loader --release
+RUN cargo build -p collector-ebpf-loader --release --locked
 
-FROM ubuntu:22.04
+FROM ubuntu:22.04@sha256:c7eb020043d8fc2ae0793fb35a37bff1cf33f156d4d4b12ccc7f3ef8706c38b1
+
+ENV DEBIAN_FRONTEND=noninteractive
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
-        auditd \
-        audispd-plugins \
-        ca-certificates \
-        python3 \
-        python3-yaml \
-        util-linux \
+        auditd=1:3.0.7-1build1 \
+        audispd-plugins=1:3.0.7-1build1 \
+        ca-certificates=20240203~22.04.1 \
+        python3=3.10.6-1~22.04.1 \
+        python3-yaml=5.4.1-1ubuntu1 \
+        util-linux=2.37.2-4ubuntu3.4 \
     && rm -rf /var/lib/apt/lists/*
 
 RUN mkdir -p /usr/local/share/collector /etc/collector

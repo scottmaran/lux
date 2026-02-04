@@ -3,7 +3,7 @@
 ## Audit sources (high level)
 - Kernel audit subsystem (auditd): syscall-based audit events with strong PID/UID attribution.
 - eBPF tracing: in-kernel programs attached to tracepoints/kprobes/LSM/cgroup hooks.
-- HTTP(S) proxy: method/URL/status for HTTP traffic; no payloads.
+- HTTP(S) proxy (optional/future): method/URL/status for HTTP traffic; no payloads.
 - Netfilter/conntrack logs: network metadata without reliable PID attribution (optional).
 
 ## What eBPF is and how it works
@@ -22,7 +22,7 @@
 ## Hybrid approach used by the harness
 - auditd for exec + filesystem writes/renames/unlinks + metadata changes (chmod/chown/xattr/utime).
 - eBPF for network egress + local IPC connection metadata (Unix sockets, D-Bus) with PID attribution.
-- HTTP proxy logs method/URL/status; HTTPS without MITM logs host/port only.
+- Optional HTTP proxy logs method/URL/status; HTTPS without MITM logs host/port only.
 - Correlate events by PID/PPID + session_id + timestamp; merge into a timeline.
 
 ## Docker Desktop Linux VM considerations
