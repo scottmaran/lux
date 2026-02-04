@@ -27,3 +27,4 @@ To view more info about user configs, see `docs/guide/config.md`.
 
 ## Docs
 Start with the user guide in `docs/guide/`.
+Developers/contributors: see `docs/README.md` for the full documentation map.
