@@ -75,7 +75,7 @@ jobs:
           cp compose.ui.yml "$BUNDLE_DIR/"
           cp lasso/config/default.yaml "$BUNDLE_DIR/config/default.yaml"
           cp README.md "$BUNDLE_DIR/README.md"
-          cp LICENSE "$BUNDLE_DIR/LICENSE"
+          if [ -f LICENSE ]; then cp LICENSE "$BUNDLE_DIR/LICENSE"; fi
           echo "${VERSION#v}" > "$BUNDLE_DIR/VERSION"
           (cd dist && tar -czf lasso_${VERSION_TAG}_${{ matrix.os }}_${{ matrix.arch }}.tar.gz "$(basename "$BUNDLE_DIR")")
           (cd dist && shasum -a 256 lasso_${VERSION_TAG}_${{ matrix.os }}_${{ matrix.arch }}.tar.gz > lasso_${VERSION_TAG}_${{ matrix.os }}_${{ matrix.arch }}.tar.gz.sha256)
