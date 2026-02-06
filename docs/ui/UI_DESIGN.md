@@ -72,6 +72,7 @@ Single card containing:
   - Started/ended timestamps.
 - Clicking a run toggles selection and filters the timeline.
 - Selected row shows a subtle blue highlight and left border.
+- Auto-refresh: runs list polls periodically (paused when the tab is hidden).
 - Inline rename:
   - Edit icon appears on each row.
   - Clicking it swaps the name for an input field.

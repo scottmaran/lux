@@ -1,4 +1,4 @@
-import { useState, useEffect, type MouseEvent } from 'react';
+import { useState, useEffect, useRef, useCallback, type MouseEvent } from 'react';
 import { Play, CheckCircle2, XCircle, Clock, Pencil, Loader2 } from 'lucide-react';
 import type { Run } from '../App';
 
@@ -6,6 +6,8 @@ interface RunsListProps {
   selectedRun: Run | null;
   onSelectRun: (run: Run | null) => void;
 }
+
+const POLL_INTERVAL = 2000; // 2 seconds
 
 export function RunsList({ selectedRun, onSelectRun }: RunsListProps) {
   const [runs, setRuns] = useState<Run[]>([]);
@@ -15,19 +17,28 @@ export function RunsList({ selectedRun, onSelectRun }: RunsListProps) {
   const [editValue, setEditValue] = useState('');
   const [editError, setEditError] = useState<string | null>(null);
   const [savingRunId, setSavingRunId] = useState<string | null>(null);
+  const pollIntervalRef = useRef<number | null>(null);
+  const editingRunIdRef = useRef<string | null>(null);
 
   useEffect(() => {
-    fetchRuns();
-  }, []);
+    editingRunIdRef.current = editingRunId;
+  }, [editingRunId]);
 
-  const fetchRuns = async () => {
-    setLoading(true);
-    setError(null);
+  const fetchRuns = useCallback(async (silent = false) => {
+    if (editingRunIdRef.current) {
+      return;
+    }
+    if (!silent) {
+      setLoading(true);
+    }
+    if (!silent) {
+      setError(null);
+    }
     try {
       // Fetch sessions and jobs in parallel
       const [sessionsRes, jobsRes] = await Promise.all([
-        fetch('/api/sessions'),
-        fetch('/api/jobs')
+        fetch('/api/sessions', { cache: 'no-store' }),
+        fetch('/api/jobs', { cache: 'no-store' })
       ]);
 
       if (!sessionsRes.ok || !jobsRes.ok) {
@@ -65,12 +76,55 @@ export function RunsList({ selectedRun, onSelectRun }: RunsListProps) {
       );
 
       setRuns(allRuns);
+      setError(null);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load runs');
+      if (!silent) {
+        setError(err instanceof Error ? err.message : 'Failed to load runs');
+      }
     } finally {
-      setLoading(false);
+      if (!silent) {
+        setLoading(false);
+      }
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchRuns();
+
+    const handleVisibilityChange = () => {
+      if (document.hidden) {
+        stopPolling();
+      } else {
+        startPolling();
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
+    if (!document.hidden) {
+      startPolling();
+    }
+
+    return () => {
+      stopPolling();
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, [fetchRuns]);
+
+  const startPolling = () => {
+    stopPolling();
+    pollIntervalRef.current = window.setInterval(() => {
+      fetchRuns(true);
+    }, POLL_INTERVAL);
+  };
+
+  const stopPolling = () => {
+    if (pollIntervalRef.current) {
+      clearInterval(pollIntervalRef.current);
+      pollIntervalRef.current = null;
     }
   };
+
 
   const handleRunClick = (run: Run) => {
     if (editingRunId) {
