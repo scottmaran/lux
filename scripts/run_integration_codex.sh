@@ -15,7 +15,10 @@ if [ ! -d "${HOME}/.codex/skills" ]; then
 fi
 
 export HARNESS_API_TOKEN="${HARNESS_API_TOKEN:-dev-token}"
-export HARNESS_RUN_CMD_TEMPLATE="${HARNESS_RUN_CMD_TEMPLATE:-codex exec --skip-git-repo-check {prompt}}"
+if [ -z "${HARNESS_RUN_CMD_TEMPLATE:-}" ]; then
+  HARNESS_RUN_CMD_TEMPLATE="codex exec --skip-git-repo-check {prompt}"
+fi
+export HARNESS_RUN_CMD_TEMPLATE
 
 compose=(docker compose -f compose.yml -f compose.codex.yml)
 

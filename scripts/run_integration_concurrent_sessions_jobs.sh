@@ -17,7 +17,9 @@ require_cmd script
 require_cmd python3
 
 : "${HARNESS_API_TOKEN:=dev-token}"
-: "${HARNESS_RUN_CMD_TEMPLATE:=bash -lc {prompt}}"
+if [ -z "${HARNESS_RUN_CMD_TEMPLATE:-}" ]; then
+  HARNESS_RUN_CMD_TEMPLATE="bash -lc {prompt}"
+fi
 : "${LASSO_VERSION:=v0.1.4}"
 
 TMP_DIR=$(mktemp -d)

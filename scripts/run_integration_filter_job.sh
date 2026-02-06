@@ -5,7 +5,10 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT_DIR"
 
 export HARNESS_API_TOKEN="${HARNESS_API_TOKEN:-dev-token}"
-export HARNESS_RUN_CMD_TEMPLATE="${HARNESS_RUN_CMD_TEMPLATE:-bash -lc {prompt}}"
+if [ -z "${HARNESS_RUN_CMD_TEMPLATE:-}" ]; then
+  HARNESS_RUN_CMD_TEMPLATE="bash -lc {prompt}"
+fi
+export HARNESS_RUN_CMD_TEMPLATE
 export FILTER_PATH="/work/temp_${RANDOM}_$$.txt"
 
 LOGS="${ROOT_DIR}/logs"
