@@ -24,6 +24,15 @@ ROOT_DIR = Path(__file__).resolve().parents[1]
 
 
 def parse_ts(value: str | None) -> tuple[int, int]:
+    """
+    Normalize timeline timestamp strings into a sortable tuple.
+
+    The validator compares adjacent timeline rows and must do that without
+    relying on string ordering quirks. This helper accepts RFC3339-like values
+    (including `Z` and optional fractional seconds), strips timezone suffixes
+    after normalizing UTC `Z`, and returns `(date_clock_key, microseconds)` so
+    `validate_timeline_outputs` can enforce non-decreasing event order.
+    """
     if not value:
         raise AssertionError("Missing timestamp value.")
     normalized = value.strip()

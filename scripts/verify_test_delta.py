@@ -1,4 +1,14 @@
 #!/usr/bin/env python3
+"""
+Guardrail script that enforces test-delta hygiene for runtime changes.
+
+The script compares a git diff range and fails when runtime-affecting files
+change without corresponding `tests/` updates. It also enforces stronger
+requirements for fixes (`tests/regression/` coverage) and validates that all
+fixture stages are structurally valid so CI catches broken fixture definitions
+early.
+"""
+
 from __future__ import annotations
 
 import argparse
@@ -106,6 +116,19 @@ def validate_fixture_schema() -> list[str]:
 
 
 def main() -> int:
+    """
+    Run the full verification flow for pre-merge/local CI checks.
+
+    Steps:
+    1. Parse CLI arguments (`base-ref`, `head-ref`, `change-kind`).
+    2. Collect changed and untracked files from git.
+    3. Classify paths into runtime vs tests vs regression-test changes.
+    4. Apply enforcement rules:
+       - runtime changes require at least one `tests/` change,
+       - `change-kind=fix` requires at least one `tests/regression/` change.
+    5. Validate fixture case schemas across all declared stages.
+    6. Print PASS/FAIL summary and return process exit code.
+    """
     args = parse_args()
     changed = git_changed_files(args.base_ref, args.head_ref)
 

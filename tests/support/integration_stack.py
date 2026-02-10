@@ -1,5 +1,17 @@
 from __future__ import annotations
 
+"""
+Shared integration-test harness for isolated Docker stacks and deterministic
+collector pipeline execution.
+
+This module centralizes the mechanics that integration/regression/stress tests
+should not re-implement:
+- compose stack lifecycle (`up`/`down`) with per-test isolation,
+- harness API polling and job lifecycle helpers, and
+- synthetic log injection + collector script orchestration for deterministic
+  attribution/filter/merge assertions.
+"""
+
 import json
 import os
 import socket
@@ -232,6 +244,21 @@ class ComposeStack:
         return job_id, status
 
     def append_ebpf_event(self, event: dict[str, Any]) -> None:
+        """
+        Append one eBPF JSON event into the stack's live collector input file.
+
+        Why this exists:
+        - Some integration-style scenarios need to inject a single runtime-like
+          eBPF record into `/logs/ebpf.jsonl` without rebuilding whole fixtures.
+
+        Where it is typically called:
+        - Integration/regression/stress tests that are exercising the running
+          compose stack and want direct event injection.
+
+        Where `event` is typically generated:
+        - `tests.support.synthetic_logs.make_net_send_event(...)`, or a
+          hand-crafted dict that follows the `ebpf.v1` schema.
+        """
         ebpf_path = self.log_root / "ebpf.jsonl"
         with ebpf_path.open("a", encoding="utf-8") as handle:
             handle.write(json.dumps(event, separators=(",", ":")) + "\n")
@@ -251,6 +278,14 @@ class ComposeStack:
         return rows
 
     def wait_for_timeline_rows(self, predicate: Callable[[list[dict[str, Any]]], bool], *, timeout_sec: float, message: str) -> list[dict[str, Any]]:
+        """
+        Poll timeline output until a condition is met or timeout expires.
+
+        The collector/harness pipeline is asynchronous: tests may finish job
+        execution before `filtered_timeline.jsonl` has all expected rows. This
+        helper prevents race-condition flakiness by repeatedly reading timeline
+        rows until the caller-defined predicate becomes true.
+        """
         deadline = time.time() + timeout_sec
         last_rows: list[dict[str, Any]] = []
         while time.time() < deadline:
@@ -322,6 +357,15 @@ class ComposeStack:
             (self.root_dir / "collector" / "scripts" / "merge_filtered_logs.py", merge_cfg, self.log_root / "merge.config.yaml"),
         ]
         for script, config, path in scripts:
+            # For each collector stage:
+            # 1) Materialize a per-stage config file under this test's temp log
+            #    root so failures are reproducible with exact inputs.
+            # 2) Execute the stage as a subprocess using the repo's Python
+            #    interpreter, matching production CLI behavior:
+            #    - filter_audit_logs.py: raw audit -> filtered audit JSONL
+            #    - filter_ebpf_logs.py: raw eBPF (+ audit ownership) -> filtered eBPF JSONL
+            #    - summarize_ebpf_logs.py: filtered eBPF -> net_summary rows
+            #    - merge_filtered_logs.py: audit + summary -> timeline JSONL
             path.write_text(yaml.safe_dump(config, sort_keys=False), encoding="utf-8")
             result = subprocess.run(
                 [sys.executable, str(script), "--config", str(path)],

@@ -1,5 +1,15 @@
 from __future__ import annotations
 
+"""
+Pytest fixtures for docker-backed integration/regression/stress execution.
+
+This module provides:
+- a one-time docker availability check,
+- a one-time local image build so tests run branch-local code, and
+- a per-test `docker_stack` fixture that creates an isolated compose project
+  with unique temp paths and deterministic teardown/log capture on failure.
+"""
+
 import re
 from pathlib import Path
 

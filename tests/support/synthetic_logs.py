@@ -1,5 +1,15 @@
 from __future__ import annotations
 
+"""
+Synthetic log/event builders used by fixture, integration, regression, and
+stress tests.
+
+The helpers in this module generate minimal-but-valid audit and eBPF records
+that mimic collector-relevant structure from runtime output. Tests use these
+builders to produce deterministic inputs for attribution, filtering, summary,
+and merge assertions without depending on host-level audit/eBPF timing.
+"""
+
 from datetime import datetime, timezone
 
 
@@ -105,4 +115,3 @@ def make_net_send_event(*, pid: int, ppid: int, dst_ip: str = "93.184.216.34", d
             "bytes": bytes_sent,
         },
     }
-
