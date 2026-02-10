@@ -15,6 +15,11 @@ Build a deterministic, comprehensive, maintainable test system such that:
 
 Use `tests/README.md` as the authoritative philosophy and contract.
 
+Primary directive for test creation:
+- Build tests from scratch from the required behaviors/invariants.
+- Existing test scripts are reference material only.
+- Do not treat this as a porting/parity exercise with legacy scripts.
+
 ## 1) Required Context to Read First
 Before making changes, read:
 
@@ -38,13 +43,19 @@ Before making changes, read:
 
 Then produce implementation, not analysis.
 
+Important interpretation rule:
+- Legacy tests/scripts may be mined for scenario ideas, but the new suite
+  should be designed against the contract in `tests/README.md`, not against
+  old script behavior.
+
 ## 2) Non-Negotiable Constraints
 1. Use Python/pytest as the primary test language and orchestration layer.
 2. New integration/stress tests must be Python-based (no new Bash test logic).
-3. Keep one canonical command surface for local + CI execution.
-4. Determinism + isolation are mandatory.
-5. Include regression test pathway for bug fixes.
-6. Enforce via CI + scripts, not docs-only guidance.
+3. Use `uv` as the Python package manager and runner (`uv sync`, `uv run ...`).
+4. Keep one canonical command surface for local + CI execution.
+5. Determinism + isolation are mandatory.
+6. Include regression test pathway for bug fixes.
+7. Enforce via CI + scripts, not docs-only guidance.
 
 ## 3) Deliverables (You Must Implement)
 
@@ -101,16 +112,17 @@ called by integration/stress tests to enforce global timeline invariants:
 Keep it strict, deterministic, and with clear failure messages.
 
 ### E. Unit/Fixture Migration and Coverage Baseline
-Migrate or wrap existing collector tests so they run under top-level pytest flow.
-Do not reduce coverage. Prefer relocating or importing existing tests over rewrite-only churn.
+Build a clean top-level unit/fixture suite that satisfies the contract.
+You may reuse existing test code selectively if it is correct and high quality.
+Do not preserve existing tests solely for compatibility. Do not reduce coverage.
 
 Minimum expectation:
-- Existing collector unit tests are runnable from top-level test entrypoint.
+- Core collector logic is covered from the top-level test entrypoint.
 - Fixture tests exist for core filter/summary/merge contracts.
 
 ### F. Python Integration Test Layer
-Create Python integration tests that replace/cover key current Bash scenarios.
-Prioritize critical behavior over full parity in first pass.
+Create Python integration tests from contract-critical behaviors.
+Legacy Bash scenarios are optional references, not acceptance criteria.
 
 At minimum include:
 - Job lifecycle artifact validation
@@ -153,6 +165,7 @@ Runner requirements:
 - Deterministic nonzero exits on failure
 - Clear summary output
 - Ability to run sub-lanes directly
+- Use `uv run` to execute Python tools/tests in all lanes
 
 ### J. CI Workflows (Required Enforcement)
 Add workflows:
@@ -215,6 +228,9 @@ Your final report must include:
 If anything could not be run (environment constraint), state that explicitly and
 explain what static verification was done instead.
 
+All Python commands in the report must be shown using `uv` (for example
+`uv run pytest ...`).
+
 ## 7) Practical Guardrails
 1. Do not remove existing tests unless replacing with equivalent or better coverage.
 2. Do not rely on prebuilt release images when testing branch behavior.
@@ -235,7 +251,8 @@ The work is done when all are true:
 8. Documentation reflects real runnable commands and matches implementation.
 
 ## 9) Stretch Goals (Only After Core Is Green)
-1. Port more legacy Bash integration scenarios to Python.
+1. Decommission remaining legacy Bash test scripts after equivalent or better
+   Python coverage is in place.
 2. Add richer artifact snapshots for failed tests.
 3. Expand delta-enforcement accuracy.
 4. Add coverage trend reporting if low-effort.
