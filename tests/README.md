@@ -45,7 +45,7 @@ Out of scope:
 ## Directory Contract
 ```text
 tests/
-  README_codex.md              <- this file
+  README.md                    <- this file
   conftest.py                  <- shared fixtures and validators
   unit/                        <- pure logic tests
   fixture/                     <- deterministic golden cases
@@ -114,34 +114,37 @@ Protocol:
 Canonical local commands:
 
 ```bash
+uv sync
+
 # Fast local gate
-pytest tests/unit tests/fixture -q
+uv run pytest tests/unit tests/fixture -q
 
 # Integration gate
-pytest tests/integration -q
+uv run pytest tests/integration -q
 
 # Stress gate
-pytest tests/stress -q
+uv run pytest tests/stress -q
 
 # Regression gate
-pytest tests/regression -q
+uv run pytest tests/regression -q
 
 # Full gate
-pytest -q
+uv run pytest -q
 ```
 
 Marker-based selection:
 
 ```bash
-pytest -m unit -q
-pytest -m fixture -q
-pytest -m integration -q
-pytest -m stress -q
-pytest -m regression -q
-pytest -m "not integration and not stress" -q
+uv run pytest -m unit -q
+uv run pytest -m fixture -q
+uv run pytest -m integration -q
+uv run pytest -m stress -q
+uv run pytest -m regression -q
+uv run pytest -m "not integration and not stress" -q
 ```
 
-If `scripts/all_tests.sh` exists, it should be the single release gate entrypoint and wrap the same policy.
+`scripts/all_tests.py` is the canonical release gate entrypoint.
+If `scripts/all_tests.sh` exists, it should only be a thin wrapper around `scripts/all_tests.py`.
 
 ## CI and Merge Gates
 Required gates for protected branches:
@@ -149,8 +152,12 @@ Required gates for protected branches:
 2. Unit + fixture tests
 3. Integration tests
 4. Regression tests
-5. Stress tests
+5. Stress-smoke tests
 6. Any repository-specific static checks
+
+Stress-full policy:
+- Required for nightly runs.
+- Required before release cut.
 
 No bypass rule:
 - A failing required gate blocks merge.
@@ -183,4 +190,3 @@ Regression naming:
 | Timeline invariant fails | Ownership/ordering/reference bug in filter or merge pipeline | Inspect generated timeline and run metadata, then patch logic |
 | Regression test fails after refactor | Bug condition reintroduced | Reproduce with failing regression and fix behavior, not the test expectation |
 | Nondeterministic pass/fail | Hidden shared state or timing race | Isolate resources per test and remove wall-clock assumptions |
-

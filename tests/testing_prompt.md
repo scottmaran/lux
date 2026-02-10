@@ -83,11 +83,20 @@ tests/
 Each layer must be runnable via pytest markers and/or path selection.
 
 ### B. Pytest Configuration
-Add/extend project pytest config (`pyproject.toml` or `pytest.ini`) to:
+Create/extend a root `pyproject.toml` as the single source of Python test tooling config.
+Do not split pytest config into separate files unless strictly necessary.
+
+Also generate and commit `uv.lock`.
+
+`pyproject.toml` must:
 
 - Register markers: `unit`, `fixture`, `integration`, `stress`, `regression`
 - Set useful default test paths and options
 - Fail on unknown markers
+
+Tooling requirements:
+- CI and local should use `uv sync --frozen` before test execution.
+- Python commands should run through `uv run ...`.
 
 ### C. Fixture Contract Enforcement
 Implement fixture discovery + validation in `tests/fixture/conftest.py`:
@@ -111,7 +120,7 @@ called by integration/stress tests to enforce global timeline invariants:
 
 Keep it strict, deterministic, and with clear failure messages.
 
-### E. Unit/Fixture Migration and Coverage Baseline
+### E. Unit/Fixture Coverage Baseline
 Build a clean top-level unit/fixture suite that satisfies the contract.
 You may reuse existing test code selectively if it is correct and high quality.
 Do not preserve existing tests solely for compatibility. Do not reduce coverage.
@@ -151,11 +160,11 @@ for a known historical issue (concurrent attribution bug class).
 ### I. Canonical Test Runner
 Implement one canonical runner for local + CI.
 
-Preferred:
+Required:
 - `scripts/all_tests.py` (Python)
 
-Acceptable:
-- `scripts/all_tests.sh` wrapper that delegates mostly to Python
+Optional:
+- `scripts/all_tests.sh` as a thin wrapper that calls `scripts/all_tests.py`
 
 Runner requirements:
 - Lane model:
@@ -184,6 +193,7 @@ Add workflows:
    - runs stress-full
 
 CI should call the canonical runner (or identical command surface) to avoid drift.
+CI setup for Python must run `uv sync --frozen`.
 
 ### K. Contract/Delta Enforcement Script
 Implement a lightweight enforcement script (Python), e.g.:
@@ -192,7 +202,12 @@ Implement a lightweight enforcement script (Python), e.g.:
 It should fail CI for obvious gaps, such as:
 - runtime source paths changed with no relevant test changes
 - invalid fixture structure
-- missing required regression test for flagged bugfix changes (if detectable via labels or commit message convention)
+- missing required regression test for bug-fix changes
+
+Bug-fix enforcement must be deterministic:
+- Add `--change-kind {feature,fix,refactor}` to the enforcement script.
+- If `change-kind=fix`, require at least one changed file under `tests/regression/`.
+- CI must pass `change-kind` explicitly (do not rely on implicit guessing).
 
 Keep this pragmatic. Avoid fragile deep static analysis in v1.
 
@@ -208,7 +223,7 @@ Follow this order:
 1. Create pytest config + directory scaffolding.
 2. Implement fixture schema + validator + sample fixture cases.
 3. Implement global timeline validator helper.
-4. Wire existing unit tests into top-level flow.
+4. Implement a clean top-level unit baseline for core collector logic.
 5. Add Python integration tests with robust fixtures/teardown.
 6. Add stress-smoke and stress-full mechanics.
 7. Add regression test scaffold + first concrete regression.
