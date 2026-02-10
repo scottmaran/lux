@@ -16,6 +16,7 @@ import subprocess
 import time
 import uuid
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from http.client import RemoteDisconnected
 from pathlib import Path
 from typing import Any, Callable
@@ -24,6 +25,73 @@ from urllib import error, request
 
 DEFAULT_HARNESS_CMD_TEMPLATE = "bash -lc {prompt}"
 DEFAULT_CODEX_EXEC_TEMPLATE = "codex exec --skip-git-repo-check {prompt}"
+HEARTBEAT_MAX_SEND_COUNT = 4
+HEARTBEAT_MAX_BYTES_SENT = 4096
+
+
+def _coerce_int(value: Any) -> int | None:
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int):
+        return value
+    if isinstance(value, float):
+        return int(value)
+    if isinstance(value, str):
+        stripped = value.strip()
+        if not stripped:
+            return None
+        try:
+            return int(stripped)
+        except ValueError:
+            return None
+    return None
+
+
+def _parse_iso_timestamp(value: Any) -> datetime | None:
+    if not isinstance(value, str):
+        return None
+    normalized = value.strip()
+    if not normalized:
+        return None
+    if normalized.endswith("Z"):
+        normalized = normalized[:-1] + "+00:00"
+    try:
+        parsed = datetime.fromisoformat(normalized)
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed
+
+
+def timeline_row_epoch_seconds(row: dict[str, Any]) -> float | None:
+    """Return row timestamp as epoch seconds, or None for invalid/missing timestamps."""
+    parsed = _parse_iso_timestamp(row.get("ts"))
+    return None if parsed is None else parsed.timestamp()
+
+
+def is_heartbeat_like_signal_row(row: dict[str, Any]) -> bool:
+    """
+    Classify low-signal periodic eBPF traffic summaries that should not reset
+    activity clocks used to detect "prompt finished" quiescence.
+    """
+    if row.get("source") != "ebpf" or row.get("event_type") != "net_summary":
+        return False
+    details = row.get("details")
+    if not isinstance(details, dict):
+        return False
+
+    connect_count = _coerce_int(details.get("connect_count"))
+    send_count = _coerce_int(details.get("send_count"))
+    bytes_sent_total = _coerce_int(details.get("bytes_sent_total"))
+    if connect_count is None or send_count is None or bytes_sent_total is None:
+        return False
+
+    return (
+        connect_count == 0
+        and send_count <= HEARTBEAT_MAX_SEND_COUNT
+        and bytes_sent_total <= HEARTBEAT_MAX_BYTES_SENT
+    )
 
 
 class CommandError(RuntimeError):
@@ -395,6 +463,111 @@ class ComposeStack:
             _matches,
             timeout_sec=timeout_sec,
             message=f"Timeline rows for job_id={job_id} not observed",
+        )
+
+    def session_stdout_path(self, session_id: str) -> Path:
+        return self.log_root / "sessions" / session_id / "stdout.log"
+
+    def _session_activity_snapshot(self, session_id: str) -> dict[str, Any]:
+        stdout_path = self.session_stdout_path(session_id)
+        stdout_epoch = stdout_path.stat().st_mtime if stdout_path.exists() else None
+
+        session_rows = [row for row in self.read_jsonl(self.timeline_path) if row.get("session_id") == session_id]
+        latest_any_epoch: float | None = None
+        latest_any_ts: str | None = None
+        latest_signal_epoch: float | None = None
+        latest_signal_ts: str | None = None
+        heartbeat_row_count = 0
+        non_heartbeat_row_count = 0
+
+        for row in session_rows:
+            ts_epoch = timeline_row_epoch_seconds(row)
+            if ts_epoch is None:
+                continue
+            if latest_any_epoch is None or ts_epoch >= latest_any_epoch:
+                latest_any_epoch = ts_epoch
+                latest_any_ts = str(row.get("ts"))
+
+            if is_heartbeat_like_signal_row(row):
+                heartbeat_row_count += 1
+                continue
+
+            non_heartbeat_row_count += 1
+            if latest_signal_epoch is None or ts_epoch >= latest_signal_epoch:
+                latest_signal_epoch = ts_epoch
+                latest_signal_ts = str(row.get("ts"))
+
+        return {
+            "session_id": session_id,
+            "stdout_path": str(stdout_path),
+            "stdout_mtime_epoch": stdout_epoch,
+            "latest_any_epoch": latest_any_epoch,
+            "latest_any_ts": latest_any_ts,
+            "latest_signal_epoch": latest_signal_epoch,
+            "latest_signal_ts": latest_signal_ts,
+            "session_row_count": len(session_rows),
+            "heartbeat_row_count": heartbeat_row_count,
+            "non_heartbeat_row_count": non_heartbeat_row_count,
+        }
+
+    def wait_for_session_quiescence(
+        self,
+        session_id: str,
+        *,
+        timeout_sec: float = 180.0,
+        stdout_idle_sec: float = 12.0,
+        signal_idle_sec: float = 12.0,
+        stable_polls: int = 3,
+        interval_sec: float = 1.0,
+        require_non_heartbeat_signal: bool = True,
+    ) -> dict[str, Any]:
+        """
+        Wait until session activity appears finished by using two clocks:
+        - last write to `sessions/<id>/stdout.log`
+        - last meaningful timeline row for that session (excluding keepalive-like eBPF summaries)
+        """
+        deadline = time.time() + timeout_sec
+        stable_hits = 0
+        last_snapshot: dict[str, Any] | None = None
+
+        while time.time() < deadline:
+            now_epoch = time.time()
+            snapshot = self._session_activity_snapshot(session_id)
+            last_snapshot = snapshot
+
+            stdout_epoch = snapshot["stdout_mtime_epoch"]
+            signal_epoch = snapshot["latest_signal_epoch"]
+            if signal_epoch is None and not require_non_heartbeat_signal:
+                signal_epoch = snapshot["latest_any_epoch"]
+
+            stdout_idle = float("inf") if stdout_epoch is None else max(0.0, now_epoch - float(stdout_epoch))
+            signal_idle = float("inf") if signal_epoch is None else max(0.0, now_epoch - float(signal_epoch))
+
+            has_required_signal = snapshot["non_heartbeat_row_count"] > 0 or (
+                not require_non_heartbeat_signal and snapshot["session_row_count"] > 0
+            )
+            is_idle = stdout_idle >= stdout_idle_sec and signal_idle >= signal_idle_sec
+
+            if has_required_signal and is_idle:
+                stable_hits += 1
+                if stable_hits >= stable_polls:
+                    return {
+                        **snapshot,
+                        "stdout_idle_sec": stdout_idle,
+                        "signal_idle_sec": signal_idle,
+                        "stable_polls": stable_hits,
+                    }
+            else:
+                stable_hits = 0
+
+            time.sleep(interval_sec)
+
+        raise AssertionError(
+            "Timed out waiting for session quiescence. "
+            f"session_id={session_id} timeout_sec={timeout_sec} "
+            f"stdout_idle_sec={stdout_idle_sec} signal_idle_sec={signal_idle_sec} "
+            f"require_non_heartbeat_signal={require_non_heartbeat_signal} "
+            f"last_snapshot={last_snapshot}"
         )
 
     def run_harness_tui(

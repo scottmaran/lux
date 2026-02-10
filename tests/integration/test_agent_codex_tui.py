@@ -53,6 +53,14 @@ def test_codex_tui_path_runs_and_persists_session_artifacts(
     session_id = created[0]
     session_dir = codex_stack.log_root / "sessions" / session_id
 
+    codex_stack.wait_for_session_quiescence(
+        session_id,
+        timeout_sec=120,
+        stdout_idle_sec=8.0,
+        signal_idle_sec=8.0,
+        stable_polls=2,
+    )
+
     meta = json.loads((session_dir / "meta.json").read_text(encoding="utf-8"))
     stdout_text = (session_dir / "stdout.log").read_text(encoding="utf-8", errors="replace")
     assert meta.get("mode") == "tui"
