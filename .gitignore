@@ -3,3 +3,7 @@
 workspace/*
 personal_docs/
 lasso/target/
+.venv/
+.pytest_cache/
+__pycache__/
+*.pyc

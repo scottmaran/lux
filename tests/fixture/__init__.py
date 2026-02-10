@@ -1,0 +1,2 @@
+"""Fixture/contract test package."""
+

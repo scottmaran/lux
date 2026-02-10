@@ -1,0 +1,8 @@
+ownership:
+  root_comm:
+    - codex
+exec:
+  shell_comm:
+    - bash
+    - sh
+  shell_cmd_flag: "-lc"
