@@ -1,5 +1,16 @@
 from __future__ import annotations
 
+"""
+Shared pytest utilities for the full test suite.
+
+This module:
+- registers shared pytest plugins used across test layers,
+- provides helpers to read/parse JSON and JSONL test artifacts,
+- loads session/job ownership metadata from harness log outputs, and
+- exposes a single timeline validator fixture used by integration,
+  regression, and stress tests.
+"""
+
 import json
 from pathlib import Path
 from typing import Any
@@ -97,6 +108,18 @@ def validate_timeline_outputs(
     timeline_path: Path | None = None,
     require_rows: bool = True,
 ) -> list[dict[str, Any]]:
+    """
+    A passing timeline must satisfy all of the following:
+    - at least one JSONL row exists (unless `require_rows=False`),
+    - each row has required envelope keys and a dict `details` payload,
+    - rows are timestamp-ordered,
+    - ownership is valid and exclusive:
+      - session-owned rows (`session_id != "unknown"`) must not also set `job_id`,
+      - job-owned rows (`session_id == "unknown"`) must set a known `job_id`,
+    - referenced session/job IDs exist in on-disk metadata,
+    - event-specific required details are present (`fs_*`, `exec`, `net_summary`),
+    - every referenced session/job includes integer `root_pid` metadata.
+    """
     timeline = timeline_path or (log_root / "filtered_timeline.jsonl")
     rows = read_jsonl(timeline)
     if require_rows and not rows:
