@@ -1,64 +1,57 @@
 # Lasso Test Suite
 
-## Philosophy
+## Why This Exists
+The test suite is the specification for observable Lasso behavior.
 
-The test suite is the specification. If a behavior is not tested, it is not
-guaranteed. If a test exists, its name and structure describe exactly what is
-promised.
+Passing the suite means:
+- No known requirement violations in the supported environments.
+- Known bug regressions are blocked.
+- Artifacts and attribution invariants hold.
 
-**Guiding principles:**
+This does not claim mathematical proof of correctness. It claims release confidence within defined scope.
 
-1. **Interpretability.** Any developer or agent can read the test directory
-   tree and understand what Lasso guarantees. Test names are precise
-   descriptions of behavior, not implementation details.
+## Scope and Environments
+Supported environments:
+- macOS with Docker Desktop
+- Linux with Docker and Compose v2
 
-2. **Determinism.** Every aspect of the test suite is rigorously defined and
-   validated. Test inputs follow defined schemas. Test outputs are compared
-   against exact expected values. Fixture case directories have a required
-   structure enforced by validation. There is no ambiguity about what a test
-   expects, what files a fixture case must contain, or what format they must
-   follow. If a convention exists, it is enforced by code
+In scope:
+- Collector pipeline correctness (audit/eBPF filter, summarize, merge)
+- Harness job/session lifecycle behavior
+- Timeline ownership and schema invariants
+- Regression protection for previously fixed bugs
 
----
+Out of scope:
+- Throughput benchmarking and performance tuning
+- Agent model quality
+- Host tamper-resistance guarantees outside Lasso's trust model
 
-## Isolation
+## Non-Negotiable Properties
+1. Determinism: tests compare against explicit expected outcomes.
+2. Isolation: every test run uses independent resources.
+3. Reproducibility: reruns in the same environment produce the same verdict.
+4. Explicit invariants: each test states what must always be true.
+5. No silent ambiguity: ambiguous ownership must fail or be marked unknown by rule.
 
-Every test is isolated. This is enforced structurally.
+## Test Layers
+| Layer | Purpose | Must Include | Must Not Include | Typical Runtime |
+|---|---|---|---|---|
+| `unit` | Pure logic correctness | Parsing, mapping, ownership logic, validation helpers | Docker, real stack orchestration | Seconds |
+| `fixture` | Deterministic contract checks | Golden cases (`input` + `config` -> `expected`) | Ad-hoc assertions without canonical expected output | Seconds |
+| `integration` | Real stack behavior | Docker compose scenarios, real artifact validation | Load/stress repetition loops | Minutes |
+| `stress` | Concurrency and race robustness | Repeated trials, overlap/race/PID reuse scenarios | New feature coverage without deterministic baseline tests | Minutes to longer |
+| `regression` | Bug non-recurrence | Repro of known bug condition + assertion of fixed behavior | Generic tests not tied to a concrete bug history | Varies |
 
-- **Unit:** in-memory only, no shared state between functions.
-- **Fixture:** each case runs in an independent temp directory.
-- **Integration:** fresh temp log dir + unique compose project per test.
-- **Stress:** independent resources per trial.
-- Teardown is unconditional (runs even on failure).
-
----
-
-## Running Tests
-
-```bash
-pytest tests/unit tests/fixture       # fast, no Docker
-pytest tests/integration              # requires Docker
-pytest tests/stress                   # requires Docker, slower
-pytest                                # everything
-pytest -m "not integration and not stress"  # fast gate
-```
-
-**Markers:** `unit`, `fixture`, `integration`, `stress`, `regression`.
-
----
-
-## Structure
-
-```
+## Directory Contract
+```text
 tests/
-  conftest.py             <- shared helpers, timeline validator, structural validation
-  pyproject.toml          <- pytest config, marker registration
-
-  unit/                   <- pure logic, no I/O, no Docker
-  fixture/                <- deterministic input -> expected output
-    conftest.py           <- auto-discovers case_*/ dirs, validates schema
+  README_codex.md              <- this file
+  conftest.py                  <- shared fixtures and validators
+  unit/                        <- pure logic tests
+  fixture/                     <- deterministic golden cases
+    conftest.py                <- fixture discovery and schema validation
     schemas/
-      case_schema.yaml    <- required files and formats per case directory
+      case_schema.yaml         <- fixture directory schema
     audit_filter/
       case_*/
     ebpf_filter/
@@ -69,105 +62,125 @@ tests/
       case_*/
     pipeline/
       case_*/
-  integration/            <- real Docker stack
-    conftest.py           <- compose lifecycle, temp dirs, oracle
-  stress/                 <- concurrency, races, repeated trials
-  regression/             <- bug-specific, references commit/issue
+  integration/                 <- real Docker stack tests
+  stress/                      <- race/concurrency repetition tests
+  regression/                  <- bug-specific tests
 ```
 
-### Unit (`tests/unit/`)
+## Fixture Case Schema
+Each `case_*/` directory is one deterministic test case and must contain:
 
-Pure functions, no I/O, no Docker. One test file per source module.
-Pattern: `collector/scripts/filter_audit_logs.py` ->
-`tests/unit/test_audit_filter.py`.
+| File | Format | Required | Purpose |
+|---|---|---|---|
+| `README.md` | Markdown | Yes | Human-readable invariant summary |
+| `config.yaml` | YAML | Yes | Configuration used by this case |
+| `expected.jsonl` | JSONL | Yes | Canonical expected output |
+| `input.log` or `input.jsonl` | Log/JSONL | Yes | Canonical input |
 
-### Fixture (`tests/fixture/`)
+Schema rules:
+- Unknown files are rejected unless explicitly allowed by schema.
+- Missing required files fail fixture validation.
+- Case directories are discovered automatically by pattern `case_*`.
 
-Golden-file tests. Each `case_*/` directory is one test case. Adding a case
-requires zero Python — create a directory with the right files and
-`conftest.py` picks it up.
+## Global Invariant Validator
+Any test that produces timeline output must run a shared validator that enforces:
+1. Ownership shape: each event has one valid owner pattern.
+2. Referential integrity: referenced session/job IDs exist in run metadata.
+3. Ordering: timeline timestamps are non-decreasing.
+4. Required fields: event has required keys for `schema_version` and `event_type`.
+5. Root PID completeness: attributed completed runs include persisted `root_pid`.
 
-**Required files per `case_*/` directory:**
+## Change Protocol (For PRs and Agents)
+When code changes, test updates are mandatory and deterministic.
 
-| File | Format | Description |
-|------|--------|-------------|
-| `README.md` | First line: one-sentence summary | What invariant this case tests |
-| `input.log` or `input.jsonl` | Raw log lines or JSONL | Input to the pipeline stage |
-| `config.yaml` | YAML | Pipeline config for this case |
-| `expected.jsonl` | JSONL | Exact expected output |
+| Source Change Area | Required Test Action |
+|---|---|
+| `collector/scripts/*.py` | Update corresponding `tests/unit/test_*.py`; add/update fixture cases for changed contracts |
+| `collector/config/*.yaml` | Update fixture cases affected by config semantics |
+| `collector/ebpf/loader/**` | Update Rust unit tests; update fixture/integration tests if emitted shape changes |
+| `collector/ebpf/ebpf/**` | Add/update integration or stress tests that exercise the syscall path |
+| `harness/**` | Add/update harness unit tests; integration tests for lifecycle-visible behavior changes |
+| `ui/server.py` or API code | Add/update API unit tests and integration checks for externally visible behavior |
+| `compose*.yml` or Dockerfiles | Add/update integration coverage for startup/networking/artifact expectations |
+| Any bug fix | Add regression test that fails without the fix |
 
-`fixture/conftest.py` validates every case directory against
-`schemas/case_schema.yaml` before running. Missing or unexpected files fail
-with a clear error.
+Protocol:
+1. Implement source change.
+2. Update required tests from mapping above.
+3. Run required gates.
+4. Do not open merge PR until all required gates pass.
 
-### Integration (`tests/integration/`)
+## Running the Suite
+Canonical local commands:
 
-Real Docker stack. Every test gets a fresh temp log directory and unique
-compose project name. The timeline validator (see below) runs after any test
-that produces a timeline.
+```bash
+# Fast local gate
+pytest tests/unit tests/fixture -q
 
-### Stress (`tests/stress/`)
+# Integration gate
+pytest tests/integration -q
 
-Concurrency, PID reuse, race conditions, repeated trials. Each test defines
-a trial count and runs the scenario N times. One failure in any trial fails
-the test.
+# Stress gate
+pytest tests/stress -q
 
-### Regression (`tests/regression/`)
+# Regression gate
+pytest tests/regression -q
 
-One test per bug. Each test references the commit or issue that introduced
-the fix. The test must fail if the fix is reverted.
+# Full gate
+pytest -q
+```
 
+Marker-based selection:
+
+```bash
+pytest -m unit -q
+pytest -m fixture -q
+pytest -m integration -q
+pytest -m stress -q
+pytest -m regression -q
+pytest -m "not integration and not stress" -q
+```
+
+If `scripts/all_tests.sh` exists, it should be the single release gate entrypoint and wrap the same policy.
+
+## CI and Merge Gates
+Required gates for protected branches:
+1. Fixture schema validation
+2. Unit + fixture tests
+3. Integration tests
+4. Regression tests
+5. Stress tests
+6. Any repository-specific static checks
+
+No bypass rule:
+- A failing required gate blocks merge.
+- If a gate is flaky, fix the test infrastructure; do not disable silently.
+
+## Naming and Style Conventions
+Test function rules:
+- Name behavior, not implementation detail.
+- Include a docstring that states the invariant being proven.
+
+Examples:
 ```python
-def test_concurrent_sessions_do_not_use_time_window_attribution():
-    """Fixed in dcf5673. Time-window attribution caused cross-run leakage."""
-    ...
+def test_shell_lc_extracts_inner_command():
+    """bash -lc wraps command text; extractor returns inner command verbatim."""
 ```
 
----
+Fixture naming:
+- Use descriptive directory names: `case_fs_rename_within_workspace`.
+- Avoid numeric names like `case_1`.
 
-## Timeline Validator
+Regression naming:
+- Name after the bug condition, not the patch mechanism.
+- Include commit or issue reference in docstring.
 
-A validation function in `tests/conftest.py` that checks universal invariants
-across all timeline output files. Called after any integration test that
-produces a timeline.
+## Troubleshooting
+| Symptom | Likely Cause | Fix |
+|---|---|---|
+| Integration tests time out | Docker daemon not ready or containers unhealthy | Check Docker status and compose logs; rerun after health is green |
+| Fixture validation fails | Missing/unexpected files in `case_*` directory | Fix case contents to match schema |
+| Timeline invariant fails | Ownership/ordering/reference bug in filter or merge pipeline | Inspect generated timeline and run metadata, then patch logic |
+| Regression test fails after refactor | Bug condition reintroduced | Reproduce with failing regression and fix behavior, not the test expectation |
+| Nondeterministic pass/fail | Hidden shared state or timing race | Isolate resources per test and remove wall-clock assumptions |
 
-**Checks:**
-1. Every event has exactly one owner (session xor job).
-2. Every referenced session_id/job_id exists on disk.
-3. Events are sorted by timestamp.
-4. Every event has required fields for its schema_version and event_type.
-5. Every completed run with attributed events has a root_pid in metadata.
-
----
-
-## Conventions
-
-**Test names** describe behavior, not implementation:
-```python
-def test_shell_lc_flag_extracts_inner_command():
-    """bash -lc 'pwd' extracts 'pwd' as the command."""
-```
-
-**Fixture dirs** describe the scenario: `case_fs_rename_within_workspace/`,
-not `case_1/`.
-
-**Docstrings are mandatory.** The docstring states the invariant.
-
----
-
-## eBPF Testing
-
-The eBPF kernel program (C/BPF bytecode) runs inside the Docker Desktop VM
-kernel and cannot be unit tested on macOS. The Rust loader userspace code
-(event parsing, /proc enrichment, JSONL emission) is unit tested with Rust
-tests in `collector/ebpf/loader/`. The kernel program is validated through
-integration tests that generate known syscall activity and verify captured
-output.
-
----
-
-## Environment
-
-**Unit + fixture:** Python 3.10+, pytest.
-
-**Integration + stress:** above, plus Docker Desktop and Compose v2.
