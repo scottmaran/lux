@@ -1,0 +1,9 @@
+[
+  {
+    "session_id": "session_fixture_0001",
+    "root_pid": 200,
+    "started_at": "2026-01-01T00:00:00Z",
+    "ended_at": "2026-01-01T00:00:02Z",
+    "mode": "tui"
+  }
+]

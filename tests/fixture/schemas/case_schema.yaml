@@ -1,0 +1,22 @@
+required_files:
+  - README.md
+  - config.yaml
+  - expected.jsonl
+
+required_one_of:
+  -
+    - input.log
+    - input.jsonl
+    - input_audit.log
+    - input_ebpf.jsonl
+    - input_audit.jsonl
+    - input_ebpf.jsonl
+
+optional_files:
+  - jobs.json
+  - sessions.json
+  - expected_audit.jsonl
+  - expected_ebpf.jsonl
+  - expected_summary.jsonl
+  - expected_timeline.jsonl
+  - notes.md

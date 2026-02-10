@@ -1,0 +1,25 @@
+[project]
+name = "lasso-test-suite"
+version = "0.1.0"
+description = "Lasso testing suite"
+requires-python = ">=3.11"
+dependencies = [
+  "pytest>=8.3.4",
+  "PyYAML>=6.0.2",
+]
+
+[tool.pytest.ini_options]
+minversion = "8.0"
+addopts = "-ra --strict-markers"
+testpaths = ["tests"]
+markers = [
+  "unit: pure logic and helper tests",
+  "fixture: deterministic fixture and golden-case tests",
+  "integration: live end-to-end stack tests",
+  "stress: repeatability and race robustness tests",
+  "stress_smoke: short deterministic stress run",
+  "stress_full: larger stress trial run",
+  "regression: bug-specific regression tests",
+  "agent_codex_exec: codex non-interactive lane",
+  "agent_codex_tui: codex TUI/PTY lane",
+]

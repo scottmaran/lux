@@ -1,0 +1,9 @@
+type=SYSCALL msg=audit(1767225602.123:21): arch=c00000b7 syscall=221 success=yes exit=0 pid=400 ppid=1 uid=1001 gid=1001 comm="codex" exe="/usr/bin/codex" key="exec"
+type=EXECVE msg=audit(1767225602.123:21): argc=1 a0="codex"
+type=CWD msg=audit(1767225602.123:21): cwd="/work"
+type=SYSCALL msg=audit(1767225602.123:22): arch=c00000b7 syscall=221 success=yes exit=0 pid=401 ppid=400 uid=1001 gid=1001 comm="bash" exe="/usr/bin/bash" key="exec"
+type=EXECVE msg=audit(1767225602.123:22): argc=3 a0="bash" a1="-lc" a2="python3 -c print(1)"
+type=CWD msg=audit(1767225602.123:22): cwd="/work"
+type=SYSCALL msg=audit(1767225602.123:23): arch=c00000b7 syscall=56 success=yes exit=0 pid=401 ppid=400 uid=1001 gid=1001 comm="bash" exe="/usr/bin/bash" key="fs_watch"
+type=CWD msg=audit(1767225602.123:23): cwd="/work"
+type=PATH msg=audit(1767225602.123:23): item=0 name="/work/pipeline.txt" nametype=CREATE

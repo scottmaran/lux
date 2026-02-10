@@ -1,0 +1,3 @@
+schema_version: timeline.filtered.v1
+sorting:
+  strategy: ts_source_pid

@@ -1,0 +1,5 @@
+schema_version: ebpf.summary.v1
+burst_gap_sec: 5
+dns_lookback_sec: 2
+min_send_count: 0
+min_bytes_sent_total: 0

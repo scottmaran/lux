@@ -1,0 +1,120 @@
+name: ci-pr
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  contract-schema-checks:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup uv
+        uses: astral-sh/setup-uv@v4
+
+      - name: Sync dependencies
+        run: uv sync --frozen
+
+      - name: Verify test delta
+        run: uv run python scripts/verify_test_delta.py --change-kind feature
+
+      - name: Fixture contract
+        run: uv run pytest tests/fixture/test_case_contract.py -q
+
+  unit-fixture:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup uv
+        uses: astral-sh/setup-uv@v4
+
+      - name: Sync dependencies
+        run: uv sync --frozen
+
+      - name: Unit + Fixture
+        run: uv run python scripts/all_tests.py fast
+
+  regression:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup uv
+        uses: astral-sh/setup-uv@v4
+
+      - name: Sync dependencies
+        run: uv sync --frozen
+
+      - name: Regression
+        run: uv run python scripts/all_tests.py regression
+
+  integration:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup uv
+        uses: astral-sh/setup-uv@v4
+
+      - name: Sync dependencies
+        run: uv sync --frozen
+
+      - name: Integration
+        run: uv run python scripts/all_tests.py integration
+
+  stress-smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup uv
+        uses: astral-sh/setup-uv@v4
+
+      - name: Sync dependencies
+        run: uv sync --frozen
+
+      - name: Stress smoke
+        run: uv run python scripts/all_tests.py stress-smoke
+
+  agent-codex-exec:
+    runs-on: ubuntu-latest
+    env:
+      LASSO_FORCE_STUB_CODEX: "1"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup uv
+        uses: astral-sh/setup-uv@v4
+
+      - name: Sync dependencies
+        run: uv sync --frozen
+
+      - name: Agent codex exec (credentialless substitute)
+        run: uv run python scripts/all_tests.py agent-codex-exec
+
+  agent-codex-tui:
+    runs-on: ubuntu-latest
+    env:
+      LASSO_FORCE_STUB_CODEX: "1"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup uv
+        uses: astral-sh/setup-uv@v4
+
+      - name: Sync dependencies
+        run: uv sync --frozen
+
+      - name: Agent codex tui (credentialless substitute)
+        run: uv run python scripts/all_tests.py agent-codex-tui

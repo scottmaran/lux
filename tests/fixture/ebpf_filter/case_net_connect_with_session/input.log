@@ -1,0 +1,4 @@
+type=SYSCALL msg=audit(1767225601.123:11): arch=c00000b7 syscall=221 success=yes exit=0 pid=200 ppid=1 uid=1001 gid=1001 comm="codex" exe="/usr/bin/codex" key="exec"
+type=EXECVE msg=audit(1767225601.123:11): argc=1 a0="codex"
+type=SYSCALL msg=audit(1767225601.123:12): arch=c00000b7 syscall=221 success=yes exit=0 pid=201 ppid=200 uid=1001 gid=1001 comm="bash" exe="/usr/bin/bash" key="exec"
+type=EXECVE msg=audit(1767225601.123:12): argc=3 a0="bash" a1="-lc" a2="curl https://example.com"

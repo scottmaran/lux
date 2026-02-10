@@ -1,0 +1,71 @@
+audit_filter:
+  schema_version: auditd.filtered.v1
+  grouping:
+    strategy: audit_seq
+  agent_ownership:
+    uid: 1001
+    root_comm:
+      - codex
+  exec:
+    include_keys:
+      - exec
+    shell_comm:
+      - bash
+      - sh
+    shell_cmd_flag: "-lc"
+    helper_exclude_comm: []
+    helper_exclude_argv_prefix: []
+  fs:
+    include_keys:
+      - fs_watch
+      - fs_change
+      - fs_meta
+    include_paths_prefix:
+      - /work/
+  linking:
+    attach_cmd_to_fs: true
+    attach_cmd_strategy: last_exec_same_pid
+
+ebpf_filter:
+  schema_version: ebpf.filtered.v1
+  ownership:
+    uid: 1001
+    root_comm:
+      - codex
+    pid_ttl_sec: 0
+    exec_keys:
+      - exec
+  exec:
+    shell_comm:
+      - bash
+      - sh
+    shell_cmd_flag: "-lc"
+  include:
+    event_types:
+      - net_connect
+      - net_send
+      - dns_query
+      - dns_response
+      - unix_connect
+  exclude:
+    comm: []
+    unix_paths: []
+    net_dst_ports: []
+    net_dst_ips: []
+  linking:
+    attach_cmd_to_net: true
+    attach_cmd_strategy: last_exec_same_pid
+  pending_buffer:
+    enabled: false
+
+summary:
+  schema_version: ebpf.summary.v1
+  burst_gap_sec: 5
+  dns_lookback_sec: 2
+  min_send_count: 0
+  min_bytes_sent_total: 0
+
+merge:
+  schema_version: timeline.filtered.v1
+  sorting:
+    strategy: ts_source_pid
