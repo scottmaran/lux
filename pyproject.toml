@@ -15,7 +15,7 @@ markers = [
     "unit: pure logic tests with no Docker dependencies",
     "fixture: deterministic fixture/golden tests",
     "integration: docker-backed stack integration tests",
+    "agent_codex: local-only codex agent end-to-end tests",
     "stress: repeated race/concurrency tests",
     "regression: bug-specific regression tests",
 ]
-

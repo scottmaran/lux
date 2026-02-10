@@ -12,6 +12,7 @@ early.
 from __future__ import annotations
 
 import argparse
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -37,6 +38,23 @@ RUNTIME_PREFIXES = [
     "collector/Dockerfile",
     "harness/Dockerfile",
     "ui/Dockerfile",
+]
+
+LIVE_STACK_TEST_DIRS = [
+    ROOT_DIR / "tests" / "integration",
+    ROOT_DIR / "tests" / "stress",
+    ROOT_DIR / "tests" / "regression",
+]
+
+DISALLOWED_OFFLINE_REPLAY_PATTERNS = [
+    r"\brun_collector_pipeline\s*\(",
+    r"\bbuild_job_fs_sequence\s*\(",
+    r"\bmake_net_send_event\s*\(",
+]
+
+REQUIRED_CODEX_TEST_FILES = [
+    ROOT_DIR / "tests" / "integration" / "test_agent_codex_exec.py",
+    ROOT_DIR / "tests" / "integration" / "test_agent_codex_tui.py",
 ]
 
 
@@ -115,6 +133,38 @@ def validate_fixture_schema() -> list[str]:
     return failures
 
 
+def validate_live_stack_architecture_guards() -> list[str]:
+    failures: list[str] = []
+
+    compiled = [re.compile(pattern) for pattern in DISALLOWED_OFFLINE_REPLAY_PATTERNS]
+    for test_dir in LIVE_STACK_TEST_DIRS:
+        if not test_dir.exists():
+            continue
+        for path in sorted(test_dir.rglob("test_*.py")):
+            text = path.read_text(encoding="utf-8", errors="replace")
+            for pattern in compiled:
+                if pattern.search(text):
+                    rel = path.relative_to(ROOT_DIR)
+                    failures.append(
+                        f"{rel}: uses disallowed offline replay helper matching /{pattern.pattern}/"
+                    )
+
+    for path in REQUIRED_CODEX_TEST_FILES:
+        if not path.exists():
+            rel = path.relative_to(ROOT_DIR)
+            failures.append(f"Missing required Codex lane test file: {rel}")
+            continue
+
+        text = path.read_text(encoding="utf-8", errors="replace")
+        rel = path.relative_to(ROOT_DIR)
+        if "agent_codex" not in text:
+            failures.append(f"{rel}: missing pytest marker `agent_codex`.")
+        if "bash -lc {prompt}" in text:
+            failures.append(f"{rel}: Codex lane must not use bash run-template fallback.")
+
+    return failures
+
+
 def main() -> int:
     """
     Run the full verification flow for pre-merge/local CI checks.
@@ -149,6 +199,7 @@ def main() -> int:
         )
 
     failures.extend(validate_fixture_schema())
+    failures.extend(validate_live_stack_architecture_guards())
 
     if failures:
         print("verify_test_delta: FAIL")

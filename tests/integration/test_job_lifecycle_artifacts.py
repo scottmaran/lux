@@ -2,18 +2,11 @@ from __future__ import annotations
 
 import json
 import uuid
-from pathlib import Path
 
 import pytest
 
 
 pytestmark = pytest.mark.integration
-
-
-def _host_path_from_container_log_path(log_root: Path, container_path: str) -> Path:
-    if not container_path.startswith("/logs/"):
-        raise AssertionError(f"Unexpected log path from harness: {container_path}")
-    return log_root / container_path.removeprefix("/logs/")
 
 
 def test_completed_job_persists_artifacts_and_root_pid(integration_stack) -> None:
@@ -40,10 +33,9 @@ def test_completed_job_persists_artifacts_and_root_pid(integration_stack) -> Non
     assert status_meta["job_id"] == job_id
     assert isinstance(input_meta.get("root_pid"), int)
     assert isinstance(status_meta.get("root_pid"), int)
+    assert status_meta.get("exit_code") == 0
 
-    host_stdout = _host_path_from_container_log_path(
-        integration_stack.log_root,
-        str(status.get("output_path")),
-    )
+    host_stdout = integration_stack.host_log_path_from_container_path(str(status.get("output_path")))
     assert host_stdout.exists(), f"Missing stdout log referenced by API: {host_stdout}"
-
+    stdout_text = host_stdout.read_text(encoding="utf-8", errors="replace")
+    assert "/work" in stdout_text, f"Expected working-directory output in stdout log: {host_stdout}"

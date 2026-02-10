@@ -1,35 +1,29 @@
 from __future__ import annotations
 
 """
-Shared integration-test harness for isolated Docker stacks and deterministic
-collector pipeline execution.
+Shared live-stack test harness for integration/regression/stress execution.
 
-This module centralizes the mechanics that integration/regression/stress tests
-should not re-implement:
-- compose stack lifecycle (`up`/`down`) with per-test isolation,
-- harness API polling and job lifecycle helpers, and
-- synthetic log injection + collector script orchestration for deterministic
-  attribution/filter/merge assertions.
+This module centralizes stack lifecycle and runtime assertions for tests that
+must validate behavior produced by running collector/agent/harness services.
+It intentionally focuses on live artifacts and live filtered outputs.
 """
 
 import json
 import os
+import shlex
 import socket
 import subprocess
-import sys
 import time
 import uuid
-from copy import deepcopy
-from http.client import RemoteDisconnected
 from dataclasses import dataclass
+from http.client import RemoteDisconnected
 from pathlib import Path
 from typing import Any, Callable
 from urllib import error, request
 
-import yaml
-
 
 DEFAULT_HARNESS_CMD_TEMPLATE = "bash -lc {prompt}"
+DEFAULT_CODEX_EXEC_TEMPLATE = "codex exec --skip-git-repo-check {prompt}"
 
 
 class CommandError(RuntimeError):
@@ -75,14 +69,14 @@ def find_free_port() -> int:
         return int(sock.getsockname()[1])
 
 
-@dataclass
+@dataclass(frozen=True)
 class ComposeFiles:
     base: Path
-    override: Path | None = None
+    overrides: tuple[Path, ...] = ()
 
 
 class ComposeStack:
-    """Utility wrapper for an isolated compose stack used by integration/stress tests."""
+    """Utility wrapper for one isolated docker compose stack."""
 
     def __init__(
         self,
@@ -91,6 +85,7 @@ class ComposeStack:
         temp_root: Path,
         test_slug: str,
         compose_files: ComposeFiles,
+        env_overrides: dict[str, str] | None = None,
     ) -> None:
         self.root_dir = root_dir
         self.temp_root = temp_root
@@ -98,6 +93,7 @@ class ComposeStack:
         self.workspace_root = temp_root / "workspace"
         self.log_root.mkdir(parents=True, exist_ok=True)
         self.workspace_root.mkdir(parents=True, exist_ok=True)
+
         self.compose_files = compose_files
         self.project_name = f"lasso-test-{test_slug}-{uuid.uuid4().hex[:8]}"
         self.harness_port = find_free_port()
@@ -115,6 +111,9 @@ class ComposeStack:
                 "HARNESS_HOST_PORT": str(self.harness_port),
             }
         )
+        if env_overrides:
+            self.env.update(env_overrides)
+
         self.token = token
         self._up = False
 
@@ -123,33 +122,51 @@ class ComposeStack:
         return f"http://127.0.0.1:{self.harness_port}"
 
     @property
+    def filtered_audit_path(self) -> Path:
+        return self.log_root / "filtered_audit.jsonl"
+
+    @property
+    def filtered_ebpf_path(self) -> Path:
+        return self.log_root / "filtered_ebpf.jsonl"
+
+    @property
+    def filtered_ebpf_summary_path(self) -> Path:
+        return self.log_root / "filtered_ebpf_summary.jsonl"
+
+    @property
     def timeline_path(self) -> Path:
         return self.log_root / "filtered_timeline.jsonl"
 
-    def compose(self, *args: str, check: bool = True, timeout: float | None = None) -> subprocess.CompletedProcess[str]:
-        cmd = [
-            "docker",
-            "compose",
-            "-f",
-            str(self.compose_files.base),
-            *args,
-        ]
-        if self.compose_files.override:
-            cmd = [
-                "docker",
-                "compose",
-                "-f",
-                str(self.compose_files.base),
-                "-f",
-                str(self.compose_files.override),
-                *args,
-            ]
-        return run_cmd(cmd, cwd=self.root_dir, env=self.env, timeout=timeout, check=check)
+    def _compose_command(self, *args: str) -> list[str]:
+        cmd: list[str] = ["docker", "compose", "-f", str(self.compose_files.base)]
+        for override in self.compose_files.overrides:
+            cmd.extend(["-f", str(override)])
+        cmd.extend(args)
+        return cmd
+
+    def compose(
+        self,
+        *args: str,
+        check: bool = True,
+        timeout: float | None = None,
+    ) -> subprocess.CompletedProcess[str]:
+        return run_cmd(
+            self._compose_command(*args),
+            cwd=self.root_dir,
+            env=self.env,
+            timeout=timeout,
+            check=check,
+        )
 
     def up(self) -> None:
-        self.compose("up", "-d", "collector", "agent", "harness", timeout=180)
+        self.compose("up", "-d", "collector", "agent", "harness", timeout=240)
         self._up = True
-        self.wait_for_harness_ready()
+        try:
+            self.wait_for_services_running(("collector", "agent", "harness"), timeout_sec=90.0)
+            self.wait_for_harness_ready()
+        except AssertionError as exc:
+            logs = self.capture_compose_logs()
+            raise AssertionError(f"{exc}\n\nCompose logs:\n{logs}") from exc
 
     def down(self) -> None:
         if not self._up:
@@ -161,7 +178,63 @@ class ComposeStack:
         result = self.compose("logs", "--no-color", check=False, timeout=120)
         return (result.stdout or "") + ("\n" + result.stderr if result.stderr else "")
 
-    def wait_for(self, predicate: Callable[[], bool], *, timeout_sec: float, message: str, interval_sec: float = 0.5) -> None:
+    def running_services(self) -> set[str]:
+        result = self.compose("ps", "--status", "running", "--services", check=False, timeout=30)
+        return {
+            line.strip()
+            for line in (result.stdout or "").splitlines()
+            if line.strip()
+        }
+
+    def wait_for_services_running(
+        self,
+        services: tuple[str, ...],
+        *,
+        timeout_sec: float = 60.0,
+        interval_sec: float = 1.0,
+    ) -> None:
+        deadline = time.time() + timeout_sec
+        last_running: set[str] = set()
+        while time.time() < deadline:
+            running = self.running_services()
+            last_running = running
+            missing = [svc for svc in services if svc not in running]
+            if not missing:
+                return
+            time.sleep(interval_sec)
+        missing = [svc for svc in services if svc not in last_running]
+        raise AssertionError(
+            f"Timed out waiting for running services={services}. "
+            f"Missing={missing}, running={sorted(last_running)}."
+        )
+
+    def exec_service(
+        self,
+        service: str,
+        *command: str,
+        env: dict[str, str] | None = None,
+        tty: bool = False,
+        check: bool = True,
+        timeout: float | None = None,
+    ) -> subprocess.CompletedProcess[str]:
+        args: list[str] = ["exec"]
+        if not tty:
+            args.append("-T")
+        if env:
+            for key, value in env.items():
+                args.extend(["-e", f"{key}={value}"])
+        args.append(service)
+        args.extend(command)
+        return self.compose(*args, check=check, timeout=timeout)
+
+    def wait_for(
+        self,
+        predicate: Callable[[], bool],
+        *,
+        timeout_sec: float,
+        message: str,
+        interval_sec: float = 0.5,
+    ) -> None:
         deadline = time.time() + timeout_sec
         while time.time() < deadline:
             if predicate():
@@ -169,7 +242,7 @@ class ComposeStack:
             time.sleep(interval_sec)
         raise AssertionError(message)
 
-    def wait_for_harness_ready(self, timeout_sec: float = 90.0) -> None:
+    def wait_for_harness_ready(self, timeout_sec: float = 120.0) -> None:
         def _ready() -> bool:
             status, _ = self.request_json("GET", "/jobs/_")
             return status == 404
@@ -181,7 +254,12 @@ class ComposeStack:
             interval_sec=1.0,
         )
 
-    def request_json(self, method: str, path: str, payload: dict[str, Any] | None = None) -> tuple[int, dict[str, Any] | str]:
+    def request_json(
+        self,
+        method: str,
+        path: str,
+        payload: dict[str, Any] | None = None,
+    ) -> tuple[int, dict[str, Any] | str]:
         data = None
         if payload is not None:
             data = json.dumps(payload).encode("utf-8")
@@ -226,7 +304,7 @@ class ComposeStack:
             raise AssertionError(f"Failed to read job {job_id}: {status} {body}")
         return body
 
-    def wait_for_job(self, job_id: str, *, timeout_sec: float = 240.0) -> dict[str, Any]:
+    def wait_for_job(self, job_id: str, *, timeout_sec: float = 300.0) -> dict[str, Any]:
         deadline = time.time() + timeout_sec
         last: dict[str, Any] | None = None
         while time.time() < deadline:
@@ -238,30 +316,15 @@ class ComposeStack:
             time.sleep(1.0)
         raise AssertionError(f"Timed out waiting for job {job_id}. Last status: {last}")
 
-    def submit_and_wait(self, prompt: str, *, timeout_sec: int | None = None) -> tuple[str, dict[str, Any]]:
+    def submit_and_wait(
+        self,
+        prompt: str,
+        *,
+        timeout_sec: int | None = None,
+    ) -> tuple[str, dict[str, Any]]:
         job_id = self.submit_job(prompt, timeout_sec=timeout_sec)
         status = self.wait_for_job(job_id)
         return job_id, status
-
-    def append_ebpf_event(self, event: dict[str, Any]) -> None:
-        """
-        Append one eBPF JSON event into the stack's live collector input file.
-
-        Why this exists:
-        - Some integration-style scenarios need to inject a single runtime-like
-          eBPF record into `/logs/ebpf.jsonl` without rebuilding whole fixtures.
-
-        Where it is typically called:
-        - Integration/regression/stress tests that are exercising the running
-          compose stack and want direct event injection.
-
-        Where `event` is typically generated:
-        - `tests.support.synthetic_logs.make_net_send_event(...)`, or a
-          hand-crafted dict that follows the `ebpf.v1` schema.
-        """
-        ebpf_path = self.log_root / "ebpf.jsonl"
-        with ebpf_path.open("a", encoding="utf-8") as handle:
-            handle.write(json.dumps(event, separators=(",", ":")) + "\n")
 
     def read_json(self, path: Path) -> dict[str, Any]:
         return json.loads(path.read_text(encoding="utf-8"))
@@ -277,111 +340,84 @@ class ComposeStack:
             rows.append(json.loads(line))
         return rows
 
-    def wait_for_timeline_rows(self, predicate: Callable[[list[dict[str, Any]]], bool], *, timeout_sec: float, message: str) -> list[dict[str, Any]]:
-        """
-        Poll timeline output until a condition is met or timeout expires.
-
-        The collector/harness pipeline is asynchronous: tests may finish job
-        execution before `filtered_timeline.jsonl` has all expected rows. This
-        helper prevents race-condition flakiness by repeatedly reading timeline
-        rows until the caller-defined predicate becomes true.
-        """
+    def wait_for_jsonl_rows(
+        self,
+        path: Path,
+        predicate: Callable[[list[dict[str, Any]]], bool],
+        *,
+        timeout_sec: float,
+        message: str,
+        interval_sec: float = 1.0,
+    ) -> list[dict[str, Any]]:
         deadline = time.time() + timeout_sec
         last_rows: list[dict[str, Any]] = []
         while time.time() < deadline:
-            rows = self.read_jsonl(self.timeline_path)
+            rows = self.read_jsonl(path)
             last_rows = rows
             if predicate(rows):
                 return rows
-            time.sleep(1.0)
-        raise AssertionError(f"{message}. Last timeline rows: {len(last_rows)}")
+            time.sleep(interval_sec)
+        raise AssertionError(f"{message}. Last row count={len(last_rows)} path={path}")
 
-    def run_collector_pipeline(
+    def wait_for_timeline_rows(
+        self,
+        predicate: Callable[[list[dict[str, Any]]], bool],
+        *,
+        timeout_sec: float,
+        message: str,
+    ) -> list[dict[str, Any]]:
+        return self.wait_for_jsonl_rows(
+            self.timeline_path,
+            predicate,
+            timeout_sec=timeout_sec,
+            message=message,
+        )
+
+    def wait_for_job_timeline_rows(
+        self,
+        job_id: str,
+        *,
+        timeout_sec: float = 120.0,
+        required_path: str | None = None,
+    ) -> list[dict[str, Any]]:
+        def _matches(rows: list[dict[str, Any]]) -> bool:
+            for row in rows:
+                if row.get("job_id") != job_id:
+                    continue
+                if required_path is None:
+                    return True
+                details = row.get("details") or {}
+                if isinstance(details, dict) and details.get("path") == required_path:
+                    return True
+            return False
+
+        return self.wait_for_timeline_rows(
+            _matches,
+            timeout_sec=timeout_sec,
+            message=f"Timeline rows for job_id={job_id} not observed",
+        )
+
+    def run_harness_tui(
         self,
         *,
-        audit_lines: list[str],
-        ebpf_events: list[dict[str, Any]] | None = None,
-    ) -> dict[str, list[dict[str, Any]]]:
-        """Run collector scripts deterministically over provided synthetic logs."""
-        ebpf_events = ebpf_events or []
-
-        audit_log = self.log_root / "audit.synthetic.log"
-        ebpf_log = self.log_root / "ebpf.synthetic.jsonl"
-        filtered_audit = self.log_root / "filtered_audit.synthetic.jsonl"
-        filtered_ebpf = self.log_root / "filtered_ebpf.synthetic.jsonl"
-        filtered_summary = self.log_root / "filtered_ebpf_summary.synthetic.jsonl"
-        timeline = self.log_root / "filtered_timeline.synthetic.jsonl"
-
-        audit_log.write_text("\n".join(audit_lines) + "\n", encoding="utf-8")
-        ebpf_log.write_text(
-            "\n".join(json.dumps(event, separators=(",", ":")) for event in ebpf_events)
-            + ("\n" if ebpf_events else ""),
-            encoding="utf-8",
+        tui_cmd: str,
+        tui_name: str,
+        timeout_sec: float = 300.0,
+    ) -> subprocess.CompletedProcess[str]:
+        command = f"python3 /usr/local/bin/harness.py tui --tui-name {shlex.quote(tui_name)}"
+        return self.exec_service(
+            "harness",
+            "script",
+            "-qec",
+            command,
+            "/dev/null",
+            env={"HARNESS_TUI_CMD": tui_cmd},
+            tty=False,
+            check=False,
+            timeout=timeout_sec,
         )
 
-        audit_cfg = deepcopy(
-            yaml.safe_load((self.root_dir / "collector" / "config" / "filtering.yaml").read_text(encoding="utf-8"))
-        )
-        audit_cfg["input"] = {"audit_log": str(audit_log)}
-        audit_cfg["output"] = {"jsonl": str(filtered_audit)}
-        audit_cfg["sessions_dir"] = str(self.log_root / "sessions")
-        audit_cfg["jobs_dir"] = str(self.log_root / "jobs")
-
-        ebpf_cfg = deepcopy(
-            yaml.safe_load((self.root_dir / "collector" / "config" / "ebpf_filtering.yaml").read_text(encoding="utf-8"))
-        )
-        ebpf_cfg["input"] = {"audit_log": str(audit_log), "ebpf_log": str(ebpf_log)}
-        ebpf_cfg["output"] = {"jsonl": str(filtered_ebpf)}
-        ebpf_cfg["sessions_dir"] = str(self.log_root / "sessions")
-        ebpf_cfg["jobs_dir"] = str(self.log_root / "jobs")
-
-        summary_cfg = deepcopy(
-            yaml.safe_load((self.root_dir / "collector" / "config" / "ebpf_summary.yaml").read_text(encoding="utf-8"))
-        )
-        summary_cfg["input"] = {"jsonl": str(filtered_ebpf)}
-        summary_cfg["output"] = {"jsonl": str(filtered_summary)}
-
-        merge_cfg = deepcopy(
-            yaml.safe_load((self.root_dir / "collector" / "config" / "merge_filtering.yaml").read_text(encoding="utf-8"))
-        )
-        merge_cfg["inputs"] = [
-            {"path": str(filtered_audit), "source": "audit"},
-            {"path": str(filtered_summary), "source": "ebpf"},
-        ]
-        merge_cfg["output"] = {"jsonl": str(timeline)}
-
-        scripts = [
-            (self.root_dir / "collector" / "scripts" / "filter_audit_logs.py", audit_cfg, self.log_root / "audit.config.yaml"),
-            (self.root_dir / "collector" / "scripts" / "filter_ebpf_logs.py", ebpf_cfg, self.log_root / "ebpf.config.yaml"),
-            (self.root_dir / "collector" / "scripts" / "summarize_ebpf_logs.py", summary_cfg, self.log_root / "summary.config.yaml"),
-            (self.root_dir / "collector" / "scripts" / "merge_filtered_logs.py", merge_cfg, self.log_root / "merge.config.yaml"),
-        ]
-        for script, config, path in scripts:
-            # For each collector stage:
-            # 1) Materialize a per-stage config file under this test's temp log
-            #    root so failures are reproducible with exact inputs.
-            # 2) Execute the stage as a subprocess using the repo's Python
-            #    interpreter, matching production CLI behavior:
-            #    - filter_audit_logs.py: raw audit -> filtered audit JSONL
-            #    - filter_ebpf_logs.py: raw eBPF (+ audit ownership) -> filtered eBPF JSONL
-            #    - summarize_ebpf_logs.py: filtered eBPF -> net_summary rows
-            #    - merge_filtered_logs.py: audit + summary -> timeline JSONL
-            path.write_text(yaml.safe_dump(config, sort_keys=False), encoding="utf-8")
-            result = subprocess.run(
-                [sys.executable, str(script), "--config", str(path)],
-                cwd=str(self.root_dir),
-                text=True,
-                capture_output=True,
-                check=False,
-            )
-            if result.returncode != 0:
-                raise AssertionError(
-                    f"Collector script failed: {script}\nSTDOUT:\n{result.stdout}\nSTDERR:\n{result.stderr}"
-                )
-
-        return {
-            "filtered_audit": self.read_jsonl(filtered_audit),
-            "filtered_ebpf": self.read_jsonl(filtered_ebpf),
-            "filtered_ebpf_summary": self.read_jsonl(filtered_summary),
-            "timeline": self.read_jsonl(timeline),
-        }
+    def host_log_path_from_container_path(self, container_path: str) -> Path:
+        if not container_path.startswith("/logs/"):
+            raise AssertionError(f"Unexpected container log path: {container_path}")
+        return self.log_root / container_path.removeprefix("/logs/")

@@ -20,6 +20,7 @@ In scope:
 - Harness job/session lifecycle behavior
 - Timeline ownership and schema invariants
 - Regression protection for previously fixed bugs
+- Local agent end-to-end validation through Codex (`exec` and TUI path)
 
 Out of scope:
 - Throughput benchmarking and performance tuning
@@ -38,7 +39,7 @@ Out of scope:
 |---|---|---|---|---|
 | `unit` | Pure logic correctness | Parsing, mapping, ownership logic, validation helpers | Docker, real stack orchestration | Seconds |
 | `fixture` | Deterministic contract checks | Golden cases (`input` + `config` -> `expected`) | Ad-hoc assertions without canonical expected output | Seconds |
-| `integration` | Real stack behavior | Docker compose scenarios, real artifact validation | Load/stress repetition loops | Minutes |
+| `integration` | Real stack behavior | Docker compose scenarios, real artifact validation, live filtered output assertions | Offline synthetic replay as acceptance evidence | Minutes |
 | `stress` | Concurrency and race robustness | Repeated trials, overlap/race/PID reuse scenarios | New feature coverage without deterministic baseline tests | Minutes to longer |
 | `regression` | Bug non-recurrence | Repro of known bug condition + assertion of fixed behavior | Generic tests not tied to a concrete bug history | Varies |
 
@@ -62,7 +63,10 @@ tests/
       case_*/
     pipeline/
       case_*/
-  integration/                 <- real Docker stack tests
+  integration/
+    config/                    <- test-only collector filter config overrides for compose
+                                (keeps CI-safe bash attribution without changing prod defaults)
+    test_*.py                  <- real Docker stack tests
   stress/                      <- race/concurrency repetition tests
   regression/                  <- bug-specific tests
 ```
@@ -120,7 +124,10 @@ uv sync
 uv run pytest tests/unit tests/fixture -q
 
 # Integration gate
-uv run pytest tests/integration -q
+uv run pytest tests/integration -m "integration and not agent_codex" -q
+
+# Local-only Codex agent E2E gates (requires ~/.codex auth + skills)
+uv run pytest tests/integration -m agent_codex -q
 
 # Stress gate
 uv run pytest tests/stress -q
@@ -138,6 +145,8 @@ Marker-based selection:
 uv run pytest -m unit -q
 uv run pytest -m fixture -q
 uv run pytest -m integration -q
+uv run pytest -m "integration and not agent_codex" -q
+uv run pytest -m agent_codex -q
 uv run pytest -m stress -q
 uv run pytest -m regression -q
 uv run pytest -m "not integration and not stress" -q
@@ -145,6 +154,18 @@ uv run pytest -m "not integration and not stress" -q
 
 `scripts/all_tests.py` is the canonical release gate entrypoint.
 If `scripts/all_tests.sh` exists, it should only be a thin wrapper around `scripts/all_tests.py`.
+
+Canonical lane examples:
+
+```bash
+# CI-safe lanes
+uv run python scripts/all_tests.py --lane fast
+uv run python scripts/all_tests.py --lane pr
+uv run python scripts/all_tests.py --lane full
+
+# Local-only Codex lane
+uv run python scripts/all_tests.py --lane codex
+```
 
 ## CI and Merge Gates
 Required gates for protected branches:
@@ -154,6 +175,10 @@ Required gates for protected branches:
 4. Regression tests
 5. Stress-smoke tests
 6. Any repository-specific static checks
+
+Codex policy:
+- Codex `exec` + TUI agent-e2e tests are required for local release confidence.
+- They are not required in GitHub CI because credentials are unavailable there.
 
 Stress-full policy:
 - Required for nightly runs.

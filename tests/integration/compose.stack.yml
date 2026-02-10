@@ -9,12 +9,15 @@ services:
     volumes:
       - ${LASSO_LOG_ROOT}:/logs:rw
       - ${LASSO_WORKSPACE_ROOT}:/work:ro
+      - ./config:/test-config:ro
       - /sys/fs/bpf:/sys/fs/bpf:rw
       - /sys/kernel/tracing:/sys/kernel/tracing:rw
       - /sys/kernel/debug:/sys/kernel/debug:rw
     environment:
       - COLLECTOR_AUDIT_LOG=/logs/audit.log
       - COLLECTOR_EBPF_OUTPUT=/logs/ebpf.jsonl
+      - COLLECTOR_FILTER_CONFIG=/test-config/filtering.yaml
+      - COLLECTOR_EBPF_FILTER_CONFIG=/test-config/ebpf_filtering.yaml
 
   agent:
     build:

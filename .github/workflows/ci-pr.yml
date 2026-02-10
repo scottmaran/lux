@@ -74,7 +74,7 @@ jobs:
         run: uv sync --frozen
 
       - name: Run integration suite
-        run: uv run pytest tests/integration -q
+        run: uv run pytest tests/integration -m "integration and not agent_codex" -q
 
   stress_smoke:
     runs-on: ubuntu-latest
@@ -92,4 +92,3 @@ jobs:
 
       - name: Run stress smoke suite
         run: uv run pytest tests/stress -q
-

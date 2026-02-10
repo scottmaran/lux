@@ -4,7 +4,6 @@ from __future__ import annotations
 import argparse
 import os
 import subprocess
-import sys
 from pathlib import Path
 
 
@@ -15,7 +14,7 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Canonical Lasso test runner.")
     parser.add_argument(
         "--lane",
-        choices=["fast", "pr", "full"],
+        choices=["fast", "pr", "full", "codex", "local-full"],
         default="fast",
         help="Test lane to execute",
     )
@@ -52,15 +51,33 @@ def lane_steps(args: argparse.Namespace) -> list[tuple[list[str], dict[str, str]
         (["uv", "run", "pytest", "tests/unit", "tests/fixture", "-q"], None),
         (["uv", "run", "pytest", "tests/regression", "-q"], None),
     ]
+
     integration_steps: list[tuple[list[str], dict[str, str] | None]] = [
-        (["uv", "run", "pytest", "tests/integration", "-q"], None),
+        (
+            [
+                "uv",
+                "run",
+                "pytest",
+                "tests/integration",
+                "-m",
+                "integration and not agent_codex",
+                "-q",
+            ],
+            None,
+        ),
     ]
+
+    codex_steps: list[tuple[list[str], dict[str, str] | None]] = [
+        (["uv", "run", "pytest", "tests/integration", "-m", "agent_codex", "-q"], None),
+    ]
+
     smoke_steps: list[tuple[list[str], dict[str, str] | None]] = [
         (
             ["uv", "run", "pytest", "tests/stress", "-q"],
             {"LASSO_STRESS_TRIALS": str(args.smoke_trials)},
         ),
     ]
+
     full_steps: list[tuple[list[str], dict[str, str] | None]] = [
         (
             ["uv", "run", "pytest", "tests/stress", "-q"],
@@ -72,7 +89,11 @@ def lane_steps(args: argparse.Namespace) -> list[tuple[list[str], dict[str, str]
         return fast_steps
     if args.lane == "pr":
         return fast_steps + integration_steps + smoke_steps
-    return fast_steps + integration_steps + smoke_steps + full_steps
+    if args.lane == "full":
+        return fast_steps + integration_steps + smoke_steps + full_steps
+    if args.lane == "codex":
+        return codex_steps
+    return fast_steps + integration_steps + smoke_steps + full_steps + codex_steps
 
 
 def main() -> int:
@@ -107,4 +128,3 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-

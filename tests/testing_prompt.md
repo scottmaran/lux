@@ -202,8 +202,8 @@ Implementation requirements:
 - do not implement these Codex lanes with `bash -lc {prompt}` template.
 
 Environment/CI policy:
-- PR path may run a stubbed/credentialless equivalent lane when Codex credentials are unavailable.
-- Nightly/release path must run real credentialed Codex lanes (`exec` + `tui`) and be treated as required for release confidence.
+- GitHub CI does not have Codex credentials; do not make Codex lanes required CI jobs there.
+- Codex lanes (`exec` + `tui`) must run locally in credentialed environments and be treated as required for release confidence.
 
 ### H. Stress Layer (Live Stack, Repeatability)
 Create stress tests with repeatable trial loops and configurable trial counts.
@@ -254,7 +254,7 @@ Runner requirements:
 - Ability to run sub-lanes directly
 - Use `uv run` for Python tools/tests in all lanes
 
-Required lanes must now include:
+Required local lanes must include:
 - `agent-codex-exec`
 - `agent-codex-tui`
 
@@ -269,13 +269,10 @@ Add workflows:
      - regression
      - integration
      - stress-smoke
-     - agent-codex-exec (or documented credentialless substitute on PR)
 
 2. `.github/workflows/ci-stress.yml`
    - trigger: nightly schedule + manual dispatch
    - runs stress-full
-   - runs real credentialed `agent-codex-exec`
-   - runs real credentialed `agent-codex-tui`
 
 CI should call canonical runner (or identical command surface) to avoid drift.
 CI Python setup must run `uv sync --frozen`.
