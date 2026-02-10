@@ -74,6 +74,7 @@ Important interpretation rule:
 7. Enforce via CI + scripts, not docs-only guidance.
 8. Integration/regression/stress must validate live stack outputs.
 9. Synthetic logs must target high fidelity to real audit/eBPF source data.
+10. Agent end-to-end tests must include real Codex execution coverage.
 
 ## 4) Deliverables (You Must Implement)
 
@@ -175,7 +176,36 @@ Use pytest fixtures for:
 - unconditional teardown
 - artifact/log capture on failure
 
-### G. Stress Layer (Live Stack, Repeatability)
+### G. Agent E2E Contract (Codex Required)
+In addition to generic integration tests, implement explicit agent user-flow tests
+that exercise Codex through the running harness/agent stack.
+
+Required Codex lanes:
+- `agent-codex-exec`:
+  - Use Codex non-interactive command path (for example `codex exec ...`).
+  - Submit a realistic user prompt via `/run`.
+  - Assert job completion, exit code, stdout presence, and expected filtered timeline ownership.
+- `agent-codex-tui`:
+  - Use Codex interactive/TUI launch path through harness TTY plumbing.
+  - Simulate user input/actions through the supported TUI path.
+  - Assert command/session completion, captured artifacts, and expected filtered timeline ownership.
+
+Both Codex lanes must verify behavior, not just startup:
+- containers healthy,
+- Codex command actually ran,
+- output is non-empty and non-error for success scenarios,
+- failure scenarios produce expected error classification.
+
+Implementation requirements:
+- run against live stack (no offline replay),
+- include failure diagnostics (stdout/stderr, harness/agent logs, timeline excerpt),
+- do not implement these Codex lanes with `bash -lc {prompt}` template.
+
+Environment/CI policy:
+- PR path may run a stubbed/credentialless equivalent lane when Codex credentials are unavailable.
+- Nightly/release path must run real credentialed Codex lanes (`exec` + `tui`) and be treated as required for release confidence.
+
+### H. Stress Layer (Live Stack, Repeatability)
 Create stress tests with repeatable trial loops and configurable trial counts.
 
 Required lanes:
@@ -184,14 +214,14 @@ Required lanes:
 
 Stress scenarios must execute against live stack behavior, not offline replay.
 
-### H. Regression Layer
+### I. Regression Layer
 Create regression structure and at least one concrete regression test for a known
 historical issue (concurrent attribution bug class).
 
 If the bug was integration-visible, regression should reproduce and assert through
 live stack path.
 
-### I. Synthetic Log Fidelity Program
+### J. Synthetic Log Fidelity Program
 Implement a deliberate synthetic fidelity track for unit/fixture layers.
 
 Requirements:
@@ -205,7 +235,7 @@ Requirements:
 - Normalize volatile fields (timestamps, PIDs, seq IDs, inode-like IDs) before comparison.
 - Document intentionally omitted fields in `tests/SYNTHETIC_LOGS.md` with rationale.
 
-### J. Canonical Test Runner
+### K. Canonical Test Runner
 Implement one canonical runner for local + CI.
 
 Required:
@@ -224,7 +254,11 @@ Runner requirements:
 - Ability to run sub-lanes directly
 - Use `uv run` for Python tools/tests in all lanes
 
-### K. CI Workflows (Required Enforcement)
+Required lanes must now include:
+- `agent-codex-exec`
+- `agent-codex-tui`
+
+### L. CI Workflows (Required Enforcement)
 Add workflows:
 
 1. `.github/workflows/ci-pr.yml`
@@ -235,15 +269,18 @@ Add workflows:
      - regression
      - integration
      - stress-smoke
+     - agent-codex-exec (or documented credentialless substitute on PR)
 
 2. `.github/workflows/ci-stress.yml`
    - trigger: nightly schedule + manual dispatch
    - runs stress-full
+   - runs real credentialed `agent-codex-exec`
+   - runs real credentialed `agent-codex-tui`
 
 CI should call canonical runner (or identical command surface) to avoid drift.
 CI Python setup must run `uv sync --frozen`.
 
-### L. Contract/Delta Enforcement Script
+### M. Contract/Delta Enforcement Script
 Implement lightweight enforcement script (Python), e.g.:
 - `scripts/verify_test_delta.py` or `scripts/verify_requirements_coverage.py`
 
@@ -260,6 +297,8 @@ Bug-fix enforcement must be deterministic:
 Add one boundary guard for architecture drift:
 - Fail if `tests/integration/`, `tests/stress/`, or `tests/regression/` uses
   disallowed offline synthetic replay helpers for core assertions.
+- Fail if Codex-designated agent-e2e tests use `HARNESS_RUN_CMD_TEMPLATE=bash -lc {prompt}`.
+- Fail if required Codex lanes (`agent-codex-exec`, `agent-codex-tui`) are missing.
 
 Keep this pragmatic. Avoid fragile deep static analysis in v1.
 
@@ -277,11 +316,12 @@ Follow this order:
 3. Implement shared timeline validator.
 4. Implement unit baseline for collector logic.
 5. Implement live end-to-end integration tests against running stack outputs.
-6. Implement live-stack stress and regression flows.
-7. Implement synthetic fidelity builders + parity tests for unit/fixture usage.
-8. Add canonical runner with lanes.
-9. Add CI workflows + contract/delta enforcement guards.
-10. Run and stabilize until green.
+6. Implement Codex agent-e2e lanes (`exec` and `tui`) with success + expected-failure assertions.
+7. Implement live-stack stress and regression flows.
+8. Implement synthetic fidelity builders + parity tests for unit/fixture usage.
+9. Add canonical runner with lanes.
+10. Add CI workflows + contract/delta enforcement guards.
+11. Run and stabilize until green.
 
 ## 7) Validation and Evidence Required in Final Report
 Final report must include:
@@ -293,6 +333,7 @@ Final report must include:
 5. CI check names to mark required in branch protection.
 6. Evidence that integration assertions came from live stack outputs.
 7. Evidence synthetic fidelity tests passed and what was normalized.
+8. Evidence Codex `exec` and `tui` lanes executed, including success and expected-failure outcomes.
 
 If anything could not be run, state it explicitly and explain static verification.
 
@@ -318,7 +359,8 @@ Work is done when all are true:
 7. At least one meaningful regression test exists.
 8. Integration tests assert live stack outputs for lifecycle, fs, net, merge, and concurrency behaviors.
 9. Synthetic fidelity program exists with parity tests against real log references.
-10. Documentation matches real runnable commands and implemented behavior.
+10. Codex agent-e2e lanes (`exec` and `tui`) are implemented and passing in required environments.
+11. Documentation matches real runnable commands and implemented behavior.
 
 ## 10) Stretch Goals (Only After Core Is Green)
 1. Decommission remaining legacy Bash test scripts after equivalent/better Python coverage exists.
