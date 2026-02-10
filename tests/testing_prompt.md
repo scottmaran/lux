@@ -1,31 +1,45 @@
 # Lasso Testing Suite Implementation Prompt (Subagent)
 
 You are implementing a full testing suite for Lasso on branch `robust_test_suite`.
-This is not a brainstorming task. You are expected to design and ship the first
-working end-to-end version of the suite and CI enforcement.
+This is not a brainstorming task. You are expected to design and ship a strict,
+working, end-to-end suite with CI enforcement.
 
 Read this prompt fully before coding. Treat it as the implementation contract.
 
 ## 0) Mission
 Build a deterministic, comprehensive, maintainable test system such that:
 
-- Passing required gates means: no known requirement violations in supported environments.
+- Passing required gates means no known requirement violations in supported environments.
 - The suite is usable identically by local developers and autonomous agents.
-- CI enforces required behavior (not just docs/policy text).
+- CI enforces behavior and contract boundaries, not just policy text.
 
-Use `tests/README.md` as the authoritative philosophy and contract.
+Use `tests/README.md` as the authoritative philosophy and behavior contract.
 
 Primary directive for test creation:
-- Build tests from scratch from the required behaviors/invariants.
-- Existing test scripts are reference material only.
-- Do not treat this as a porting/parity exercise with legacy scripts.
+- Build tests from scratch against required behaviors/invariants.
+- Existing scripts are reference material only.
+- Do not treat this as a parity port of legacy Bash tests.
 
-## 1) Required Context to Read First
+## 1) Critical Interpretation Rules (Read Before Coding)
+1. Integration means live end-to-end system behavior:
+   - Start the real stack (`collector`, `agent`, `harness`).
+   - Submit real jobs through supported interfaces.
+   - Assert against live collector outputs and persisted artifacts.
+2. Determinism/isolation requirements do not permit bypassing live integration path.
+3. Synthetic replay is not a substitute for integration:
+   - Unit/fixture may use synthetic inputs.
+   - Integration/regression/stress must not rely on offline synthetic pipeline replay for core assertions.
+4. Synthetic raw logs must be production-shape:
+   - Do not stop at handcrafted minimal valid records.
+   - Synthetic records should be as close as practical to real source output.
+
+## 2) Required Context to Read First
 Before making changes, read:
 
-1. `tests/README.md` (source of truth for structure and policy)
-2. `tests/test_principles.md` (if relevant for design language)
-3. Collector scripts and tests:
+1. `tests/README.md`
+2. `tests/test_principles.md` (if relevant)
+3. `tests/SYNTHETIC_LOGS.md`
+4. Collector scripts and tests:
    - `collector/scripts/filter_audit_logs.py`
    - `collector/scripts/filter_ebpf_logs.py`
    - `collector/scripts/summarize_ebpf_logs.py`
@@ -34,30 +48,34 @@ Before making changes, read:
    - `collector/tests/test_ebpf_filter.py`
    - `collector/tests/test_ebpf_summary.py`
    - `collector/tests/test_merge_filtered.py`
-4. Current integration and CLI scripts under:
+5. Existing integration and CLI scripts:
    - `scripts/run_integration_*.sh`
    - `scripts/run_lasso_cli_integration.sh`
    - `scripts/cli_scripts/*`
-5. Existing workflows:
+6. Real log references:
+   - `example_logs/audit.log`
+   - `example_logs/ebpf.jsonl`
+7. Existing workflows:
    - `.github/workflows/release.yml`
 
 Then produce implementation, not analysis.
 
 Important interpretation rule:
-- Legacy tests/scripts may be mined for scenario ideas, but the new suite
-  should be designed against the contract in `tests/README.md`, not against
-  old script behavior.
+- Legacy tests/scripts may be mined for scenario ideas, but design against the
+  contract in `tests/README.md` and this prompt.
 
-## 2) Non-Negotiable Constraints
-1. Use Python/pytest as the primary test language and orchestration layer.
-2. New integration/stress tests must be Python-based (no new Bash test logic).
-3. Use `uv` as the Python package manager and runner (`uv sync`, `uv run ...`).
-4. Keep one canonical command surface for local + CI execution.
+## 3) Non-Negotiable Constraints
+1. Use Python/pytest as the primary test language/orchestration layer.
+2. New integration/stress/regression test logic must be Python-based.
+3. Use `uv` as Python package manager and runner (`uv sync`, `uv run ...`).
+4. Keep one canonical command surface for local + CI.
 5. Determinism + isolation are mandatory.
-6. Include regression test pathway for bug fixes.
+6. Include regression pathway for bug fixes.
 7. Enforce via CI + scripts, not docs-only guidance.
+8. Integration/regression/stress must validate live stack outputs.
+9. Synthetic logs must target high fidelity to real audit/eBPF source data.
 
-## 3) Deliverables (You Must Implement)
+## 4) Deliverables (You Must Implement)
 
 ### A. Test Directory Scaffolding
 Create/standardize:
@@ -80,91 +98,121 @@ tests/
   regression/
 ```
 
-Each layer must be runnable via pytest markers and/or path selection.
+Each layer must be runnable by marker and path selection.
 
 ### B. Pytest Configuration
-Create/extend a root `pyproject.toml` as the single source of Python test tooling config.
-Do not split pytest config into separate files unless strictly necessary.
+Create/extend root `pyproject.toml` as single source of Python test tooling config.
+Do not split pytest config unless strictly necessary.
 
 Also generate and commit `uv.lock`.
 
 `pyproject.toml` must:
-
 - Register markers: `unit`, `fixture`, `integration`, `stress`, `regression`
-- Set useful default test paths and options
+- Set useful default paths/options
 - Fail on unknown markers
 
 Tooling requirements:
-- CI and local should use `uv sync --frozen` before test execution.
-- Python commands should run through `uv run ...`.
+- CI and local use `uv sync --frozen` before execution.
+- Python commands run through `uv run ...`.
 
 ### C. Fixture Contract Enforcement
 Implement fixture discovery + validation in `tests/fixture/conftest.py`:
-
 - Auto-discover `case_*` directories.
 - Validate required files against `tests/fixture/schemas/case_schema.yaml`.
 - Reject missing required files and unexpected files unless explicitly allowed.
-- Produce clear errors with actionable paths.
+- Produce clear, actionable errors.
 
-Implement at least a few representative fixture cases (not empty scaffold).
+Implement representative fixture cases (not empty scaffolding).
 
 ### D. Timeline Invariant Validator
-Implement shared validator in `tests/conftest.py` (or helper module) that can be
-called by integration/stress tests to enforce global timeline invariants:
-
+Implement shared validator in `tests/conftest.py` (or helper module) for
+timeline-producing tests:
 1. Ownership shape is valid.
-2. Referenced session/job IDs exist in logs metadata.
+2. Referenced session/job IDs exist in metadata.
 3. Timeline ordering is valid.
 4. Required fields exist for schema/event type.
 5. Completed attributed runs contain `root_pid`.
 
-Keep it strict, deterministic, and with clear failure messages.
+Keep it strict, deterministic, and diagnosable.
 
 ### E. Unit/Fixture Coverage Baseline
-Build a clean top-level unit/fixture suite that satisfies the contract.
-You may reuse existing test code selectively if it is correct and high quality.
-Do not preserve existing tests solely for compatibility. Do not reduce coverage.
+Build clean top-level unit/fixture suites satisfying the contract.
+Reuse existing test code only if it is correct and high quality.
 
 Minimum expectation:
-- Core collector logic is covered from the top-level test entrypoint.
-- Fixture tests exist for core filter/summary/merge contracts.
+- Core collector logic covered from top-level entrypoint.
+- Fixture tests for core filter/summary/merge contracts.
 
-### F. Python Integration Test Layer
-Create Python integration tests from contract-critical behaviors.
-Legacy Bash scenarios are optional references, not acceptance criteria.
+### F. Integration Layer (Live End-to-End, Required)
+Create Python integration tests for contract-critical behaviors.
+
+Required execution model:
+- Bring up real compose stack.
+- Submit real jobs through harness API/CLI path used by users.
+- Wait for completion via API polling.
+- Assert on artifacts and collector outputs produced by the running stack.
+
+Required assertion sources:
+- `/logs/jobs/<job_id>/*` metadata/artifacts
+- live `filtered_audit.jsonl`
+- live `filtered_ebpf.jsonl`
+- live `filtered_timeline.jsonl`
 
 At minimum include:
 - Job lifecycle artifact validation
-- Filter job path behavior
-- Merge behavior
-- Concurrent sessions/jobs attribution sanity
+- Filesystem action from submitted job appears with correct ownership/attribution
+- Network action from submitted job appears with correct ownership/attribution
+- Merge/timeline invariants over live collected output
+- Concurrent jobs/sessions attribution sanity
+
+Explicitly prohibited in integration assertions:
+- Running collector scripts directly on synthetic inputs to stand in for live behavior
+- Treating offline replay as acceptance evidence for integration behavior
 
 Use pytest fixtures for:
 - unique compose project names per test
 - temp logs/work dirs
 - unconditional teardown
-- artifact collection on failure
+- artifact/log capture on failure
 
-### G. Stress Test Layer
-Create stress tests with repeatable trial loops.
-Implement configurable trial counts via env vars.
+### G. Stress Layer (Live Stack, Repeatability)
+Create stress tests with repeatable trial loops and configurable trial counts.
 
 Required lanes:
 - `stress-smoke`: short deterministic run (PR-safe)
 - `stress-full`: larger trial count (nightly/release)
 
-### H. Regression Layer
-Create regression test structure and add at least one concrete regression test
-for a known historical issue (concurrent attribution bug class).
+Stress scenarios must execute against live stack behavior, not offline replay.
 
-### I. Canonical Test Runner
+### H. Regression Layer
+Create regression structure and at least one concrete regression test for a known
+historical issue (concurrent attribution bug class).
+
+If the bug was integration-visible, regression should reproduce and assert through
+live stack path.
+
+### I. Synthetic Log Fidelity Program
+Implement a deliberate synthetic fidelity track for unit/fixture layers.
+
+Requirements:
+- Synthetic builders generate raw records close to real source shape.
+- Do not stop at minimally valid handcrafted lines.
+- Cover configured eBPF event types (`net_connect`, `net_send`, `dns_query`,
+  `dns_response`, `unix_connect`) with reusable builders.
+- Add fidelity tests comparing normalized synthetic-vs-real structure using:
+  - `example_logs/audit.log`
+  - `example_logs/ebpf.jsonl`
+- Normalize volatile fields (timestamps, PIDs, seq IDs, inode-like IDs) before comparison.
+- Document intentionally omitted fields in `tests/SYNTHETIC_LOGS.md` with rationale.
+
+### J. Canonical Test Runner
 Implement one canonical runner for local + CI.
 
 Required:
 - `scripts/all_tests.py` (Python)
 
 Optional:
-- `scripts/all_tests.sh` as a thin wrapper that calls `scripts/all_tests.py`
+- `scripts/all_tests.sh` as thin wrapper calling `scripts/all_tests.py`
 
 Runner requirements:
 - Lane model:
@@ -174,9 +222,9 @@ Runner requirements:
 - Deterministic nonzero exits on failure
 - Clear summary output
 - Ability to run sub-lanes directly
-- Use `uv run` to execute Python tools/tests in all lanes
+- Use `uv run` for Python tools/tests in all lanes
 
-### J. CI Workflows (Required Enforcement)
+### K. CI Workflows (Required Enforcement)
 Add workflows:
 
 1. `.github/workflows/ci-pr.yml`
@@ -192,82 +240,88 @@ Add workflows:
    - trigger: nightly schedule + manual dispatch
    - runs stress-full
 
-CI should call the canonical runner (or identical command surface) to avoid drift.
-CI setup for Python must run `uv sync --frozen`.
+CI should call canonical runner (or identical command surface) to avoid drift.
+CI Python setup must run `uv sync --frozen`.
 
-### K. Contract/Delta Enforcement Script
-Implement a lightweight enforcement script (Python), e.g.:
+### L. Contract/Delta Enforcement Script
+Implement lightweight enforcement script (Python), e.g.:
 - `scripts/verify_test_delta.py` or `scripts/verify_requirements_coverage.py`
 
-It should fail CI for obvious gaps, such as:
-- runtime source paths changed with no relevant test changes
+It should fail CI for obvious gaps:
+- runtime source changed without relevant tests
 - invalid fixture structure
-- missing required regression test for bug-fix changes
+- missing required regression change for bug-fix changes
 
 Bug-fix enforcement must be deterministic:
-- Add `--change-kind {feature,fix,refactor}` to the enforcement script.
-- If `change-kind=fix`, require at least one changed file under `tests/regression/`.
-- CI must pass `change-kind` explicitly (do not rely on implicit guessing).
+- Add `--change-kind {feature,fix,refactor}`
+- If `change-kind=fix`, require changed file under `tests/regression/`
+- CI must pass `change-kind` explicitly
+
+Add one boundary guard for architecture drift:
+- Fail if `tests/integration/`, `tests/stress/`, or `tests/regression/` uses
+  disallowed offline synthetic replay helpers for core assertions.
 
 Keep this pragmatic. Avoid fragile deep static analysis in v1.
 
-## 4) Language and Style Requirements
+## 5) Language and Style Requirements
 1. ASCII-only unless existing file requires otherwise.
-2. Keep code comments concise and high-value.
-3. Do not introduce sprawling framework complexity for v1.
-4. Prefer explicit assertions with useful diagnostics over clever abstractions.
+2. Keep comments concise and high-value.
+3. Avoid sprawling framework complexity for v1.
+4. Prefer explicit assertions with useful diagnostics.
 
-## 5) Implementation Strategy (Expected Order)
+## 6) Implementation Strategy (Expected Order)
 Follow this order:
 
 1. Create pytest config + directory scaffolding.
 2. Implement fixture schema + validator + sample fixture cases.
-3. Implement global timeline validator helper.
-4. Implement a clean top-level unit baseline for core collector logic.
-5. Add Python integration tests with robust fixtures/teardown.
-6. Add stress-smoke and stress-full mechanics.
-7. Add regression test scaffold + first concrete regression.
+3. Implement shared timeline validator.
+4. Implement unit baseline for collector logic.
+5. Implement live end-to-end integration tests against running stack outputs.
+6. Implement live-stack stress and regression flows.
+7. Implement synthetic fidelity builders + parity tests for unit/fixture usage.
 8. Add canonical runner with lanes.
-9. Add CI workflows and contract/delta check script.
+9. Add CI workflows + contract/delta enforcement guards.
 10. Run and stabilize until green.
 
-## 6) Validation and Evidence Required in Final Report
-Your final report must include:
+## 7) Validation and Evidence Required in Final Report
+Final report must include:
 
-1. What files you added/changed.
-2. Exact commands you ran.
+1. Files added/changed.
+2. Exact commands run.
 3. Which lanes passed locally (`fast`, `pr`, `full`, or subset with reason).
-4. Known limitations and what is deferred to next iteration.
-5. CI check names that should be marked required in branch protection.
+4. Known limitations and deferred items.
+5. CI check names to mark required in branch protection.
+6. Evidence that integration assertions came from live stack outputs.
+7. Evidence synthetic fidelity tests passed and what was normalized.
 
-If anything could not be run (environment constraint), state that explicitly and
-explain what static verification was done instead.
+If anything could not be run, state it explicitly and explain static verification.
 
-All Python commands in the report must be shown using `uv` (for example
-`uv run pytest ...`).
+All Python commands in report must use `uv` (for example `uv run pytest ...`).
 
-## 7) Practical Guardrails
-1. Do not remove existing tests unless replacing with equivalent or better coverage.
-2. Do not rely on prebuilt release images when testing branch behavior.
-3. Avoid flaky `sleep`-only readiness where robust checks are possible.
-4. Ensure every integration test is isolated (unique compose project/resources).
-5. Keep failures diagnosable (store logs/artifacts on failure).
+## 8) Practical Guardrails
+1. Do not remove existing tests unless replaced with equivalent or better coverage.
+2. Do not rely on prebuilt release images for branch behavior tests.
+3. Avoid flaky sleep-only readiness where robust checks are possible.
+4. Ensure every integration/stress/regression test is isolated.
+5. Keep failures diagnosable with captured logs/artifacts.
+6. If integration behavior can only pass through offline replay, treat as a test design failure and fix architecture.
 
-## 8) Definition of Done
-The work is done when all are true:
+## 9) Definition of Done
+Work is done when all are true:
 
 1. Top-level pytest architecture exists and is usable.
 2. Fixture schema enforcement is active and tested.
-3. Timeline validator is implemented and used by integration/stress tests.
+3. Timeline validator is implemented and used by timeline-producing tests.
 4. Canonical lane runner exists and works.
-5. CI PR workflow enforces required checks, including stress-smoke.
+5. CI PR workflow enforces required checks including stress-smoke.
 6. Nightly/manual stress-full workflow exists.
 7. At least one meaningful regression test exists.
-8. Documentation reflects real runnable commands and matches implementation.
+8. Integration tests assert live stack outputs for lifecycle, fs, net, merge, and concurrency behaviors.
+9. Synthetic fidelity program exists with parity tests against real log references.
+10. Documentation matches real runnable commands and implemented behavior.
 
-## 9) Stretch Goals (Only After Core Is Green)
-1. Decommission remaining legacy Bash test scripts after equivalent or better
-   Python coverage is in place.
+## 10) Stretch Goals (Only After Core Is Green)
+1. Decommission remaining legacy Bash test scripts after equivalent/better Python coverage exists.
 2. Add richer artifact snapshots for failed tests.
 3. Expand delta-enforcement accuracy.
 4. Add coverage trend reporting if low-effort.
