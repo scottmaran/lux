@@ -1,85 +1,75 @@
 # Lasso Testing Suite Implementation Prompt (Subagent)
 
-You are implementing a full testing suite for Lasso on branch `robust_test_suite`.
-This is not a brainstorming task. You are expected to design and ship a strict,
-working, end-to-end suite with CI enforcement.
+You are implementing the Lasso test suite on branch `robust_test_suite`.
+This is an implementation task, not a design discussion.
+Ship a strict, runnable suite with enforceable CI behavior.
 
-Read this prompt fully before coding. Treat it as the implementation contract.
+Read this file fully before coding. Treat it as the implementation contract.
 
 ## 0) Mission
-Build a deterministic, comprehensive, maintainable test system such that:
+Build a deterministic, maintainable, end-to-end test system where:
 
-- Passing required gates means no known requirement violations in supported environments.
-- The suite is usable identically by local developers and autonomous agents.
-- CI enforces behavior and contract boundaries, not just policy text.
+- Required gates map to real requirements, not placeholder checks.
+- Local developers and agents can run the same canonical commands.
+- CI enforces behavior and contract boundaries, not documentation-only rules.
 
-Use `tests/README.md` as the authoritative philosophy and behavior contract.
+Use `tests/README.md` as the test philosophy source of truth.
 
-Primary directive for test creation:
-- Build tests from scratch against required behaviors/invariants.
-- Existing scripts are reference material only.
-- Do not treat this as a parity port of legacy Bash tests.
+Primary directive:
+- Create tests from scratch against required behavior and invariants.
+- Existing scripts/tests are reference material only.
+- Do not treat this task as a parity port of legacy Bash tests.
 
-## 1) Critical Interpretation Rules (Read Before Coding)
-1. Integration means live end-to-end system behavior:
-   - Start the real stack (`collector`, `agent`, `harness`).
-   - Submit real jobs through supported interfaces.
-   - Assert against live collector outputs and persisted artifacts.
-2. Determinism/isolation requirements do not permit bypassing live integration path.
-3. Synthetic replay is not a substitute for integration:
-   - Unit/fixture may use synthetic inputs.
-   - Integration/regression/stress must not rely on offline synthetic pipeline replay for core assertions.
-4. Synthetic raw logs must be production-shape:
-   - Do not stop at handcrafted minimal valid records.
-   - Synthetic records should be as close as practical to real source output.
+## 1) Critical Interpretation Rules
+1. Integration means live stack behavior.
+   - Start real services (`collector`, `agent`, `harness`) with compose.
+   - Drive real user-facing entrypoints.
+   - Assert on live outputs and persisted artifacts.
+2. Determinism/isolation do not permit replacing live integration with replay.
+3. Synthetic replay is only for unit/fixture contract testing.
+   - Integration/regression/stress must not use offline replay as core evidence.
+4. Synthetic raw logs must be production-shape.
+   - Do not stop at handcrafted minimal lines.
+   - Keep synthetic structures close to real source output.
+5. Agent TUI validation must prove interactive behavior, not only TTY/plumbing.
 
 ## 2) Required Context to Read First
-Before making changes, read:
+Read these files before editing:
 
 1. `tests/README.md`
-2. `tests/test_principles.md` (if relevant)
+2. `tests/test_principles.md` (if present/relevant)
 3. `tests/SYNTHETIC_LOGS.md`
-4. Collector scripts and tests:
-   - `collector/scripts/filter_audit_logs.py`
-   - `collector/scripts/filter_ebpf_logs.py`
-   - `collector/scripts/summarize_ebpf_logs.py`
-   - `collector/scripts/merge_filtered_logs.py`
-   - `collector/tests/test_filter.py`
-   - `collector/tests/test_ebpf_filter.py`
-   - `collector/tests/test_ebpf_summary.py`
-   - `collector/tests/test_merge_filtered.py`
-5. Existing integration and CLI scripts:
-   - `scripts/run_integration_*.sh`
-   - `scripts/run_lasso_cli_integration.sh`
-   - `scripts/cli_scripts/*`
-6. Real log references:
-   - `example_logs/audit.log`
-   - `example_logs/ebpf.jsonl`
-7. Existing workflows:
-   - `.github/workflows/release.yml`
+4. `collector/scripts/filter_audit_logs.py`
+5. `collector/scripts/filter_ebpf_logs.py`
+6. `collector/scripts/summarize_ebpf_logs.py`
+7. `collector/scripts/merge_filtered_logs.py`
+8. `collector/tests/test_filter.py`
+9. `collector/tests/test_ebpf_filter.py`
+10. `collector/tests/test_ebpf_summary.py`
+11. `collector/tests/test_merge_filtered.py`
+12. `scripts/run_integration_*.sh`
+13. `scripts/run_lasso_cli_integration.sh`
+14. `scripts/cli_scripts/*`
+15. `example_logs/audit.log`
+16. `example_logs/ebpf.jsonl`
+17. `.github/workflows/release.yml`
 
-Then produce implementation, not analysis.
-
-Important interpretation rule:
-- Legacy tests/scripts may be mined for scenario ideas, but design against the
-  contract in `tests/README.md` and this prompt.
+Then implement. Do not stop at analysis.
 
 ## 3) Non-Negotiable Constraints
-1. Use Python/pytest as the primary test language/orchestration layer.
-2. New integration/stress/regression test logic must be Python-based.
-3. Use `uv` as Python package manager and runner (`uv sync`, `uv run ...`).
-4. Keep one canonical command surface for local + CI.
-5. Determinism + isolation are mandatory.
-6. Include regression pathway for bug fixes.
-7. Enforce via CI + scripts, not docs-only guidance.
-8. Integration/regression/stress must validate live stack outputs.
-9. Synthetic logs must target high fidelity to real audit/eBPF source data.
-10. Agent end-to-end tests must include real Codex execution coverage.
+1. Python + pytest are the primary test/orchestration language.
+2. New integration/regression/stress logic must be Python-based.
+3. Use `uv` for dependency and command execution (`uv sync`, `uv run ...`).
+4. Maintain one canonical local+CI runner surface.
+5. Enforce invariants in code/CI scripts, not only in prose.
+6. Integration/regression/stress assertions must come from live stack outputs.
+7. Add regression coverage for bug-fix class changes.
+8. Include explicit Codex agent coverage (`exec` and interactive `tui`).
 
-## 4) Deliverables (You Must Implement)
+## 4) Required Deliverables
 
-### A. Test Directory Scaffolding
-Create/standardize:
+### A) Test Directory Structure
+Create or standardize:
 
 ```text
 tests/
@@ -99,171 +89,171 @@ tests/
   regression/
 ```
 
-Each layer must be runnable by marker and path selection.
+Each layer must be runnable by marker and by path.
 
-### B. Pytest Configuration
-Create/extend root `pyproject.toml` as single source of Python test tooling config.
-Do not split pytest config unless strictly necessary.
-
-Also generate and commit `uv.lock`.
-
-`pyproject.toml` must:
-- Register markers: `unit`, `fixture`, `integration`, `stress`, `regression`
-- Set useful default paths/options
-- Fail on unknown markers
-
-Tooling requirements:
-- CI and local use `uv sync --frozen` before execution.
-- Python commands run through `uv run ...`.
-
-### C. Fixture Contract Enforcement
-Implement fixture discovery + validation in `tests/fixture/conftest.py`:
-- Auto-discover `case_*` directories.
-- Validate required files against `tests/fixture/schemas/case_schema.yaml`.
-- Reject missing required files and unexpected files unless explicitly allowed.
-- Produce clear, actionable errors.
-
-Implement representative fixture cases (not empty scaffolding).
-
-### D. Timeline Invariant Validator
-Implement shared validator in `tests/conftest.py` (or helper module) for
-timeline-producing tests:
-1. Ownership shape is valid.
-2. Referenced session/job IDs exist in metadata.
-3. Timeline ordering is valid.
-4. Required fields exist for schema/event type.
-5. Completed attributed runs contain `root_pid`.
-
-Keep it strict, deterministic, and diagnosable.
-
-### E. Unit/Fixture Coverage Baseline
-Build clean top-level unit/fixture suites satisfying the contract.
-Reuse existing test code only if it is correct and high quality.
-
-Minimum expectation:
-- Core collector logic covered from top-level entrypoint.
-- Fixture tests for core filter/summary/merge contracts.
-
-### F. Integration Layer (Live End-to-End, Required)
-Create Python integration tests for contract-critical behaviors.
-
-Required execution model:
-- Bring up real compose stack.
-- Submit real jobs through harness API/CLI path used by users.
-- Wait for completion via API polling.
-- Assert on artifacts and collector outputs produced by the running stack.
-
-Required assertion sources:
-- `/logs/jobs/<job_id>/*` metadata/artifacts
-- live `filtered_audit.jsonl`
-- live `filtered_ebpf.jsonl`
-- live `filtered_timeline.jsonl`
-
-At minimum include:
-- Job lifecycle artifact validation
-- Filesystem action from submitted job appears with correct ownership/attribution
-- Network action from submitted job appears with correct ownership/attribution
-- Merge/timeline invariants over live collected output
-- Concurrent jobs/sessions attribution sanity
-
-Explicitly prohibited in integration assertions:
-- Running collector scripts directly on synthetic inputs to stand in for live behavior
-- Treating offline replay as acceptance evidence for integration behavior
-
-Use pytest fixtures for:
-- unique compose project names per test
-- temp logs/work dirs
-- unconditional teardown
-- artifact/log capture on failure
-
-### G. Agent E2E Contract (Codex Required)
-In addition to generic integration tests, implement explicit agent user-flow tests
-that exercise Codex through the running harness/agent stack.
-
-Required Codex lanes:
-- `agent-codex-exec`:
-  - Use Codex non-interactive command path (for example `codex exec ...`).
-  - Submit a realistic user prompt via `/run`.
-  - Assert job completion, exit code, stdout presence, and expected filtered timeline ownership.
-- `agent-codex-tui`:
-  - Use Codex interactive/TUI launch path through harness TTY plumbing.
-  - Simulate user input/actions through the supported TUI path.
-  - Assert command/session completion, captured artifacts, and expected filtered timeline ownership.
-
-Both Codex lanes must verify behavior, not just startup:
-- containers healthy,
-- Codex command actually ran,
-- output is non-empty and non-error for success scenarios,
-- failure scenarios produce expected error classification.
-
-Implementation requirements:
-- run against live stack (no offline replay),
-- include failure diagnostics (stdout/stderr, harness/agent logs, timeline excerpt),
-- do not implement these Codex lanes with `bash -lc {prompt}` template.
-
-Environment/CI policy:
-- GitHub CI does not have Codex credentials; do not make Codex lanes required CI jobs there.
-- Codex lanes (`exec` + `tui`) must run locally in credentialed environments and be treated as required for release confidence.
-
-### H. Stress Layer (Live Stack, Repeatability)
-Create stress tests with repeatable trial loops and configurable trial counts.
-
-Required lanes:
-- `stress-smoke`: short deterministic run (PR-safe)
-- `stress-full`: larger trial count (nightly/release)
-
-Stress scenarios must execute against live stack behavior, not offline replay.
-
-### I. Regression Layer
-Create regression structure and at least one concrete regression test for a known
-historical issue (concurrent attribution bug class).
-
-If the bug was integration-visible, regression should reproduce and assert through
-live stack path.
-
-### J. Synthetic Log Fidelity Program
-Implement a deliberate synthetic fidelity track for unit/fixture layers.
+### B) Pytest + uv Configuration
+Use root `pyproject.toml` as single source for pytest tool config.
+Generate and commit `uv.lock`.
 
 Requirements:
-- Synthetic builders generate raw records close to real source shape.
-- Do not stop at minimally valid handcrafted lines.
-- Cover configured eBPF event types (`net_connect`, `net_send`, `dns_query`,
-  `dns_response`, `unix_connect`) with reusable builders.
-- Add fidelity tests comparing normalized synthetic-vs-real structure using:
+- markers: `unit`, `fixture`, `integration`, `stress`, `regression`, `agent_codex`
+- fail on unknown markers
+- sane defaults for diagnostics
+- CI and local commands run via `uv run ...`
+- CI setup uses `uv sync --frozen`
+
+### C) Fixture Contract Enforcement
+Implement fixture discovery and schema validation in `tests/fixture/conftest.py`.
+
+Required behavior:
+- auto-discover `case_*` directories
+- validate required files via `tests/fixture/schemas/case_schema.yaml`
+- reject missing required files
+- reject unexpected files unless explicitly allowed
+- emit actionable errors
+
+Add representative fixture cases (not empty scaffolding).
+
+### D) Shared Timeline Invariant Validator
+Implement strict shared validator in `tests/conftest.py` (or helper module).
+It must enforce:
+
+1. ownership shape validity
+2. referenced session/job IDs exist
+3. timeline ordering validity
+4. required field presence by schema/event
+5. `root_pid` presence for completed attributed runs
+
+Must be deterministic and diagnosable.
+
+### E) Unit + Fixture Baseline
+Implement top-level unit and fixture suites from branch behavior requirements.
+Reuse existing tests only if correct and maintainable.
+
+Minimum:
+- collector core logic covered via top-level entry behavior
+- fixture tests for filter/summary/merge contracts
+
+### F) Integration Layer (Live End-to-End)
+Create integration tests that:
+
+- start real compose stack
+- submit real jobs through supported harness API/CLI user paths
+- wait for completion via polling/status
+- assert live outputs and artifacts from running stack
+
+Required assertion sources:
+- `/logs/jobs/<job_id>/*`
+- `filtered_audit.jsonl`
+- `filtered_ebpf.jsonl`
+- `filtered_timeline.jsonl`
+
+Minimum integration behavior coverage:
+- job lifecycle artifact validation
+- filesystem action attribution
+- network action attribution
+- merged timeline invariants
+- concurrent job/session attribution sanity
+
+Explicitly prohibited:
+- using offline synthetic replay as acceptance evidence for integration behavior
+
+### G) Agent End-to-End Contract (Codex Required)
+Implement explicit agent user-flow tests against live stack.
+
+Required lanes:
+
+1. `agent-codex-exec`
+   - use non-interactive Codex command path (`codex exec ...`)
+   - submit realistic user prompt through `/run`
+   - assert completion, exit code, stdout presence, ownership evidence in timeline
+
+2. `agent-codex-tui-interactive` (strict interactive requirement)
+   - use harness TUI launch path (`harness.py tui`)
+   - launch Codex TUI (no `codex exec`)
+   - provide prompt via interactive stdin after TUI startup
+   - assert actual command execution from interactive input
+
+Interactive TUI required test set:
+
+- `agent-codex-tui-smoke`
+  - single session prompt asks Codex to run `pwd`
+  - assert session-owned timeline `exec` row contains `pwd`
+  - assert stdout includes `/work` (or expected working dir)
+
+- `agent-codex-tui-concurrent`
+  - two TUI sessions active concurrently with different prompts
+  - assert distinct session IDs and overlapping session windows
+  - assert each lane has prompt-related output and independent evidence
+
+Required TUI evidence (must be produced in tests, not only report text):
+
+1. Session metadata: mode `tui`, valid `root_pid`, completion or controlled stop state.
+2. Input evidence: `stdin.log` (or equivalent capture) includes typed prompt content.
+3. Output evidence: `stdout.log` contains prompt-related non-error content.
+4. Behavior evidence: timeline has session-owned `exec` rows proving prompted actions.
+
+TUI completion handling requirement:
+- implement robust completion/quiescence logic that ignores heartbeat-like noise.
+- avoid pure fixed sleeps.
+- collect diagnostics on timeout/failure (stdout/stderr/timeline excerpt).
+
+### H) Stress Layer (Live Stack)
+Implement repeatable stress tests with configurable trial counts.
+
+Required lanes:
+- `stress-smoke` (PR-safe)
+- `stress-full` (nightly/release)
+
+Stress must run against live stack behavior, not offline replay.
+
+### I) Regression Layer
+Create regression structure and at least one concrete regression test for known
+concurrent attribution bug class.
+
+If bug was integration-visible, regression must assert through live stack path.
+
+### J) Synthetic Fidelity Program
+Implement synthetic builders for unit/fixture layers with high fidelity to source logs.
+
+Requirements:
+- raw synthetic records near real audit/eBPF source shapes
+- include reusable eBPF builders for:
+  - `net_connect`
+  - `net_send`
+  - `dns_query`
+  - `dns_response`
+  - `unix_connect`
+- add synthetic-vs-real structure tests using:
   - `example_logs/audit.log`
   - `example_logs/ebpf.jsonl`
-- Normalize volatile fields (timestamps, PIDs, seq IDs, inode-like IDs) before comparison.
-- Document intentionally omitted fields in `tests/SYNTHETIC_LOGS.md` with rationale.
+- normalize volatile fields before comparison (timestamps, pids, seq ids, inode-like ids)
+- document omissions/tradeoffs in `tests/SYNTHETIC_LOGS.md`
 
-### K. Canonical Test Runner
-Implement one canonical runner for local + CI.
+### K) Canonical Test Runner
+Implement one canonical runner:
 
-Required:
-- `scripts/all_tests.py` (Python)
+- required: `scripts/all_tests.py`
+- optional: thin shell wrapper calling Python runner
 
-Optional:
-- `scripts/all_tests.sh` as thin wrapper calling `scripts/all_tests.py`
+Runner lanes:
+- `fast`: unit + fixture + regression
+- `pr`: fast + integration + stress-smoke
+- `full`: pr + stress-full
+- `codex`: `agent-codex-exec` + `agent-codex-tui-interactive`
 
 Runner requirements:
-- Lane model:
-  - `fast`: unit + fixture + regression
-  - `pr`: fast + integration + stress-smoke
-  - `full`: pr + stress-full
-- Deterministic nonzero exits on failure
-- Clear summary output
-- Ability to run sub-lanes directly
-- Use `uv run` for Python tools/tests in all lanes
+- deterministic nonzero exit on failure
+- clear lane summary output
+- run sub-lanes directly
+- use `uv run` everywhere
 
-Required local lanes must include:
-- `agent-codex-exec`
-- `agent-codex-tui`
-
-### L. CI Workflows (Required Enforcement)
+### L) CI Workflows
 Add workflows:
 
 1. `.github/workflows/ci-pr.yml`
    - trigger: `pull_request`
-   - required jobs:
+   - required checks:
      - contract/schema checks
      - unit+fixture
      - regression
@@ -274,98 +264,110 @@ Add workflows:
    - trigger: nightly schedule + manual dispatch
    - runs stress-full
 
-CI should call canonical runner (or identical command surface) to avoid drift.
-CI Python setup must run `uv sync --frozen`.
+CI must call canonical runner (or exact equivalent commands).
+CI must use `uv sync --frozen`.
 
-### M. Contract/Delta Enforcement Script
-Implement lightweight enforcement script (Python), e.g.:
+Codex credential policy:
+- GitHub CI lacks Codex creds, so Codex lanes are not required CI checks there.
+- Codex lanes are required for local release confidence.
+
+### M) Contract/Delta Enforcement Script
+Implement enforcement script, for example:
 - `scripts/verify_test_delta.py` or `scripts/verify_requirements_coverage.py`
 
-It should fail CI for obvious gaps:
+Must fail CI for obvious gaps:
 - runtime source changed without relevant tests
 - invalid fixture structure
-- missing required regression change for bug-fix changes
+- missing regression update for fix-class change
 
-Bug-fix enforcement must be deterministic:
-- Add `--change-kind {feature,fix,refactor}`
-- If `change-kind=fix`, require changed file under `tests/regression/`
-- CI must pass `change-kind` explicitly
+Must support deterministic fix gating:
+- `--change-kind {feature,fix,refactor}`
+- when `change-kind=fix`, require changes under `tests/regression/`
 
-Add one boundary guard for architecture drift:
-- Fail if `tests/integration/`, `tests/stress/`, or `tests/regression/` uses
-  disallowed offline synthetic replay helpers for core assertions.
-- Fail if Codex-designated agent-e2e tests use `HARNESS_RUN_CMD_TEMPLATE=bash -lc {prompt}`.
-- Fail if required Codex lanes (`agent-codex-exec`, `agent-codex-tui`) are missing.
+Required architecture guards:
+- fail if integration/stress/regression core assertions depend on offline replay helpers
+- fail if Codex tests use forbidden template `HARNESS_RUN_CMD_TEMPLATE=bash -lc {prompt}`
+- fail if required Codex lanes are missing
 
-Keep this pragmatic. Avoid fragile deep static analysis in v1.
+Required TUI guard:
+- fail if tests marked as interactive TUI do not send stdin after startup
+- fail if interactive TUI tests do not assert session-owned `exec` evidence
 
-## 5) Language and Style Requirements
-1. ASCII-only unless existing file requires otherwise.
-2. Keep comments concise and high-value.
-3. Avoid sprawling framework complexity for v1.
-4. Prefer explicit assertions with useful diagnostics.
+Keep v1 pragmatic. Avoid fragile deep static analysis.
 
-## 6) Implementation Strategy (Expected Order)
-Follow this order:
+## 5) Explicitly Prohibited Anti-Patterns
+1. Declaring TUI success based only on container health or process start.
+2. Treating "TUI path launched" as equivalent to interactive agent behavior.
+3. Implementing TUI lane with `codex exec`.
+4. Passing full prompt on command line and claiming interactive behavior without stdin-driven evidence.
+5. Integration acceptance via offline replay.
+6. Silencing flaky tests instead of fixing readiness/isolation.
 
-1. Create pytest config + directory scaffolding.
-2. Implement fixture schema + validator + sample fixture cases.
-3. Implement shared timeline validator.
-4. Implement unit baseline for collector logic.
-5. Implement live end-to-end integration tests against running stack outputs.
-6. Implement Codex agent-e2e lanes (`exec` and `tui`) with success + expected-failure assertions.
-7. Implement live-stack stress and regression flows.
-8. Implement synthetic fidelity builders + parity tests for unit/fixture usage.
-9. Add canonical runner with lanes.
-10. Add CI workflows + contract/delta enforcement guards.
-11. Run and stabilize until green.
+## 6) Implementation Order
+1. pytest config + directory scaffolding
+2. fixture schema validation + representative cases
+3. shared timeline validator
+4. unit baseline
+5. live integration suite
+6. Codex lanes (`exec`, `tui-smoke`, `tui-concurrent`) with strict interactive evidence
+7. stress and regression layers
+8. synthetic fidelity builders + parity tests
+9. canonical runner
+10. CI workflows + delta/enforcement script
+11. stabilize and rerun until green
 
-## 7) Validation and Evidence Required in Final Report
+## 7) Final Report Requirements
 Final report must include:
 
-1. Files added/changed.
-2. Exact commands run.
-3. Which lanes passed locally (`fast`, `pr`, `full`, or subset with reason).
-4. Known limitations and deferred items.
-5. CI check names to mark required in branch protection.
-6. Evidence that integration assertions came from live stack outputs.
-7. Evidence synthetic fidelity tests passed and what was normalized.
-8. Evidence Codex `exec` and `tui` lanes executed, including success and expected-failure outcomes.
+1. files added/changed
+2. exact commands run
+3. lane outcomes (`fast`, `pr`, `full`, `codex`, or subset with reason)
+4. known limitations/deferred items
+5. CI check names for branch protection
+6. evidence integration assertions came from live stack outputs
+7. evidence synthetic fidelity tests passed and what was normalized
+8. evidence Codex lanes executed
 
-If anything could not be run, state it explicitly and explain static verification.
+For `agent-codex-tui-interactive`, include explicit evidence lines:
+- session id and session meta summary
+- stdin evidence snippet proving prompt was typed via TUI input path
+- timeline row excerpt proving session-owned `exec` from that interaction
+- stdout evidence snippet showing non-error prompt-related result
 
-All Python commands in report must use `uv` (for example `uv run pytest ...`).
+If anything was not run, say so explicitly and provide static verification details.
+
+All Python commands in report must use `uv`.
 
 ## 8) Practical Guardrails
-1. Do not remove existing tests unless replaced with equivalent or better coverage.
-2. Do not rely on prebuilt release images for branch behavior tests.
-3. Avoid flaky sleep-only readiness where robust checks are possible.
-4. Ensure every integration/stress/regression test is isolated.
-5. Keep failures diagnosable with captured logs/artifacts.
-6. If integration behavior can only pass through offline replay, treat as a test design failure and fix architecture.
+1. Do not delete existing tests unless replaced with equal or better coverage.
+2. Do not rely on release images for branch behavior validation.
+3. Use robust readiness checks, not sleep-only coordination.
+4. Keep integration/stress/regression isolated per test run.
+5. Capture logs/artifacts on failure for diagnosis.
+6. If required behavior cannot be proven via live path, treat test design as incomplete and fix it.
 
 ## 9) Definition of Done
-Work is done when all are true:
+Done means all are true:
 
-1. Top-level pytest architecture exists and is usable.
-2. Fixture schema enforcement is active and tested.
-3. Timeline validator is implemented and used by timeline-producing tests.
-4. Canonical lane runner exists and works.
-5. CI PR workflow enforces required checks including stress-smoke.
-6. Nightly/manual stress-full workflow exists.
-7. At least one meaningful regression test exists.
-8. Integration tests assert live stack outputs for lifecycle, fs, net, merge, and concurrency behaviors.
-9. Synthetic fidelity program exists with parity tests against real log references.
-10. Codex agent-e2e lanes (`exec` and `tui`) are implemented and passing in required environments.
-11. Documentation matches real runnable commands and implemented behavior.
+1. top-level pytest architecture exists and is usable
+2. fixture schema enforcement is active and tested
+3. timeline validator exists and is used where required
+4. canonical lane runner exists and works
+5. PR CI workflow enforces required checks including stress-smoke
+6. nightly/manual stress-full workflow exists
+7. at least one meaningful regression test exists
+8. integration tests validate live stack outputs for lifecycle/fs/net/merge/concurrency
+9. synthetic fidelity program exists with real-log parity tests
+10. Codex `exec` lane passes in credentialed environment
+11. Codex interactive TUI lanes prove stdin-driven behavior and session-owned execution evidence
+12. docs and commands match real implementation
 
-## 10) Stretch Goals (Only After Core Is Green)
-1. Decommission remaining legacy Bash test scripts after equivalent/better Python coverage exists.
-2. Add richer artifact snapshots for failed tests.
-3. Expand delta-enforcement accuracy.
-4. Add coverage trend reporting if low-effort.
+## 10) Stretch Goals (Only After Core Green)
+1. decommission legacy Bash tests after equivalent Python coverage exists
+2. richer failure artifact snapshots
+3. improved delta-enforcement precision
+4. lightweight coverage trend reporting
 
 ---
 
-Begin implementation now. Prefer shipping a strict, working v1 over an ambitious
-but incomplete design.
+Begin implementation now. Ship strict, working v1 behavior coverage.

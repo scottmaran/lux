@@ -143,6 +143,17 @@ class ComposeFiles:
     overrides: tuple[Path, ...] = ()
 
 
+@dataclass(frozen=True)
+class RunningTuiProcess:
+    """Handle for an in-flight harness TUI invocation started via docker compose."""
+
+    process: subprocess.Popen[bytes]
+    command: tuple[str, ...]
+    tui_name: str
+    driver_stdout_path: Path
+    driver_stderr_path: Path
+
+
 class ComposeStack:
     """Utility wrapper for one isolated docker compose stack."""
 
@@ -588,6 +599,182 @@ class ComposeStack:
             tty=False,
             check=False,
             timeout=timeout_sec,
+        )
+
+    def _tui_driver_logs_dir(self) -> Path:
+        logs_dir = self.temp_root / "harness_tui_driver"
+        logs_dir.mkdir(parents=True, exist_ok=True)
+        return logs_dir
+
+    def _read_driver_log_tail(self, path: Path, *, max_chars: int = 4000) -> str:
+        if not path.exists():
+            return ""
+        text = path.read_text(encoding="utf-8", errors="replace")
+        if len(text) <= max_chars:
+            return text
+        return text[-max_chars:]
+
+    def start_harness_tui_interactive(
+        self,
+        *,
+        tui_name: str,
+        tui_cmd: str | None = None,
+    ) -> RunningTuiProcess:
+        """
+        Start harness TUI in the background and keep stdin open for interactive input.
+        Uses `script -qec` to ensure `harness.py tui` receives a tty.
+        """
+        command = f"python3 /usr/local/bin/harness.py tui --tui-name {shlex.quote(tui_name)}"
+        compose_cmd: list[str] = self._compose_command("exec", "-T")
+        if tui_cmd is not None:
+            compose_cmd.extend(["-e", f"HARNESS_TUI_CMD={tui_cmd}"])
+        compose_cmd.extend(["harness", "script", "-qec", command, "/dev/null"])
+
+        logs_dir = self._tui_driver_logs_dir()
+        stdout_path = logs_dir / f"{tui_name}.stdout.log"
+        stderr_path = logs_dir / f"{tui_name}.stderr.log"
+
+        with stdout_path.open("wb") as driver_stdout, stderr_path.open("wb") as driver_stderr:
+            proc = subprocess.Popen(
+                compose_cmd,
+                cwd=str(self.root_dir),
+                env=self.env,
+                stdin=subprocess.PIPE,
+                stdout=driver_stdout,
+                stderr=driver_stderr,
+            )
+
+        if proc.stdin is None:
+            raise AssertionError("Failed to open stdin pipe for interactive TUI process.")
+
+        return RunningTuiProcess(
+            process=proc,
+            command=tuple(compose_cmd),
+            tui_name=tui_name,
+            driver_stdout_path=stdout_path,
+            driver_stderr_path=stderr_path,
+        )
+
+    def wait_for_session_id_for_tui_name(
+        self,
+        tui_name: str,
+        *,
+        timeout_sec: float = 60.0,
+        interval_sec: float = 0.5,
+    ) -> str:
+        labels_dir = self.log_root / "labels" / "sessions"
+        deadline = time.time() + timeout_sec
+        last_matches: list[str] = []
+        while time.time() < deadline:
+            matches: list[str] = []
+            if labels_dir.exists():
+                for label_file in labels_dir.glob("*.json"):
+                    try:
+                        payload = json.loads(label_file.read_text(encoding="utf-8"))
+                    except (OSError, json.JSONDecodeError):
+                        continue
+                    if payload.get("name") == tui_name:
+                        matches.append(label_file.stem)
+            last_matches = sorted(set(matches))
+            if len(last_matches) == 1:
+                return last_matches[0]
+            if len(last_matches) > 1:
+                raise AssertionError(
+                    f"Found multiple sessions for tui_name={tui_name}: {last_matches}"
+                )
+            time.sleep(interval_sec)
+        raise AssertionError(
+            f"Timed out waiting for session label for tui_name={tui_name}. "
+            f"labels_dir={labels_dir} last_matches={last_matches}"
+        )
+
+    def send_tui_input(self, handle: RunningTuiProcess, text: str, *, newline: bool = True) -> None:
+        # Harness TUI runs in raw mode; Enter must be carriage return, not newline.
+        payload = text + ("\r" if newline else "")
+        self.send_tui_bytes(handle, payload.encode("utf-8"))
+
+    def send_tui_bytes(self, handle: RunningTuiProcess, payload: bytes) -> None:
+        proc = handle.process
+        if proc.poll() is not None:
+            raise AssertionError(
+                f"TUI process already exited for {handle.tui_name} "
+                f"returncode={proc.returncode}\n"
+                f"driver_stdout_tail:\n{self._read_driver_log_tail(handle.driver_stdout_path)}\n"
+                f"driver_stderr_tail:\n{self._read_driver_log_tail(handle.driver_stderr_path)}"
+            )
+        assert proc.stdin is not None
+        proc.stdin.write(payload)
+        proc.stdin.flush()
+
+    def prime_tui_terminal(
+        self,
+        handle: RunningTuiProcess,
+        *,
+        attempts: int = 20,
+        interval_sec: float = 0.1,
+    ) -> None:
+        """
+        Feed minimal terminal capability responses expected by full-screen TUIs
+        when this test drives them through non-interactive pipes.
+        """
+        # Cursor position report + primary device attributes + fg/bg color query responses.
+        payload = b"\x1b[15;1R\x1b[?1;2c\x1b]10;rgb:0000/0000/0000\x07\x1b]11;rgb:ffff/ffff/ffff\x07"
+        for _ in range(max(1, attempts)):
+            if handle.process.poll() is not None:
+                return
+            self.send_tui_bytes(handle, payload)
+            if interval_sec > 0:
+                time.sleep(interval_sec)
+
+    def send_tui_ctrl_c(self, handle: RunningTuiProcess) -> None:
+        proc = handle.process
+        if proc.poll() is not None:
+            return
+        if proc.stdin is None or proc.stdin.closed:
+            return
+        try:
+            proc.stdin.write(b"\x03")
+            proc.stdin.flush()
+        except (BrokenPipeError, OSError, ValueError):
+            return
+
+    def stop_harness_tui_interactive(
+        self,
+        handle: RunningTuiProcess,
+        *,
+        wait_timeout_sec: float = 20.0,
+    ) -> subprocess.CompletedProcess[str]:
+        proc = handle.process
+
+        if proc.poll() is None:
+            self.send_tui_ctrl_c(handle)
+            try:
+                proc.wait(timeout=3.0)
+            except subprocess.TimeoutExpired:
+                self.send_tui_ctrl_c(handle)
+                try:
+                    proc.wait(timeout=3.0)
+                except subprocess.TimeoutExpired:
+                    if proc.stdin is not None and not proc.stdin.closed:
+                        try:
+                            proc.stdin.close()
+                        except OSError:
+                            pass
+                    try:
+                        proc.wait(timeout=wait_timeout_sec)
+                    except subprocess.TimeoutExpired:
+                        proc.terminate()
+                        try:
+                            proc.wait(timeout=4.0)
+                        except subprocess.TimeoutExpired:
+                            proc.kill()
+                            proc.wait(timeout=4.0)
+
+        return subprocess.CompletedProcess(
+            args=list(handle.command),
+            returncode=proc.returncode if proc.returncode is not None else 1,
+            stdout=self._read_driver_log_tail(handle.driver_stdout_path, max_chars=12000),
+            stderr=self._read_driver_log_tail(handle.driver_stderr_path, max_chars=12000),
         )
 
     def host_log_path_from_container_path(self, container_path: str) -> Path:
