@@ -1,6 +1,7 @@
 .env
 # keep framework light, don't commit agent-led work in workspace
 workspace/*
+logs/*
 personal_docs/
 lasso/target/
 .venv/
