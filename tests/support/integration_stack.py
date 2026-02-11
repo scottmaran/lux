@@ -256,7 +256,9 @@ class ComposeStack:
             self.wait_for_services_running(("collector", "agent", "harness"), timeout_sec=90.0)
             self.wait_for_harness_ready()
         except AssertionError as exc:
-            logs = self.capture_compose_logs()
+            logs = self.capture_compose_logs("harness", "agent")
+            if not logs.strip():
+                logs = self.capture_compose_logs()
             raise AssertionError(f"{exc}\n\nCompose logs:\n{logs}") from exc
 
     def down(self) -> None:
@@ -265,8 +267,10 @@ class ComposeStack:
         self.compose("down", "-v", check=False, timeout=120)
         self._up = False
 
-    def capture_compose_logs(self) -> str:
-        result = self.compose("logs", "--no-color", check=False, timeout=120)
+    def capture_compose_logs(self, *services: str) -> str:
+        args: list[str] = ["logs", "--no-color"]
+        args.extend(services)
+        result = self.compose(*args, check=False, timeout=120)
         return (result.stdout or "") + ("\n" + result.stderr if result.stderr else "")
 
     def running_services(self) -> set[str]:
