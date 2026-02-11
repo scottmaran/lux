@@ -1,0 +1,100 @@
+name: ci-pr
+
+on:
+  pull_request:
+    branches:
+      - main
+      - robust_test_suite
+
+jobs:
+  contract:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Fetch base ref
+        run: git fetch origin "${{ github.base_ref }}" --depth=1
+
+      - name: Setup uv
+        uses: astral-sh/setup-uv@v5
+
+      - name: Sync dependencies
+        run: uv sync --frozen
+
+      - name: Verify contract and delta
+        run: |
+          uv run python scripts/verify_test_delta.py \
+            --base-ref "origin/${{ github.base_ref }}" \
+            --head-ref "${{ github.sha }}" \
+            --change-kind "refactor"
+
+  unit_fixture:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup uv
+        uses: astral-sh/setup-uv@v5
+
+      - name: Sync dependencies
+        run: uv sync --frozen
+
+      - name: Run unit + fixture suite
+        run: uv run pytest tests/unit tests/fixture -q
+
+  regression:
+    # TEMP: disabled while Linux host permission model work is in progress.
+    if: ${{ false }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup uv
+        uses: astral-sh/setup-uv@v5
+
+      - name: Sync dependencies
+        run: uv sync --frozen
+
+      - name: Run regression suite
+        run: uv run pytest tests/regression -q
+
+  integration:
+    # TEMP: disabled while Linux host permission model work is in progress.
+    if: ${{ false }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup uv
+        uses: astral-sh/setup-uv@v5
+
+      - name: Sync dependencies
+        run: uv sync --frozen
+
+      - name: Run integration suite
+        run: uv run pytest tests/integration -m "integration and not agent_codex" -q
+
+  stress_smoke:
+    # TEMP: disabled while Linux host permission model work is in progress.
+    if: ${{ false }}
+    runs-on: ubuntu-latest
+    env:
+      LASSO_STRESS_TRIALS: "3"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup uv
+        uses: astral-sh/setup-uv@v5
+
+      - name: Sync dependencies
+        run: uv sync --frozen
+
+      - name: Run stress smoke suite
+        run: uv run pytest tests/stress -q

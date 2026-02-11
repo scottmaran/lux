@@ -4,7 +4,7 @@ This guide is for contributors and advanced users who need to run the stack
 manually or work on individual components. For normal usage, prefer the `lasso`
 CLI and the user guide in `docs/guide/`.
 
-## Manual compose (legacy/advanced)
+## Manual compose (advanced)
 ### Interactive mode (Codex)
 Requires `~/.codex/auth.json` and `~/.codex/skills` on the host.
 ```bash
@@ -56,5 +56,13 @@ The UI reads from `${LASSO_LOG_ROOT:-./logs}` and binds to
 - `compose.ui.yml`: UI-only service that mounts `./logs` read-only.
 
 ## Testing and examples
-- `docs/dev/TESTING.md`: integration tests and filter test cases.
-- `docs/dev/EXAMPLE_FLOW.md`: end-to-end example walkthroughs.
+- `tests/README.md`: canonical test architecture, required gates, and commands.
+- `tests/test_principles.md`: concise statement of testing invariants.
+- `tests/SYNTHETIC_LOGS.md`: synthetic data scope, fidelity status, and constraints.
+- `docs/dev/EXAMPLE_FLOW.md`: illustrative walkthrough (not a normative test contract).
+
+Canonical local/CI test gating is:
+
+```bash
+uv run python scripts/all_tests.py --lane <fast|pr|full|codex|local-full>
+```

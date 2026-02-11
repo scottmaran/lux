@@ -39,6 +39,8 @@ API_TOKEN = os.getenv("HARNESS_API_TOKEN", "")
 TUI_CMD = os.getenv("HARNESS_TUI_CMD", "codex -C /work -s danger-full-access")
 RUN_CMD_TEMPLATE = os.getenv("HARNESS_RUN_CMD_TEMPLATE", "").strip() or "codex -C /work -s danger-full-access exec {prompt}"
 DEFAULT_CWD = os.getenv("HARNESS_AGENT_WORKDIR", "/work")
+ROOT_PID_TIMEOUT_SEC = float(os.getenv("HARNESS_ROOT_PID_TIMEOUT_SEC", "15"))
+ROOT_PID_POLL_SEC = float(os.getenv("HARNESS_ROOT_PID_POLL_SEC", "0.2"))
 
 JOBS = {}
 JOBS_LOCK = threading.Lock()
@@ -153,21 +155,72 @@ def set_pty_size(fd: int, size: os.terminal_size | None = None) -> None:
     fcntl.ioctl(fd, termios.TIOCSWINSZ, struct.pack("HHHH", rows, cols, 0, 0))
 
 
-def build_remote_command(prompt: str, cwd: str, env: dict, timeout: int | None) -> str:
+def root_pid_path(run_id: str) -> str:
+    return f"/tmp/lasso_root_pid_{run_id}.txt"
+
+
+def root_pid_prefix(pid_path: str) -> str:
+    return (
+        "ROOT_PID=$(awk '/^NSpid:/ {print $NF}' /proc/$$/status); "
+        "if [ -z \"$ROOT_PID\" ]; then ROOT_PID=$$; fi; "
+        f"printf '%s' \"$ROOT_PID\" > {shlex.quote(pid_path)}; "
+    )
+
+
+def read_remote_root_pid(pid_path: str, timeout_sec: float | None = None) -> int | None:
+    timeout_sec = timeout_sec if timeout_sec is not None else ROOT_PID_TIMEOUT_SEC
+    deadline = time.time() + timeout_sec
+    while time.time() < deadline:
+        cmd = ssh_base_args() + [ssh_target(), "cat", pid_path]
+        result = subprocess.run(
+            cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            text=True,
+        )
+        if result.returncode == 0:
+            value = result.stdout.strip().splitlines()
+            if value:
+                pid_str = value[0].strip()
+                if pid_str.isdigit():
+                    return int(pid_str)
+        time.sleep(ROOT_PID_POLL_SEC)
+    return None
+
+
+def update_json(path: str, updates: dict) -> None:
+    payload = {}
+    if os.path.isfile(path):
+        try:
+            with open(path, "r", encoding="utf-8") as handle:
+                payload = json.load(handle)
+        except (OSError, json.JSONDecodeError):
+            payload = {}
+    payload.update(updates)
+    write_json(path, payload)
+
+
+def build_remote_command(
+    prompt: str,
+    cwd: str,
+    env: dict,
+    timeout: int | None,
+    pid_path: str | None = None,
+) -> str:
     env_parts = []
     for key, value in env.items():
         env_parts.append(f"{key}={shlex.quote(value)}")
     prefix = " ".join(env_parts)
-    cmd = f"cd {shlex.quote(cwd)} && "
+    cmd = root_pid_prefix(pid_path) if pid_path else ""
+    cmd += f"cd {shlex.quote(cwd)} && "
     if prefix:
         cmd += f"{prefix} "
-    if timeout:
-        cmd += f"timeout {int(timeout)} "
+    timeout_prefix = f"timeout {int(timeout)} " if timeout else ""
     if "{prompt}" in RUN_CMD_TEMPLATE:
         run_cmd = RUN_CMD_TEMPLATE.replace("{prompt}", shlex.quote(prompt))
     else:
         run_cmd = RUN_CMD_TEMPLATE
-    cmd += run_cmd
+    cmd += f"exec {timeout_prefix}{run_cmd}"
     return cmd.strip()
 
 
@@ -228,11 +281,26 @@ def run_job(job_id: str, prompt: str, logged_prompt: str, cwd: str, env: dict, t
         write_json(status_path, JOBS[job_id])
         return
 
-    remote_cmd = build_remote_command(prompt, cwd, env, timeout)
-    cmd = ssh_base_args() + [ssh_target(), "bash", "-lc", remote_cmd]
+    pid_path = root_pid_path(job_id)
+    remote_cmd = build_remote_command(prompt, cwd, env, timeout, pid_path=pid_path)
+    cmd = ssh_base_args() + [ssh_target(), "bash", "-lc", shlex.quote(remote_cmd)]
 
     with open(stdout_path, "wb") as out, open(stderr_path, "wb") as err:
         proc = subprocess.Popen(cmd, stdout=out, stderr=err)
+        root_pid_thread = None
+
+        def capture_root_pid() -> None:
+            root_pid = read_remote_root_pid(pid_path)
+            if root_pid is None:
+                return
+            with JOBS_LOCK:
+                JOBS[job_id]["root_pid"] = root_pid
+            update_json(os.path.join(job_path, "input.json"), {"root_pid": root_pid})
+            if os.path.exists(status_path):
+                update_json(status_path, {"root_pid": root_pid})
+
+        root_pid_thread = threading.Thread(target=capture_root_pid, daemon=True)
+        root_pid_thread.start()
         status = "running"
         exit_code = None
         try:
@@ -289,6 +357,7 @@ def handle_run(payload: dict) -> tuple[dict, int]:
             "error": None,
             "output_path": None,
             "error_path": None,
+            "root_pid": None,
         }
 
     ensure_dir(JOB_DIR)
@@ -419,8 +488,9 @@ def run_tui(tui_name: str | None) -> int:
     if label_name:
         write_label(SESSION_LABEL_DIR, session_id, label_name)
 
-    remote_cmd = f"cd {shlex.quote(DEFAULT_CWD)} && {TUI_CMD}" # e.g. cd /work && codex
-    cmd = ssh_base_args() + ["-tt", ssh_target(), "bash", "-lc", remote_cmd] # Build the ssh command with -tt (force PTY allocation)
+    pid_path = root_pid_path(session_id)
+    remote_cmd = f"{root_pid_prefix(pid_path)}cd {shlex.quote(DEFAULT_CWD)} && exec {TUI_CMD}" # e.g. cd /work && codex
+    cmd = ssh_base_args() + ["-tt", ssh_target(), "bash", "-lc", shlex.quote(remote_cmd)] # Build the ssh command with -tt (force PTY allocation)
 
     ''' 
     creates a new PTY and forks:
@@ -435,6 +505,15 @@ def run_tui(tui_name: str | None) -> int:
         except OSError:
             pass
         os.execvp(cmd[0], cmd)
+
+    def capture_root_pid() -> None:
+        root_pid = read_remote_root_pid(pid_path)
+        if root_pid is None:
+            return
+        update_json(meta_path, {"root_pid": root_pid})
+
+    root_pid_thread = threading.Thread(target=capture_root_pid, daemon=True)
+    root_pid_thread.start()
 
     try:
         set_pty_size(master_fd, term_size)
@@ -479,13 +558,15 @@ def run_tui(tui_name: str | None) -> int:
         finally:
             termios.tcsetattr(sys.stdin.fileno(), termios.TCSADRAIN, old_settings)
 
-    meta.update({
-        "ended_at": now_iso(),
-        "exit_code": exit_code,
-        "stdin_path": stdin_path,
-        "stdout_path": stdout_path,
-    })
-    write_json(meta_path, meta)
+    update_json(
+        meta_path,
+        {
+            "ended_at": now_iso(),
+            "exit_code": exit_code,
+            "stdin_path": stdin_path,
+            "stdout_path": stdout_path,
+        },
+    )
     return exit_code
 
 

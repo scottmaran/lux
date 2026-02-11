@@ -2,6 +2,8 @@
 
 A running log of implementation work on Lasso (agent_harness)
 
+Historical note: entries capture what existed at the time; some referenced scripts/files may have since been removed or replaced.
+
 # Collector
 
 Blocks of Work
@@ -163,6 +165,16 @@ host-side logs.
 - Created `docs/dev/EXAMPLE_FLOW.md` with TUI + server-mode scenarios, expected commands, and UI outputs.
 - Added `example_logs/` fixtures and YAML configs for summary + merge filtering examples.
 
+## Block 4:
+- Added a concurrent integration scenario to validate overlapping TUI sessions and API jobs.
+- Fixed attribution under concurrency by moving from time-window mapping to root-PID + PID-lineage mapping.
+
+### Details
+- Added `scripts/run_integration_concurrent_sessions_jobs.sh` (historical script; later retired when pytest integration coverage replaced legacy scripts).
+- Updated `harness/harness.py` to capture and persist namespaced `root_pid` for both jobs and TUI sessions.
+- Updated `collector/scripts/filter_audit_logs.py` and `collector/scripts/filter_ebpf_logs.py` to index runs by root PID and propagate ownership through PID ancestry, including namespace PID handling.
+- Updated docs in `collector/config/filtering_rules.md` to describe root-PID-based session/job mapping semantics.
+
 # Lasso CLI + Release
 
 ## Block 1:
@@ -198,3 +210,49 @@ host-side logs.
 - `docs/guide/install.md`, `docs/guide/cli.md`, and `lasso/README.md` document installation and CLI usage.
 - `.github/workflows/release.yml` builds bundles, optionally pushes GHCR images, and optionally publishes a GitHub Release.
 - Added `.github/workflows/README.md` to document the release workflow.
+
+# Test Suite Modernization
+
+## Block 1:
+- Rebuilt the test architecture into layered pytest suites (`unit`, `fixture`, `integration`, `stress`, `regression`) with strict markers and a canonical `uv` execution surface.
+- Added `scripts/all_tests.py` lane orchestration (`fast`, `pr`, `full`, `codex`, `local-full`) and aligned CI workflows to those lanes.
+- Added shared timeline invariant validation and fixture schema enforcement so test contracts are enforced in code, not prose.
+
+### Details
+- Added/standardized top-level tests under `tests/` with shared helpers in `tests/support/`.
+- Added strict pytest marker configuration in root `pyproject.toml`.
+- Added CI workflows for PR gating and nightly/full stress (`.github/workflows/ci-pr.yml`, `.github/workflows/ci-stress.yml`).
+
+## Block 2:
+- Added explicit Codex agent end-to-end coverage for both non-interactive and interactive paths.
+- Tightened integration interpretation to require live-stack evidence and real interactive TUI behavior.
+
+### Details
+- Added Codex `exec` and interactive TUI integration tests plus concurrent TUI validation.
+- Added heartbeat-aware quiescence helpers so TUI completion detection ignores low-signal periodic net-summary noise.
+- Added diagnostics capture (compose logs/artifacts) to improve failure triage in docker-backed tests.
+
+## Block 3:
+- Replaced legacy collector smoke script coverage with pytest integration coverage against raw logs.
+- Added a collector-only raw smoke test that validates filesystem + DNS/TCP + unix-socket signals.
+
+### Details
+- Added `tests/integration/test_collector_raw_smoke.py` to cover prior `collector/scripts/run_test.sh` and `collector/scripts/ebpf_activity.sh` behavior via assertions.
+- Removed legacy collector bash smoke scripts after equivalent Python coverage was in place.
+
+## Block 4:
+- Reduced compose drift risk in integration tests by anchoring to shipping compose and minimizing test-only deltas.
+- Added compose contract parity tests to enforce expected service/env/volume invariants and allowlisted override behavior.
+
+### Details
+- Switched docker-backed tests to use `compose.yml` + `tests/integration/compose.test.override.yml` (+ `compose.codex.yml` for codex lanes).
+- Parameterized harness host port in `compose.yml` (`HARNESS_HOST_PORT`) to support per-test isolated stacks.
+- Added `tests/unit/test_compose_contract_parity.py`.
+- Removed copied compose stack file and updated test docs to reflect the base+override model.
+
+## Block 5:
+- Performed documentation consolidation after test refactor and legacy script retirement.
+
+### Details
+- Updated canonical testing references in root/component docs.
+- Removed duplicate/legacy test docs and legacy script references where they were no longer authoritative.

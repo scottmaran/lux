@@ -1,0 +1,25 @@
+name: ci-stress
+
+on:
+  schedule:
+    - cron: "0 8 * * *"
+  workflow_dispatch:
+
+jobs:
+  stress_full:
+    runs-on: ubuntu-latest
+    env:
+      LASSO_STRESS_TRIALS: "15"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup uv
+        uses: astral-sh/setup-uv@v5
+
+      - name: Sync dependencies
+        run: uv sync --frozen
+
+      - name: Run stress full suite
+        run: uv run pytest tests/stress -q
+

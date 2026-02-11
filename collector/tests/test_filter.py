@@ -123,10 +123,12 @@ class AuditFilterTests(unittest.TestCase):
             "job_id": job_id,
             "submitted_at": base.isoformat(),
             "started_at": base.isoformat(),
+            "root_pid": 100,
             "status": {
                 "job_id": job_id,
                 "started_at": base.isoformat(),
                 "ended_at": (base + timedelta(seconds=5)).isoformat(),
+                "root_pid": 100,
             },
         }]
 
@@ -209,15 +211,18 @@ class AuditFilterTests(unittest.TestCase):
             "ended_at": (base + timedelta(seconds=5)).isoformat(),
             "mode": "tui",
             "command": "codex",
+            "root_pid": 500,
         }]
         jobs = [{
             "job_id": job_id,
             "submitted_at": base.isoformat(),
             "started_at": base.isoformat(),
+            "root_pid": 600,
             "status": {
                 "job_id": job_id,
                 "started_at": base.isoformat(),
                 "ended_at": (base + timedelta(seconds=5)).isoformat(),
+                "root_pid": 600,
             },
         }]
 

@@ -1,0 +1,23 @@
+services:
+  collector:
+    build:
+      context: ./collector
+      dockerfile: Dockerfile
+    image: lasso-test-collector:local
+    volumes:
+      - ./tests/integration/config:/test-config:ro
+    environment:
+      COLLECTOR_FILTER_CONFIG: /test-config/filtering.yaml
+      COLLECTOR_EBPF_FILTER_CONFIG: /test-config/ebpf_filtering.yaml
+
+  agent:
+    build:
+      context: ./agent
+      dockerfile: Dockerfile
+    image: lasso-test-agent:local
+
+  harness:
+    build:
+      context: ./harness
+      dockerfile: Dockerfile
+    image: lasso-test-harness:local

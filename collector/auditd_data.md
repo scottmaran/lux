@@ -54,11 +54,11 @@ Rule keys (from `collector/config/rules.d/harness.rules`):
 - `fs_change`: rename/unlink/link/symlink under `/work`
 - `fs_meta`: chmod/chown/xattr/utime under `/work`
 
-## Example Raw Outputs from run_test.sh
+## Example Raw Outputs from Collector Raw Smoke Coverage
 
 ### Overview
 
-In run_test.sh we run the following commands:
+In `tests/integration/test_collector_raw_smoke.py` we generate the following filesystem commands:
 ```
 echo hi > /work/a.txt
 mv /work/a.txt /work/b.txt
@@ -102,8 +102,7 @@ type=EXECVE msg=audit(1768895520.566:1731): argc=3 a0="sh" a1="-c" a2=6563686F20
   - key="exec": the audit rule key that matched (from -k exec).
 ```
 ##### Why comm="sh"?
-Because the process being executed is sh, not echo. The command in run_test.sh runs as sh -c "echo hi > ...; mv ...; chmod ...;
-rm ...". The kernel reports the process name (comm) as the program that was exec’d — here, sh from BusyBox.
+Because the process being executed is sh, not echo. The command sequence runs as `sh -c "echo hi > ...; mv ...; chmod ...; rm ..."`. The kernel reports the process name (comm) as the program that was exec’d — here, sh from BusyBox.
 
 ##### Why doesn’t echo show up?
 In Alpine/BusyBox, echo is typically a shell builtin, not a separate executable. That means no new process is started for echo, so

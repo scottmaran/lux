@@ -34,18 +34,16 @@ reduction and tighter scoping later.
 Schema reference: `collector/eBPF_data.md`.
 
 # Testing
-Run the full test sequence with a single script:
+Canonical testing is Python/pytest via `uv`.
 
-collector/scripts/run_test.sh
+Primary entrypoints:
+- `uv run python scripts/all_tests.py --lane fast`
+- `uv run python scripts/all_tests.py --lane pr`
+- `uv run python scripts/all_tests.py --lane full`
 
-The script builds the collector image, starts it with the required mounts, generates
-filesystem + network/IPC activity, stops the collector, and prints log summaries. You
-can override these environment variables if needed:
+Collector-specific smoke coverage for raw audit + eBPF signals:
+- `uv run pytest tests/integration/test_collector_raw_smoke.py -q`
 
-- `ROOT_DIR` (default: repo root)
-- `WORKSPACE` (default: `ROOT_DIR/workspace`)
-- `LOGS` (default: `ROOT_DIR/logs`)
-- `IMAGE` (default: `harness-collector:dev`)
-- `COLLECTOR_NAME` (default: `harness-collector`)
-
-See `docs/dev/TESTING.md` for filter test cases and expected outputs.
+For the complete testing contract, required gates, and layer boundaries, see:
+- `tests/README.md`
+- `tests/test_principles.md`

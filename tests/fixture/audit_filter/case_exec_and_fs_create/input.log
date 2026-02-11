@@ -1,0 +1,7 @@
+type=SYSCALL msg=audit(1769030400.123:1): arch=c00000b7 syscall=221 success=yes exit=0 pid=100 ppid=1 uid=1001 gid=1001 comm="codex" exe="/usr/bin/codex" key="exec"
+type=EXECVE msg=audit(1769030400.123:1): argc=1 a0="codex"
+type=SYSCALL msg=audit(1769030400.123:2): arch=c00000b7 syscall=221 success=yes exit=0 pid=101 ppid=100 uid=1001 gid=1001 comm="bash" exe="/usr/bin/bash" key="exec"
+type=EXECVE msg=audit(1769030400.123:2): argc=3 a0="bash" a1="-lc" a2="touch /work/a.txt"
+type=CWD msg=audit(1769030400.123:2): cwd="/work"
+type=SYSCALL msg=audit(1769030400.200:3): arch=c00000b7 syscall=221 success=yes exit=0 pid=101 ppid=100 uid=1001 gid=1001 comm="bash" exe="/usr/bin/bash" key="fs_watch"
+type=PATH msg=audit(1769030400.200:3): item=0 name="/work/a.txt" nametype=CREATE

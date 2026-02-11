@@ -1,0 +1,1 @@
+{"schema_version":"auditd.filtered.v1","session_id":"unknown","ts":"2026-01-21T21:20:02.000Z","source":"audit","event_type":"exec","cmd":"pwd","cwd":"/work","comm":"bash","exe":"/usr/bin/bash","pid":101,"ppid":100,"uid":1001,"gid":1001,"audit_seq":2,"audit_key":"exec","agent_owned":true}

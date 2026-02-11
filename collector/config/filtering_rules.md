@@ -25,11 +25,13 @@ input.audit_log
 
 sessions_dir
 - Directory containing session metadata (`logs/sessions/*/meta.json`).
-- Used to map audit events to a `session_id` based on time windows.
+- Used to map audit events to a `session_id` by tracking the session root PID
+  and following the PID tree.
 
 jobs_dir
 - Directory containing job metadata (`logs/jobs/*/input.json`, `status.json`).
-- Used to map audit events to `job_id` based on time windows.
+- Used to map audit events to `job_id` by tracking the job root PID
+  and following the PID tree.
 
 output.jsonl
 - Path to the filtered JSONL output.
@@ -48,7 +50,7 @@ agent_ownership.root_comm
 - Process names considered a session root (e.g., `codex`).
 - Used to anchor the agent-owned process tree so unrelated UID-matching
   processes do not leak into the filtered log.
-- This is a pragmatic fallback until we wire in root PID or cgroup ID.
+- This is a pragmatic fallback when a root PID is not available.
 
 exec.include_keys
 - Audit rule keys that represent exec events (default `exec`).

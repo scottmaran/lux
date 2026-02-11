@@ -202,10 +202,10 @@ def derive_fs_event_type(audit_key: str | None, nametypes: set[str]) -> str:
     return "fs_write"
 
 
-def load_sessions(sessions_dir: str) -> list[dict]:
-    sessions = []
+def load_session_roots(sessions_dir: str) -> dict[int, str]:
+    roots: dict[int, str] = {}
     if not sessions_dir or not os.path.isdir(sessions_dir):
-        return sessions
+        return roots
     for entry in os.scandir(sessions_dir):
         if not entry.is_dir():
             continue
@@ -217,100 +217,110 @@ def load_sessions(sessions_dir: str) -> list[dict]:
                 meta = json.load(handle)
         except (OSError, json.JSONDecodeError):
             continue
-        started_at = parse_iso(meta.get("started_at"))
-        if started_at is None:
+        root_pid = parse_int(meta.get("root_pid"))
+        if root_pid is None:
             continue
-        ended_at = parse_iso(meta.get("ended_at"))
         session_id = meta.get("session_id") or entry.name
-        sessions.append({"id": session_id, "start": started_at, "end": ended_at})
-    sessions.sort(key=lambda item: item["start"])
-    return sessions
+        roots[root_pid] = session_id
+    return roots
 
 
-def load_jobs(jobs_dir: str) -> list[dict]:
-    jobs = []
+def load_job_roots(jobs_dir: str) -> dict[int, str]:
+    roots: dict[int, str] = {}
     if not jobs_dir or not os.path.isdir(jobs_dir):
-        return jobs
+        return roots
     for entry in os.scandir(jobs_dir):
         if not entry.is_dir():
             continue
         input_path = os.path.join(entry.path, "input.json")
-        if not os.path.isfile(input_path):
-            continue
-        try:
-            with open(input_path, "r", encoding="utf-8") as handle:
-                meta = json.load(handle)
-        except (OSError, json.JSONDecodeError):
-            continue
-        job_id = meta.get("job_id") or entry.name
-        start = parse_iso(meta.get("started_at") or meta.get("submitted_at"))
         status_path = os.path.join(entry.path, "status.json")
+        meta = {}
         status = {}
+        if os.path.isfile(input_path):
+            try:
+                with open(input_path, "r", encoding="utf-8") as handle:
+                    meta = json.load(handle)
+            except (OSError, json.JSONDecodeError):
+                meta = {}
         if os.path.isfile(status_path):
             try:
                 with open(status_path, "r", encoding="utf-8") as handle:
                     status = json.load(handle)
             except (OSError, json.JSONDecodeError):
                 status = {}
-        if status.get("started_at"):
-            start = parse_iso(status.get("started_at")) or start
-        end = parse_iso(status.get("ended_at"))
-        if start is None:
+        job_id = meta.get("job_id") or status.get("job_id") or entry.name
+        root_pid = parse_int(meta.get("root_pid"))
+        if root_pid is None:
+            root_pid = parse_int(status.get("root_pid"))
+        if root_pid is None:
             continue
-        jobs.append({"id": job_id, "start": start, "end": end})
-    jobs.sort(key=lambda item: item["start"])
-    return jobs
+        roots[root_pid] = job_id
+    return roots
 
 
-class TimeWindowIndex:
+class RunIndex:
     def __init__(self, sessions_dir: str, jobs_dir: str, refresh_sec: float = 1.0):
         self.sessions_dir = sessions_dir
         self.jobs_dir = jobs_dir
         self.refresh_sec = refresh_sec
-        self.sessions = []
-        self.jobs = []
+        self.session_roots: dict[int, str] = {}
+        self.job_roots: dict[int, str] = {}
+        self.root_pids: set[int] = set()
         self.last_refresh = 0.0
+
+    def _refresh(self) -> None:
+        self.session_roots = load_session_roots(self.sessions_dir)
+        self.job_roots = load_job_roots(self.jobs_dir)
+        self.root_pids = set(self.session_roots) | set(self.job_roots)
+        self.last_refresh = time.time()
 
     def maybe_refresh(self) -> None:
         now = time.time()
         if now - self.last_refresh < self.refresh_sec:
             return
-        self.sessions = load_sessions(self.sessions_dir)
-        self.jobs = load_jobs(self.jobs_dir)
-        self.last_refresh = now
+        self._refresh()
 
     def force_refresh(self) -> None:
-        self.sessions = load_sessions(self.sessions_dir)
-        self.jobs = load_jobs(self.jobs_dir)
-        self.last_refresh = time.time()
-
-    def _match(self, items: list[dict], ts: dt.datetime) -> str | None:
-        for item in reversed(items):
-            if ts < item["start"]:
-                continue
-            end = item["end"]
-            if end is None or ts <= end:
-                return item["id"]
-        return None
-
-    def lookup(self, ts: dt.datetime) -> tuple[str, str | None]:
-        self.maybe_refresh()
-        session_id = self._match(self.sessions, ts)
-        if session_id:
-            return session_id, None
-        job_id = self._match(self.jobs, ts)
-        if job_id:
-            return "unknown", job_id
-        return "unknown", None
+        self._refresh()
 
 
 class FilterState:
     def __init__(self) -> None:
         self.owned_pids = set()
         self.last_exec_by_pid = {}
+        self.pid_to_session = {}
+        self.pid_to_job = {}
+        self.ns_pid_cache = {}
 
-    def is_owned(self, pid: int | None) -> bool:
-        return pid is not None and pid in self.owned_pids
+    def ns_pid(self, pid: int | None) -> int | None:
+        if pid is None:
+            return None
+        cached = self.ns_pid_cache.get(pid)
+        if cached is not None:
+            return cached
+        ns_pid = pid
+        try:
+            with open(f"/proc/{pid}/status", "r", encoding="utf-8") as handle:
+                for line in handle:
+                    if line.startswith("NSpid:"):
+                        parts = line.split()
+                        if len(parts) > 1 and parts[-1].isdigit():
+                            ns_pid = int(parts[-1])
+                        break
+        except OSError:
+            ns_pid = pid
+        self.ns_pid_cache[pid] = ns_pid
+        return ns_pid
+
+    def is_owned(self, pid: int | None, root_pids: set[int] | None = None) -> bool:
+        if pid is None:
+            return False
+        if pid in self.owned_pids:
+            return True
+        if root_pids and pid in root_pids:
+            self.owned_pids.add(pid)
+            return True
+        return False
 
     def mark_owned(
         self,
@@ -320,10 +330,14 @@ class FilterState:
         agent_uid: int | None,
         comm: str,
         root_comm: set[str],
+        root_pids: set[int] | None = None,
     ) -> bool:
         if pid is None:
             return False
-        if ppid is not None and ppid in self.owned_pids:
+        if root_pids and pid in root_pids:
+            self.owned_pids.add(pid)
+            return True
+        if ppid is not None and (ppid in self.owned_pids or (root_pids and ppid in root_pids)):
             self.owned_pids.add(pid)
             return True
         if agent_uid is None or uid is None or uid != agent_uid:
@@ -333,8 +347,52 @@ class FilterState:
         self.owned_pids.add(pid)
         return True
 
+    def assign_run(self, pid: int | None, ppid: int | None, run_index: "RunIndex") -> tuple[str | None, str | None]:
+        if pid is None:
+            return None, None
+        if pid in self.pid_to_session or pid in self.pid_to_job:
+            return self.pid_to_session.get(pid), self.pid_to_job.get(pid)
+        run_index.maybe_refresh()
+        session_id = run_index.session_roots.get(pid)
+        if session_id:
+            self.pid_to_session[pid] = session_id
+            self.pid_to_job[pid] = None
+            return session_id, None
+        job_id = run_index.job_roots.get(pid)
+        if job_id:
+            self.pid_to_session[pid] = None
+            self.pid_to_job[pid] = job_id
+            return None, job_id
+        if ppid is not None:
+            if ppid in self.pid_to_session or ppid in self.pid_to_job:
+                session_id = self.pid_to_session.get(ppid)
+                job_id = self.pid_to_job.get(ppid)
+                self.pid_to_session[pid] = session_id
+                self.pid_to_job[pid] = job_id
+                return session_id, job_id
+            session_id = run_index.session_roots.get(ppid)
+            if session_id:
+                self.pid_to_session[ppid] = session_id
+                self.pid_to_job[ppid] = None
+                self.pid_to_session[pid] = session_id
+                self.pid_to_job[pid] = None
+                return session_id, None
+            job_id = run_index.job_roots.get(ppid)
+            if job_id:
+                self.pid_to_session[ppid] = None
+                self.pid_to_job[ppid] = job_id
+                self.pid_to_session[pid] = None
+                self.pid_to_job[pid] = job_id
+                return None, job_id
+        return None, None
 
-def build_event(records: list[dict], cfg: dict, state: FilterState) -> tuple[dict, dt.datetime] | None:
+
+def build_event(
+    records: list[dict],
+    cfg: dict,
+    state: FilterState,
+    run_index: RunIndex,
+) -> tuple[dict, dt.datetime] | None:
     syscall = next((r for r in records if r["type"] == "SYSCALL"), None)
     if not syscall:
         return None
@@ -349,6 +407,8 @@ def build_event(records: list[dict], cfg: dict, state: FilterState) -> tuple[dic
 
     pid = parse_int(fields.get("pid"))
     ppid = parse_int(fields.get("ppid"))
+    ns_pid = state.ns_pid(pid)
+    ns_ppid = state.ns_pid(ppid)
     uid = parse_int(fields.get("uid"))
     gid = parse_int(fields.get("gid"))
     comm = fields.get("comm") or ""
@@ -366,6 +426,8 @@ def build_event(records: list[dict], cfg: dict, state: FilterState) -> tuple[dic
     if ts is None:
         return None
 
+    run_index.maybe_refresh()
+    root_pids = run_index.root_pids
     agent_uid = cfg.get("agent_ownership", {}).get("uid")
     root_comm = set(cfg.get("agent_ownership", {}).get("root_comm", []))
     shell_comm = set(exec_cfg.get("shell_comm", []))
@@ -381,7 +443,7 @@ def build_event(records: list[dict], cfg: dict, state: FilterState) -> tuple[dic
         if exec_success is False and exec_attempted_path and (not argv or cmd == comm or not cmd):
             cmd = exec_attempted_path
 
-        owned = state.mark_owned(pid, ppid, uid, agent_uid, comm, root_comm)
+        owned = state.mark_owned(ns_pid, ns_ppid, uid, agent_uid, comm, root_comm, root_pids)
         excluded = comm in set(exec_cfg.get("helper_exclude_comm", []))
         if argv_prefix_match(argv, exec_cfg.get("helper_exclude_argv_prefix", [])):
             excluded = True
@@ -405,6 +467,8 @@ def build_event(records: list[dict], cfg: dict, state: FilterState) -> tuple[dic
             "audit_seq": seq,
             "audit_key": audit_key,
             "agent_owned": True,
+            "_ns_pid": ns_pid,
+            "_ns_ppid": ns_ppid,
         }
         if exec_success is not None:
             event["exec_success"] = exec_success
@@ -416,12 +480,13 @@ def build_event(records: list[dict], cfg: dict, state: FilterState) -> tuple[dic
             event["exec_attempted_path"] = exec_attempted_path
 
         if cfg.get("linking", {}).get("attach_cmd_to_fs", False) and pid is not None:
-            state.last_exec_by_pid[pid] = cmd
+            if ns_pid is not None:
+                state.last_exec_by_pid[ns_pid] = cmd
 
         return event, ts
 
     if audit_key in include_fs:
-        if not state.is_owned(pid):
+        if not state.is_owned(ns_pid, root_pids):
             return None
         nametypes = {record.get("nametype") for record in path_records if record.get("nametype")}
         event_type = derive_fs_event_type(audit_key, nametypes)
@@ -454,10 +519,12 @@ def build_event(records: list[dict], cfg: dict, state: FilterState) -> tuple[dic
             "audit_seq": seq,
             "audit_key": audit_key,
             "agent_owned": True,
+            "_ns_pid": ns_pid,
+            "_ns_ppid": ns_ppid,
         }
 
-        if cfg.get("linking", {}).get("attach_cmd_to_fs", False) and pid is not None:
-            cmd = state.last_exec_by_pid.get(pid)
+        if cfg.get("linking", {}).get("attach_cmd_to_fs", False) and ns_pid is not None:
+            cmd = state.last_exec_by_pid.get(ns_pid)
             if cmd:
                 event["cmd"] = cmd
 
@@ -525,18 +592,34 @@ def main() -> int:
     jobs_dir = os.getenv("COLLECTOR_JOBS_DIR") or cfg.get("jobs_dir", "/logs/jobs")
 
     state = FilterState()
-    windows = TimeWindowIndex(sessions_dir, jobs_dir)
+    run_index = RunIndex(sessions_dir, jobs_dir)
     pending = []
     pending_delay_sec = 2.0
 
-    def emit(event: dict, ts_dt: dt.datetime) -> None:
-        session_id, job_id = windows.lookup(ts_dt)
-        if session_id == "unknown" and not job_id and args.follow:
-            windows.force_refresh()
-            session_id, job_id = windows.lookup(ts_dt)
-        event["session_id"] = session_id
-        if job_id:
+    def assign_run(event: dict, force_refresh: bool = False) -> tuple[str | None, str | None]:
+        pid = event.get("_ns_pid")
+        ppid = event.get("_ns_ppid")
+        if pid is None:
+            pid = event.get("pid")
+            ppid = event.get("ppid")
+        session_id, job_id = state.assign_run(pid, ppid, run_index)
+        if not session_id and not job_id and force_refresh:
+            run_index.force_refresh()
+            session_id, job_id = state.assign_run(pid, ppid, run_index)
+        if session_id:
+            event["session_id"] = session_id
+            event.pop("job_id", None)
+        elif job_id:
+            event["session_id"] = "unknown"
             event["job_id"] = job_id
+        else:
+            event["session_id"] = "unknown"
+            event.pop("job_id", None)
+        return session_id, job_id
+
+    def emit(event: dict) -> None:
+        event.pop("_ns_pid", None)
+        event.pop("_ns_ppid", None)
         writer.write(json.dumps(event, separators=(",", ":")) + "\n")
         writer.flush()
 
@@ -545,21 +628,17 @@ def main() -> int:
             return
         now = time.monotonic()
         remaining = []
-        for event, ts_dt, enqueued in pending:
-            session_id, job_id = windows.lookup(ts_dt)
-            if session_id != "unknown" or job_id:
-                event["session_id"] = session_id
-                if job_id:
-                    event["job_id"] = job_id
-                writer.write(json.dumps(event, separators=(",", ":")) + "\n")
-                writer.flush()
+        run_index.force_refresh()
+        for event, enqueued in pending:
+            session_id, job_id = assign_run(event)
+            if session_id or job_id:
+                emit(event)
                 continue
             if now - enqueued >= pending_delay_sec:
-                event["session_id"] = "unknown"
-                writer.write(json.dumps(event, separators=(",", ":")) + "\n")
-                writer.flush()
+                assign_run(event)
+                emit(event)
                 continue
-            remaining.append((event, ts_dt, enqueued))
+            remaining.append((event, enqueued))
         pending[:] = remaining
 
     os.makedirs(os.path.dirname(output_path) or ".", exist_ok=True)
@@ -575,26 +654,36 @@ def main() -> int:
             if current_seq is None:
                 current_seq = seq
             if seq != current_seq:
-                result = build_event(current_records, cfg, state)
+                result = build_event(current_records, cfg, state, run_index)
                 if result:
-                    event, ts_dt = result
+                    event, _ts_dt = result
                     if args.follow:
-                        pending.append((event, ts_dt, time.monotonic()))
+                        session_id, job_id = assign_run(event, force_refresh=True)
+                        if session_id or job_id:
+                            emit(event)
+                        else:
+                            pending.append((event, time.monotonic()))
                     else:
-                        emit(event, ts_dt)
+                        assign_run(event)
+                        emit(event)
                 flush_pending()
                 current_records = [record]
                 current_seq = seq
             else:
                 current_records.append(record)
         if current_records:
-            result = build_event(current_records, cfg, state)
+            result = build_event(current_records, cfg, state, run_index)
             if result:
-                event, ts_dt = result
+                event, _ts_dt = result
                 if args.follow:
-                    pending.append((event, ts_dt, time.monotonic()))
+                    session_id, job_id = assign_run(event, force_refresh=True)
+                    if session_id or job_id:
+                        emit(event)
+                    else:
+                        pending.append((event, time.monotonic()))
                 else:
-                    emit(event, ts_dt)
+                    assign_run(event)
+                    emit(event)
             flush_pending()
     return 0
 

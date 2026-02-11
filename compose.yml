@@ -39,7 +39,7 @@ services:
       # http://127.0.0.1:8081 but not from your LAN.
       # This does not affect container‑to‑container traffic; other containers can still reach harness:8081 on the
       # internal Docker network.
-      - "127.0.0.1:8081:8081"
+      - "127.0.0.1:${HARNESS_HOST_PORT:-8081}:8081"
     environment:
       - HARNESS_AGENT_HOST=agent
       - HARNESS_AGENT_PORT=22

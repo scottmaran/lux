@@ -6,13 +6,17 @@ Agent Harness is an OS‑level observation system for third‑party agents: it r
 The recommended way to run the stack is via the `lasso` CLI, which pulls the
 versioned Docker images from GHCR and manages config + compose wiring.
 
+Temporary support note (February 2026): Linux host runtime support is
+temporarily not guaranteed while bind-mount permission compatibility work is in
+progress. The currently recommended host is macOS with Docker Desktop.
+
 ### Install (beta)
 Run the versioned installer:
 ```bash
 curl -fsSL https://raw.githubusercontent.com/scottmaran/lasso/v0.1.4/install_lasso.sh | bash -s -- --version v0.1.4
 ```
 This installs the CLI bundle but does **not** create log/workspace directories. Run `lasso config init` to create the default configurations, then edit `~/.config/lasso/config.yaml` to modify configs. You can customize `paths.log_root` and `paths.workspace_root`.
-You must run `lasso config apply` to validate the configs are valid and propogate them to their respective yaml files in the codebase.
+You must run `lasso config apply` to validate config values, write `~/.config/lasso/compose.env`, and create the configured log/workspace directories.
 
 Quick start (after install):
 ```bash

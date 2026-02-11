@@ -1,0 +1,7 @@
+audit_filter:
+  exec:
+    helper_exclude_comm: []
+    helper_exclude_argv_prefix: []
+summary:
+  burst_gap_sec: 5
+  dns_lookback_sec: 2

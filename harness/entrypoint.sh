@@ -8,6 +8,11 @@ MODE="${HARNESS_MODE:-}"
 
 mkdir -p "${KEY_DIR}"
 
+if [[ ! -w "${KEY_DIR}" ]]; then
+  echo "ERROR: ${KEY_DIR} is not writable. Ensure the shared key volume permits uid 1002 writes." >&2
+  exit 1
+fi
+
 if [[ ! -f "${SSH_KEY_PATH}" || ! -f "${SSH_KEY_PATH}.pub" ]]; then
   umask 077
   ssh-keygen -t ed25519 -N "" -f "${SSH_KEY_PATH}" >/dev/null

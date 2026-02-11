@@ -254,6 +254,7 @@ class EbpfFilterTests(unittest.TestCase):
                 "started_at": base.isoformat(),
                 "ended_at": (base + timedelta(seconds=5)).isoformat(),
                 "mode": "tui",
+                "root_pid": 100,
             }
         ]
 
@@ -344,6 +345,7 @@ class EbpfFilterTests(unittest.TestCase):
                 "started_at": base.isoformat(),
                 "ended_at": (base + timedelta(seconds=5)).isoformat(),
                 "mode": "tui",
+                "root_pid": 500,
             }
         ]
         jobs = [
@@ -351,10 +353,12 @@ class EbpfFilterTests(unittest.TestCase):
                 "job_id": job_id,
                 "submitted_at": base.isoformat(),
                 "started_at": base.isoformat(),
+                "root_pid": 600,
                 "status": {
                     "job_id": job_id,
                     "started_at": base.isoformat(),
                     "ended_at": (base + timedelta(seconds=5)).isoformat(),
+                    "root_pid": 600,
                 },
             }
         ]

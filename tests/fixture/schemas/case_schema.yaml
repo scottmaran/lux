@@ -1,0 +1,39 @@
+common:
+  required_files:
+    - README.md
+    - config.yaml
+    - expected.jsonl
+  optional_entries: []
+
+stages:
+  audit_filter:
+    required_files:
+      - input.log
+    optional_entries:
+      - sessions
+      - jobs
+  ebpf_filter:
+    required_files:
+      - input.jsonl
+    optional_entries:
+      - input.log
+      - sessions
+      - jobs
+  summary:
+    required_files:
+      - input.jsonl
+    optional_entries: []
+  merge:
+    required_files:
+      - input.audit.jsonl
+      - input.ebpf.jsonl
+    optional_entries:
+      - input.jsonl
+  pipeline:
+    required_files:
+      - input.log
+      - input.jsonl
+    optional_entries:
+      - sessions
+      - jobs
+
