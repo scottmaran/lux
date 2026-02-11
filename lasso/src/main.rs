@@ -7,8 +7,11 @@ use std::collections::BTreeMap;
 use std::env;
 use std::fs;
 use std::io;
+#[cfg(unix)]
+use std::os::unix::fs::symlink;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
+use std::time::{SystemTime, UNIX_EPOCH};
 use thiserror::Error;
 
 const DEFAULT_CONFIG_YAML: &str = include_str!("../config/default.yaml");
@@ -20,6 +23,8 @@ struct Cli {
     config: Option<PathBuf>,
     #[arg(long, global = true)]
     json: bool,
+    #[arg(long = "compose-file", global = true)]
+    compose_file: Vec<PathBuf>,
     #[arg(long, global = true, hide = true)]
     bundle_dir: Option<PathBuf>,
     #[arg(long, global = true, hide = true)]
@@ -41,12 +46,20 @@ enum Commands {
         ui: bool,
         #[arg(long, value_parser = ["always", "never", "missing"]) ]
         pull: Option<String>,
+        #[arg(long)]
+        wait: bool,
+        #[arg(long)]
+        timeout_sec: Option<u64>,
     },
     Down {
         #[arg(long)]
         codex: bool,
         #[arg(long)]
         ui: bool,
+        #[arg(long)]
+        volumes: bool,
+        #[arg(long)]
+        remove_orphans: bool,
     },
     Status {
         #[arg(long)]
@@ -74,9 +87,53 @@ enum Commands {
         command: JobsCommand,
     },
     Doctor,
+    Paths,
+    Update {
+        #[command(subcommand)]
+        command: UpdateCommand,
+    },
+    Uninstall {
+        #[arg(long)]
+        remove_config: bool,
+        #[arg(long)]
+        remove_data: bool,
+        #[arg(long)]
+        all_versions: bool,
+        #[arg(long)]
+        yes: bool,
+        #[arg(long)]
+        dry_run: bool,
+        #[arg(long)]
+        force: bool,
+    },
     Logs {
         #[command(subcommand)]
         command: LogsCommand,
+    },
+}
+
+#[derive(Subcommand, Debug)]
+enum UpdateCommand {
+    Check,
+    Apply {
+        #[arg(long, conflicts_with = "latest")]
+        to: Option<String>,
+        #[arg(long)]
+        latest: bool,
+        #[arg(long)]
+        yes: bool,
+        #[arg(long)]
+        dry_run: bool,
+    },
+    Rollback {
+        #[arg(long, conflicts_with = "previous")]
+        to: Option<String>,
+        #[arg(long)]
+        previous: bool,
+        #[arg(long)]
+        yes: bool,
+        #[arg(long)]
+        dry_run: bool,
     },
 }
 
@@ -217,18 +274,90 @@ struct Context {
     config_path: PathBuf,
     env_file: PathBuf,
     bundle_dir: PathBuf,
+    compose_file_overrides: Vec<PathBuf>,
     json: bool,
+}
+
+#[derive(Debug, Clone)]
+struct CommandOutput {
+    status_code: i32,
+    stdout: Vec<u8>,
+    stderr: Vec<u8>,
+}
+
+impl CommandOutput {
+    fn success(&self) -> bool {
+        self.status_code == 0
+    }
+}
+
+trait DockerRunner {
+    fn run(
+        &self,
+        args: &[String],
+        cwd: &Path,
+        capture_output: bool,
+    ) -> Result<CommandOutput, io::Error>;
+}
+
+struct RealDockerRunner;
+
+impl DockerRunner for RealDockerRunner {
+    fn run(
+        &self,
+        args: &[String],
+        cwd: &Path,
+        capture_output: bool,
+    ) -> Result<CommandOutput, io::Error> {
+        let mut cmd = Command::new("docker");
+        cmd.args(args).current_dir(cwd);
+        if capture_output {
+            let output = cmd.output()?;
+            let status_code =
+                output
+                    .status
+                    .code()
+                    .unwrap_or(if output.status.success() { 0 } else { 1 });
+            Ok(CommandOutput {
+                status_code,
+                stdout: output.stdout,
+                stderr: output.stderr,
+            })
+        } else {
+            let status = cmd.status()?;
+            let status_code = status
+                .code()
+                .unwrap_or(if status.success() { 0 } else { 1 });
+            Ok(CommandOutput {
+                status_code,
+                stdout: Vec::new(),
+                stderr: Vec::new(),
+            })
+        }
+    }
 }
 
 fn main() -> Result<(), LassoError> {
     let cli = Cli::parse();
     let ctx = build_context(&cli)?;
+    let runner = RealDockerRunner;
 
     let result = match cli.command {
         Commands::Config { command } => handle_config(&ctx, command),
-        Commands::Up { codex, ui, pull } => handle_up(&ctx, codex, ui, pull),
-        Commands::Down { codex, ui } => handle_down(&ctx, codex, ui),
-        Commands::Status { codex, ui } => handle_status(&ctx, codex, ui),
+        Commands::Up {
+            codex,
+            ui,
+            pull,
+            wait,
+            timeout_sec,
+        } => handle_up(&ctx, codex, ui, pull, wait, timeout_sec, &runner),
+        Commands::Down {
+            codex,
+            ui,
+            volumes,
+            remove_orphans,
+        } => handle_down(&ctx, codex, ui, volumes, remove_orphans, &runner),
+        Commands::Status { codex, ui } => handle_status(&ctx, codex, ui, &runner),
         Commands::Run {
             prompt,
             capture_input,
@@ -236,9 +365,28 @@ fn main() -> Result<(), LassoError> {
             timeout_sec,
             env,
         } => handle_run(&ctx, prompt, capture_input, cwd, timeout_sec, env),
-        Commands::Tui { codex } => handle_tui(&ctx, codex),
+        Commands::Tui { codex } => handle_tui(&ctx, codex, &runner),
         Commands::Jobs { command } => handle_jobs(&ctx, command),
         Commands::Doctor => handle_doctor(&ctx),
+        Commands::Paths => handle_paths(&ctx),
+        Commands::Update { command } => handle_update(&ctx, command),
+        Commands::Uninstall {
+            remove_config,
+            remove_data,
+            all_versions,
+            yes,
+            dry_run,
+            force,
+        } => handle_uninstall(
+            &ctx,
+            remove_config,
+            remove_data,
+            all_versions,
+            yes,
+            dry_run,
+            force,
+            &runner,
+        ),
         Commands::Logs { command } => handle_logs(&ctx, command),
     };
 
@@ -263,10 +411,12 @@ fn build_context(cli: &Cli) -> Result<Context, LassoError> {
     let config_path = resolve_config_path(cli.config.as_ref());
     let env_file = resolve_env_file(cli.env_file.as_ref());
     let bundle_dir = resolve_bundle_dir(cli.bundle_dir.as_ref());
+    let compose_file_overrides = resolve_compose_overrides(&cli.compose_file);
     Ok(Context {
         config_path,
         env_file,
         bundle_dir,
+        compose_file_overrides,
         json: cli.json,
     })
 }
@@ -317,6 +467,23 @@ fn resolve_bundle_dir(override_path: Option<&PathBuf>) -> PathBuf {
         return cwd;
     }
     PathBuf::from(".")
+}
+
+fn resolve_compose_overrides(overrides: &[PathBuf]) -> Vec<PathBuf> {
+    if overrides.is_empty() {
+        return Vec::new();
+    }
+    let cwd = env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+    overrides
+        .iter()
+        .map(|path| {
+            if path.is_absolute() {
+                path.clone()
+            } else {
+                cwd.join(path)
+            }
+        })
+        .collect()
 }
 
 fn default_config_dir() -> PathBuf {
@@ -469,7 +636,347 @@ fn handle_config(ctx: &Context, command: ConfigCommand) -> Result<(), LassoError
     }
 }
 
-fn compose_files(ctx: &Context, codex: bool, ui: bool) -> Result<Vec<PathBuf>, LassoError> {
+fn default_install_dir() -> PathBuf {
+    if let Ok(path) = env::var("LASSO_INSTALL_DIR") {
+        return PathBuf::from(path);
+    }
+    let mut base = home_dir().unwrap_or_else(|| PathBuf::from("."));
+    base.push(".lasso");
+    base
+}
+
+fn default_bin_dir() -> PathBuf {
+    if let Ok(path) = env::var("LASSO_BIN_DIR") {
+        return PathBuf::from(path);
+    }
+    let mut base = home_dir().unwrap_or_else(|| PathBuf::from("."));
+    base.push(".local");
+    base.push("bin");
+    base
+}
+
+#[derive(Debug, Clone)]
+struct RuntimePaths {
+    config_dir: PathBuf,
+    config_path: PathBuf,
+    env_file: PathBuf,
+    bundle_dir: PathBuf,
+    log_root: PathBuf,
+    workspace_root: PathBuf,
+    install_dir: PathBuf,
+    versions_dir: PathBuf,
+    current_link: PathBuf,
+    bin_dir: PathBuf,
+    bin_path: PathBuf,
+}
+
+fn resolve_runtime_paths(ctx: &Context) -> Result<(RuntimePaths, bool), LassoError> {
+    let config_exists = ctx.config_path.exists();
+    let cfg = if config_exists {
+        read_config(&ctx.config_path)?
+    } else {
+        Config::default()
+    };
+    let config_dir = ctx
+        .config_path
+        .parent()
+        .map_or_else(default_config_dir, PathBuf::from);
+    let install_dir = default_install_dir();
+    let versions_dir = install_dir.join("versions");
+    let current_link = install_dir.join("current");
+    let bin_dir = default_bin_dir();
+    let bin_path = bin_dir.join("lasso");
+    Ok((
+        RuntimePaths {
+            config_dir,
+            config_path: ctx.config_path.clone(),
+            env_file: ctx.env_file.clone(),
+            bundle_dir: ctx.bundle_dir.clone(),
+            log_root: PathBuf::from(expand_path(&cfg.paths.log_root)),
+            workspace_root: PathBuf::from(expand_path(&cfg.paths.workspace_root)),
+            install_dir,
+            versions_dir,
+            current_link,
+            bin_dir,
+            bin_path,
+        },
+        config_exists,
+    ))
+}
+
+#[derive(Debug, Clone)]
+struct UpdatePlan {
+    target_version: String,
+    target_version_tag: String,
+    bundle_name: String,
+    checksum_name: String,
+    bundle_url: String,
+    checksum_url: String,
+    target_dir: PathBuf,
+}
+
+#[derive(Debug, Deserialize)]
+struct GitHubReleasePayload {
+    tag_name: String,
+}
+
+fn normalize_version_tag(raw: &str) -> String {
+    let trimmed = raw.trim();
+    if trimmed.starts_with('v') {
+        trimmed.to_string()
+    } else {
+        format!("v{trimmed}")
+    }
+}
+
+fn release_platform() -> Result<(String, String), LassoError> {
+    let os = match env::consts::OS {
+        "macos" => "darwin",
+        "linux" => "linux",
+        value => {
+            return Err(LassoError::Config(format!(
+                "unsupported operating system for update: {value}"
+            )))
+        }
+    };
+    let arch = match env::consts::ARCH {
+        "x86_64" => "amd64",
+        "aarch64" => "arm64",
+        value => {
+            return Err(LassoError::Config(format!(
+                "unsupported architecture for update: {value}"
+            )))
+        }
+    };
+    Ok((os.to_string(), arch.to_string()))
+}
+
+fn build_update_plan(paths: &RuntimePaths, target_version: &str) -> Result<UpdatePlan, LassoError> {
+    let target_version_tag = target_version.trim_start_matches('v').to_string();
+    let (os, arch) = release_platform()?;
+    let bundle_name = format!("lasso_{}_{}_{}.tar.gz", target_version_tag, os, arch);
+    let checksum_name = format!("{bundle_name}.sha256");
+    let base_url =
+        format!("https://github.com/scottmaran/lasso/releases/download/{target_version}");
+    Ok(UpdatePlan {
+        target_version: target_version.to_string(),
+        target_version_tag: target_version_tag.clone(),
+        bundle_name: bundle_name.clone(),
+        checksum_name: checksum_name.clone(),
+        bundle_url: format!("{base_url}/{bundle_name}"),
+        checksum_url: format!("{base_url}/{checksum_name}"),
+        target_dir: paths.versions_dir.join(target_version_tag),
+    })
+}
+
+fn read_current_version(paths: &RuntimePaths) -> Option<String> {
+    let target = safe_current_target(&paths.current_link, &paths.versions_dir)?;
+    let version_tag = target.file_name()?.to_string_lossy().to_string();
+    Some(format!("v{version_tag}"))
+}
+
+fn parse_version_key(version_tag: &str) -> Option<Vec<u64>> {
+    let mut values = Vec::new();
+    for part in version_tag.split('.') {
+        let value = part.parse::<u64>().ok()?;
+        values.push(value);
+    }
+    if values.is_empty() {
+        None
+    } else {
+        Some(values)
+    }
+}
+
+fn compare_version_tags(a: &str, b: &str) -> std::cmp::Ordering {
+    match (parse_version_key(a), parse_version_key(b)) {
+        (Some(left), Some(right)) => left.cmp(&right),
+        _ => a.cmp(b),
+    }
+}
+
+fn list_installed_version_tags(paths: &RuntimePaths) -> Result<Vec<String>, LassoError> {
+    if !paths.versions_dir.exists() {
+        return Ok(Vec::new());
+    }
+    let mut versions = Vec::new();
+    for entry in fs::read_dir(&paths.versions_dir)? {
+        let entry = entry?;
+        if !entry.file_type()?.is_dir() {
+            continue;
+        }
+        versions.push(entry.file_name().to_string_lossy().to_string());
+    }
+    versions.sort_by(|a, b| compare_version_tags(a, b));
+    Ok(versions)
+}
+
+fn select_previous_version(current: &str, installed_tags: &[String]) -> Option<String> {
+    let current_tag = current.trim_start_matches('v');
+    let mut previous: Option<String> = None;
+    for item in installed_tags {
+        if item == current_tag {
+            break;
+        }
+        previous = Some(item.clone());
+    }
+    previous.map(|tag| format!("v{tag}"))
+}
+
+fn fetch_latest_release_tag() -> Result<String, LassoError> {
+    let url = "https://api.github.com/repos/scottmaran/lasso/releases/latest";
+    let client = reqwest::blocking::Client::new();
+    let response = client
+        .get(url)
+        .header("Accept", "application/vnd.github+json")
+        .header("User-Agent", "lasso-cli")
+        .send()?;
+    let status = response.status();
+    if !status.is_success() {
+        let body = response.text().unwrap_or_default();
+        return Err(LassoError::Process(format!(
+            "failed to resolve latest release: HTTP {} {}",
+            status, body
+        )));
+    }
+    let payload: GitHubReleasePayload = response.json()?;
+    Ok(normalize_version_tag(&payload.tag_name))
+}
+
+fn download_file(url: &str, path: &Path) -> Result<(), LassoError> {
+    let client = reqwest::blocking::Client::new();
+    let response = client.get(url).header("User-Agent", "lasso-cli").send()?;
+    let status = response.status();
+    if !status.is_success() {
+        let body = response.text().unwrap_or_default();
+        return Err(LassoError::Process(format!(
+            "download failed: {} (HTTP {} {})",
+            url, status, body
+        )));
+    }
+    let bytes = response.bytes()?;
+    ensure_parent(path)?;
+    fs::write(path, &bytes)?;
+    Ok(())
+}
+
+fn parse_checksum(content: &str) -> Option<String> {
+    for raw in content.split_whitespace() {
+        let candidate = raw
+            .trim_matches(|c: char| !c.is_ascii_hexdigit())
+            .to_lowercase();
+        if candidate.len() == 64 && candidate.chars().all(|c| c.is_ascii_hexdigit()) {
+            return Some(candidate);
+        }
+    }
+    None
+}
+
+fn sha256_file(path: &Path) -> Result<String, LassoError> {
+    let path_str = path.to_string_lossy().to_string();
+    let attempts: Vec<(&str, Vec<String>)> = vec![
+        (
+            "shasum",
+            vec!["-a".to_string(), "256".to_string(), path_str.clone()],
+        ),
+        ("sha256sum", vec![path_str.clone()]),
+        (
+            "openssl",
+            vec!["dgst".to_string(), "-sha256".to_string(), path_str],
+        ),
+    ];
+    for (program, args) in attempts {
+        let output = Command::new(program).args(&args).output();
+        let Ok(output) = output else { continue };
+        if !output.status.success() {
+            continue;
+        }
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        if let Some(token) = parse_checksum(&stdout) {
+            return Ok(token);
+        }
+    }
+    Err(LassoError::Process(
+        "no SHA256 tool found (expected shasum, sha256sum, or openssl)".to_string(),
+    ))
+}
+
+fn verify_bundle_checksum(bundle_path: &Path, checksum_path: &Path) -> Result<(), LassoError> {
+    let checksum_content = fs::read_to_string(checksum_path)?;
+    let Some(expected) = parse_checksum(&checksum_content) else {
+        return Err(LassoError::Process(format!(
+            "invalid checksum file: {}",
+            checksum_path.display()
+        )));
+    };
+    let actual = sha256_file(bundle_path)?;
+    if expected != actual {
+        return Err(LassoError::Process(format!(
+            "checksum mismatch for {}: expected {}, got {}",
+            bundle_path.display(),
+            expected,
+            actual
+        )));
+    }
+    Ok(())
+}
+
+fn extract_bundle(bundle_path: &Path, destination_dir: &Path) -> Result<(), LassoError> {
+    fs::create_dir_all(destination_dir)?;
+    let status = Command::new("tar")
+        .arg("-xzf")
+        .arg(bundle_path)
+        .arg("-C")
+        .arg(destination_dir)
+        .status()
+        .map_err(|err| LassoError::Process(format!("failed to run tar: {err}")))?;
+    if !status.success() {
+        return Err(LassoError::Process(format!(
+            "tar extraction failed with status {status}"
+        )));
+    }
+    Ok(())
+}
+
+fn force_symlink(target: &Path, link_path: &Path) -> Result<(), LassoError> {
+    ensure_parent(link_path)?;
+    match fs::symlink_metadata(link_path) {
+        Ok(meta) => {
+            if meta.file_type().is_symlink() || meta.file_type().is_file() {
+                fs::remove_file(link_path)?;
+            } else {
+                return Err(LassoError::Process(format!(
+                    "refusing to replace directory with symlink: {}",
+                    link_path.display()
+                )));
+            }
+        }
+        Err(err) if err.kind() == io::ErrorKind::NotFound => {}
+        Err(err) => return Err(LassoError::Io(err)),
+    }
+    #[cfg(unix)]
+    {
+        symlink(target, link_path)?;
+        return Ok(());
+    }
+    #[allow(unreachable_code)]
+    Err(LassoError::Config(
+        "update is not supported on this platform".to_string(),
+    ))
+}
+
+fn temp_download_dir() -> PathBuf {
+    let nanos = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_nanos())
+        .unwrap_or(0);
+    env::temp_dir().join(format!("lasso-update-{}-{}", std::process::id(), nanos))
+}
+
+fn configured_compose_files(ctx: &Context, codex: bool, ui: bool) -> Vec<PathBuf> {
+    if !ctx.compose_file_overrides.is_empty() {
+        return ctx.compose_file_overrides.clone();
+    }
     let mut files = vec![ctx.bundle_dir.join("compose.yml")];
     if codex {
         files.push(ctx.bundle_dir.join("compose.codex.yml"));
@@ -477,6 +984,11 @@ fn compose_files(ctx: &Context, codex: bool, ui: bool) -> Result<Vec<PathBuf>, L
     if ui {
         files.push(ctx.bundle_dir.join("compose.ui.yml"));
     }
+    files
+}
+
+fn compose_files(ctx: &Context, codex: bool, ui: bool) -> Result<Vec<PathBuf>, LassoError> {
+    let files = configured_compose_files(ctx, codex, ui);
     for path in &files {
         if !path.exists() {
             return Err(LassoError::Config(format!(
@@ -488,53 +1000,144 @@ fn compose_files(ctx: &Context, codex: bool, ui: bool) -> Result<Vec<PathBuf>, L
     Ok(files)
 }
 
-fn compose_base_command(ctx: &Context, codex: bool, ui: bool) -> Result<Command, LassoError> {
+fn compose_base_args(ctx: &Context, codex: bool, ui: bool) -> Result<Vec<String>, LassoError> {
     let cfg = read_config(&ctx.config_path)?;
     let files = compose_files(ctx, codex, ui)?;
     if !ctx.env_file.exists() {
         let envs = config_to_env(&cfg);
         write_env_file(&ctx.env_file, &envs)?;
     }
-    let mut cmd = Command::new("docker");
-    cmd.arg("compose");
-    cmd.arg("--env-file").arg(&ctx.env_file);
+    let mut args = vec![
+        "compose".to_string(),
+        "--env-file".to_string(),
+        ctx.env_file.to_string_lossy().to_string(),
+    ];
     if !cfg.docker.project_name.trim().is_empty() {
-        cmd.arg("-p").arg(&cfg.docker.project_name);
+        args.push("-p".to_string());
+        args.push(cfg.docker.project_name);
     }
     for file in files {
-        cmd.arg("-f").arg(file);
+        args.push("-f".to_string());
+        args.push(file.to_string_lossy().to_string());
     }
-    cmd.current_dir(&ctx.bundle_dir);
-    Ok(cmd)
+    Ok(args)
 }
 
-fn handle_up(ctx: &Context, codex: bool, ui: bool, pull: Option<String>) -> Result<(), LassoError> {
-    let mut cmd = compose_base_command(ctx, codex, ui)?;
-    cmd.arg("up").arg("-d");
-    if let Some(pull) = pull {
-        cmd.arg("--pull").arg(pull);
+fn execute_docker<R: DockerRunner>(
+    ctx: &Context,
+    runner: &R,
+    args: &[String],
+    capture_output: bool,
+    passthrough_stdout: bool,
+) -> Result<CommandOutput, LassoError> {
+    let cmd_output = runner
+        .run(args, &ctx.bundle_dir, capture_output)
+        .map_err(|err| LassoError::Process(format!("failed to run command: {err}")))?;
+    if !cmd_output.success() {
+        let stderr = String::from_utf8_lossy(&cmd_output.stderr)
+            .trim()
+            .to_string();
+        let mut message = format!("command failed with status {}", cmd_output.status_code);
+        if !stderr.is_empty() {
+            message = format!("{message}: {stderr}");
+            let lower = stderr.to_lowercase();
+            if lower.contains("denied")
+                || lower.contains("unauthorized")
+                || lower.contains("authentication")
+            {
+                message = format!(
+                    "{message}\nHint: authenticate with `docker login ghcr.io` for private images."
+                );
+            }
+        }
+        return Err(LassoError::Process(message));
     }
-    run_command(ctx, cmd, json!({"action": "up"}), true)
+    if capture_output && passthrough_stdout && !cmd_output.stdout.is_empty() && !ctx.json {
+        let stdout = String::from_utf8_lossy(&cmd_output.stdout);
+        print!("{stdout}");
+    }
+    Ok(cmd_output)
 }
 
-fn handle_down(ctx: &Context, codex: bool, ui: bool) -> Result<(), LassoError> {
-    let mut cmd = compose_base_command(ctx, codex, ui)?;
-    cmd.arg("down");
-    run_command(ctx, cmd, json!({"action": "down"}), true)
+fn run_docker_command<R: DockerRunner>(
+    ctx: &Context,
+    runner: &R,
+    args: &[String],
+    json_payload: serde_json::Value,
+    capture_output: bool,
+) -> Result<(), LassoError> {
+    let _ = execute_docker(ctx, runner, args, capture_output, true)?;
+    output(ctx, json_payload)
 }
 
-fn handle_status(ctx: &Context, codex: bool, ui: bool) -> Result<(), LassoError> {
-    let mut cmd = compose_base_command(ctx, codex, ui)?;
-    cmd.arg("ps").arg("--format").arg("json");
-    let output = cmd
-        .output()
-        .map_err(|err| LassoError::Process(format!("failed to run docker compose: {err}")))?;
-    if !output.status.success() {
-        return Err(LassoError::Process(
-            String::from_utf8_lossy(&output.stderr).to_string(),
+fn handle_up<R: DockerRunner>(
+    ctx: &Context,
+    codex: bool,
+    ui: bool,
+    pull: Option<String>,
+    wait: bool,
+    timeout_sec: Option<u64>,
+    runner: &R,
+) -> Result<(), LassoError> {
+    if timeout_sec.is_some() && !wait {
+        return Err(LassoError::Config(
+            "--timeout-sec requires --wait".to_string(),
         ));
     }
-    let text = String::from_utf8_lossy(&output.stdout);
+    let mut args = compose_base_args(ctx, codex, ui)?;
+    args.push("up".to_string());
+    args.push("-d".to_string());
+    if let Some(pull) = pull {
+        args.push("--pull".to_string());
+        args.push(pull);
+    }
+    if wait {
+        args.push("--wait".to_string());
+        if let Some(timeout_sec) = timeout_sec {
+            args.push("--wait-timeout".to_string());
+            args.push(timeout_sec.to_string());
+        }
+    }
+    run_docker_command(ctx, runner, &args, json!({"action": "up"}), true)
+}
+
+fn handle_down<R: DockerRunner>(
+    ctx: &Context,
+    codex: bool,
+    ui: bool,
+    volumes: bool,
+    remove_orphans: bool,
+    runner: &R,
+) -> Result<(), LassoError> {
+    let mut args = compose_base_args(ctx, codex, ui)?;
+    args.push("down".to_string());
+    if volumes {
+        args.push("--volumes".to_string());
+    }
+    if remove_orphans {
+        args.push("--remove-orphans".to_string());
+    }
+    run_docker_command(
+        ctx,
+        runner,
+        &args,
+        json!({"action": "down", "volumes": volumes, "remove_orphans": remove_orphans}),
+        true,
+    )
+}
+
+fn handle_status<R: DockerRunner>(
+    ctx: &Context,
+    codex: bool,
+    ui: bool,
+    runner: &R,
+) -> Result<(), LassoError> {
+    let mut args = compose_base_args(ctx, codex, ui)?;
+    args.push("ps".to_string());
+    args.push("--format".to_string());
+    args.push("json".to_string());
+    let cmd_output = execute_docker(ctx, runner, &args, true, false)?;
+    let text = String::from_utf8_lossy(&cmd_output.stdout);
     let rows: serde_json::Value = match serde_json::from_str(&text) {
         Ok(value) => value,
         Err(_) => {
@@ -624,14 +1227,14 @@ fn handle_run(
     Ok(())
 }
 
-fn handle_tui(ctx: &Context, codex: bool) -> Result<(), LassoError> {
-    let mut cmd = compose_base_command(ctx, codex, false)?;
-    cmd.arg("run")
-        .arg("--rm")
-        .arg("-e")
-        .arg("HARNESS_MODE=tui")
-        .arg("harness");
-    run_command(ctx, cmd, json!({"action": "tui"}), false)
+fn handle_tui<R: DockerRunner>(ctx: &Context, codex: bool, runner: &R) -> Result<(), LassoError> {
+    let mut args = compose_base_args(ctx, codex, false)?;
+    args.push("run".to_string());
+    args.push("--rm".to_string());
+    args.push("-e".to_string());
+    args.push("HARNESS_MODE=tui".to_string());
+    args.push("harness".to_string());
+    run_docker_command(ctx, runner, &args, json!({"action": "tui"}), false)
 }
 
 fn handle_jobs(ctx: &Context, command: JobsCommand) -> Result<(), LassoError> {
@@ -722,6 +1325,384 @@ fn handle_doctor(ctx: &Context) -> Result<(), LassoError> {
         return Err(LassoError::Process("log root is not writable".to_string()));
     }
     Ok(())
+}
+
+fn handle_paths(ctx: &Context) -> Result<(), LassoError> {
+    let (paths, config_exists) = resolve_runtime_paths(ctx)?;
+    let env_exists = paths.env_file.exists();
+    let compose_files: Vec<String> = configured_compose_files(ctx, false, false)
+        .into_iter()
+        .map(|p| p.to_string_lossy().to_string())
+        .collect();
+    output(
+        ctx,
+        json!({
+            "config_exists": config_exists,
+            "env_file_exists": env_exists,
+            "config_dir": paths.config_dir,
+            "config_path": paths.config_path,
+            "env_file": paths.env_file,
+            "bundle_dir": paths.bundle_dir,
+            "compose_files": compose_files,
+            "log_root": paths.log_root,
+            "workspace_root": paths.workspace_root,
+            "install_dir": paths.install_dir,
+            "versions_dir": paths.versions_dir,
+            "current_link": paths.current_link,
+            "bin_dir": paths.bin_dir,
+            "bin_path": paths.bin_path,
+        }),
+    )
+}
+
+fn handle_update(ctx: &Context, command: UpdateCommand) -> Result<(), LassoError> {
+    match command {
+        UpdateCommand::Check => update_check(ctx),
+        UpdateCommand::Apply {
+            to,
+            latest,
+            yes,
+            dry_run,
+        } => update_apply(ctx, to, latest, yes, dry_run),
+        UpdateCommand::Rollback {
+            to,
+            previous,
+            yes,
+            dry_run,
+        } => update_rollback(ctx, to, previous, yes, dry_run),
+    }
+}
+
+fn update_check(ctx: &Context) -> Result<(), LassoError> {
+    let (paths, _) = resolve_runtime_paths(ctx)?;
+    let current_version = read_current_version(&paths);
+    let latest_version = fetch_latest_release_tag()?;
+    let up_to_date = current_version.as_deref() == Some(latest_version.as_str());
+    output(
+        ctx,
+        json!({
+            "current_version": current_version,
+            "latest_version": latest_version,
+            "up_to_date": up_to_date,
+        }),
+    )
+}
+
+fn update_apply(
+    ctx: &Context,
+    to: Option<String>,
+    latest: bool,
+    yes: bool,
+    dry_run: bool,
+) -> Result<(), LassoError> {
+    let (paths, _) = resolve_runtime_paths(ctx)?;
+    let current_version = read_current_version(&paths);
+    let target_version = match to {
+        Some(value) => normalize_version_tag(&value),
+        None => {
+            let _ = latest;
+            fetch_latest_release_tag()?
+        }
+    };
+    let plan = build_update_plan(&paths, &target_version)?;
+    let already_current = current_version.as_deref() == Some(target_version.as_str());
+    if dry_run {
+        return output(
+            ctx,
+            json!({
+                "action": "update_apply",
+                "dry_run": true,
+                "current_version": current_version,
+                "target_version": plan.target_version,
+                "target_version_tag": plan.target_version_tag,
+                "already_current": already_current,
+                "bundle_url": plan.bundle_url,
+                "checksum_url": plan.checksum_url,
+                "target_dir": plan.target_dir,
+                "current_link": paths.current_link,
+                "bin_path": paths.bin_path,
+            }),
+        );
+    }
+    if !yes {
+        return Err(LassoError::Config(
+            "update apply requires --yes (or use --dry-run to preview)".to_string(),
+        ));
+    }
+    if already_current {
+        return output(
+            ctx,
+            json!({
+                "action": "update_apply",
+                "updated": false,
+                "reason": "already_current",
+                "current_version": current_version,
+                "target_version": target_version,
+            }),
+        );
+    }
+
+    let download_dir = temp_download_dir();
+    fs::create_dir_all(&download_dir)?;
+    let bundle_path = download_dir.join(&plan.bundle_name);
+    let checksum_path = download_dir.join(&plan.checksum_name);
+
+    let update_result = (|| -> Result<(), LassoError> {
+        download_file(&plan.bundle_url, &bundle_path)?;
+        download_file(&plan.checksum_url, &checksum_path)?;
+        verify_bundle_checksum(&bundle_path, &checksum_path)?;
+        if plan.target_dir.exists() {
+            fs::remove_dir_all(&plan.target_dir)?;
+        }
+        extract_bundle(&bundle_path, &plan.target_dir)?;
+        let lasso_binary = plan.target_dir.join("lasso");
+        if !lasso_binary.exists() {
+            return Err(LassoError::Process(format!(
+                "bundle did not contain expected binary: {}",
+                lasso_binary.display()
+            )));
+        }
+        fs::create_dir_all(&paths.install_dir)?;
+        fs::create_dir_all(&paths.bin_dir)?;
+        force_symlink(&plan.target_dir, &paths.current_link)?;
+        force_symlink(&paths.current_link.join("lasso"), &paths.bin_path)?;
+        Ok(())
+    })();
+    let _ = fs::remove_dir_all(&download_dir);
+    update_result?;
+
+    output(
+        ctx,
+        json!({
+            "action": "update_apply",
+            "updated": true,
+            "from_version": current_version,
+            "to_version": target_version,
+            "target_dir": plan.target_dir,
+            "bin_path": paths.bin_path,
+        }),
+    )
+}
+
+fn update_rollback(
+    ctx: &Context,
+    to: Option<String>,
+    previous: bool,
+    yes: bool,
+    dry_run: bool,
+) -> Result<(), LassoError> {
+    let (paths, _) = resolve_runtime_paths(ctx)?;
+    let current_version = read_current_version(&paths);
+    let installed_tags = list_installed_version_tags(&paths)?;
+    if installed_tags.is_empty() {
+        return Err(LassoError::Process(
+            "no installed versions found under install directory".to_string(),
+        ));
+    }
+    let target_version = match to {
+        Some(value) => normalize_version_tag(&value),
+        None => {
+            let _ = previous;
+            let Some(current) = current_version.as_deref() else {
+                return Err(LassoError::Process(
+                    "cannot infer rollback target: current version is not set".to_string(),
+                ));
+            };
+            let Some(prev) = select_previous_version(current, &installed_tags) else {
+                return Err(LassoError::Process(
+                    "no previous installed version available for rollback".to_string(),
+                ));
+            };
+            prev
+        }
+    };
+    let target_tag = target_version.trim_start_matches('v');
+    let target_dir = paths.versions_dir.join(target_tag);
+    if !target_dir.exists() {
+        return Err(LassoError::Process(format!(
+            "rollback target is not installed: {}",
+            target_version
+        )));
+    }
+    if dry_run {
+        return output(
+            ctx,
+            json!({
+                "action": "update_rollback",
+                "dry_run": true,
+                "current_version": current_version,
+                "target_version": target_version,
+                "target_dir": target_dir,
+            }),
+        );
+    }
+    if !yes {
+        return Err(LassoError::Config(
+            "update rollback requires --yes (or use --dry-run to preview)".to_string(),
+        ));
+    }
+    if current_version.as_deref() == Some(target_version.as_str()) {
+        return output(
+            ctx,
+            json!({
+                "action": "update_rollback",
+                "updated": false,
+                "reason": "already_current",
+                "current_version": current_version,
+                "target_version": target_version,
+            }),
+        );
+    }
+    fs::create_dir_all(&paths.install_dir)?;
+    fs::create_dir_all(&paths.bin_dir)?;
+    force_symlink(&target_dir, &paths.current_link)?;
+    force_symlink(&paths.current_link.join("lasso"), &paths.bin_path)?;
+    output(
+        ctx,
+        json!({
+            "action": "update_rollback",
+            "updated": true,
+            "from_version": current_version,
+            "to_version": target_version,
+            "target_dir": target_dir,
+        }),
+    )
+}
+
+fn safe_current_target(current_link: &Path, versions_dir: &Path) -> Option<PathBuf> {
+    let target = fs::read_link(current_link).ok()?;
+    let resolved = if target.is_absolute() {
+        target
+    } else {
+        current_link.parent()?.join(target)
+    };
+    if resolved.starts_with(versions_dir) {
+        Some(resolved)
+    } else {
+        None
+    }
+}
+
+fn path_exists(path: &Path) -> bool {
+    fs::symlink_metadata(path).is_ok()
+}
+
+fn remove_path(path: &Path) -> Result<bool, LassoError> {
+    let meta = match fs::symlink_metadata(path) {
+        Ok(meta) => meta,
+        Err(err) if err.kind() == io::ErrorKind::NotFound => return Ok(false),
+        Err(err) => return Err(LassoError::Io(err)),
+    };
+    let file_type = meta.file_type();
+    if file_type.is_symlink() || file_type.is_file() {
+        fs::remove_file(path)?;
+    } else if file_type.is_dir() {
+        fs::remove_dir_all(path)?;
+    } else {
+        fs::remove_file(path)?;
+    }
+    Ok(true)
+}
+
+fn prune_empty_dir(path: &Path) {
+    let _ = fs::remove_dir(path);
+}
+
+fn handle_uninstall<R: DockerRunner>(
+    ctx: &Context,
+    remove_config: bool,
+    remove_data: bool,
+    all_versions: bool,
+    yes: bool,
+    dry_run: bool,
+    force: bool,
+    runner: &R,
+) -> Result<(), LassoError> {
+    if !dry_run && !yes {
+        return Err(LassoError::Config(
+            "uninstall requires --yes (or use --dry-run to preview)".to_string(),
+        ));
+    }
+    let (paths, _config_exists) = resolve_runtime_paths(ctx)?;
+    let mut down_attempted = false;
+    let down_skipped = force || dry_run;
+    if !force && !dry_run {
+        down_attempted = true;
+        let mut down_args = compose_base_args(ctx, false, false)?;
+        down_args.push("down".to_string());
+        down_args.push("--volumes".to_string());
+        down_args.push("--remove-orphans".to_string());
+        if let Err(err) = execute_docker(ctx, runner, &down_args, true, false) {
+            return Err(LassoError::Process(format!(
+                "failed to stop stack before uninstall: {}. Re-run with --force to skip stack shutdown",
+                err
+            )));
+        }
+    }
+
+    let mut targets: Vec<PathBuf> = Vec::new();
+    if all_versions {
+        targets.push(paths.versions_dir.clone());
+    } else if let Some(current_target) =
+        safe_current_target(&paths.current_link, &paths.versions_dir)
+    {
+        targets.push(current_target);
+    }
+    targets.push(paths.current_link.clone());
+    targets.push(paths.bin_path.clone());
+    if remove_config {
+        targets.push(paths.env_file.clone());
+        targets.push(paths.config_path.clone());
+    }
+    if remove_data {
+        targets.push(paths.log_root.clone());
+        targets.push(paths.workspace_root.clone());
+    }
+
+    let mut dedup: BTreeMap<String, PathBuf> = BTreeMap::new();
+    for path in targets {
+        dedup.insert(path.to_string_lossy().to_string(), path);
+    }
+    let targets: Vec<PathBuf> = dedup.into_values().collect();
+
+    let mut planned: Vec<String> = Vec::new();
+    let mut removed: Vec<String> = Vec::new();
+    let mut missing: Vec<String> = Vec::new();
+    for path in &targets {
+        let display = path.to_string_lossy().to_string();
+        if path_exists(path) {
+            planned.push(display.clone());
+            if !dry_run && remove_path(path)? {
+                removed.push(display);
+            }
+        } else {
+            missing.push(display);
+        }
+    }
+
+    if !dry_run {
+        if remove_config {
+            prune_empty_dir(&paths.config_dir);
+        }
+        prune_empty_dir(&paths.bin_dir);
+        prune_empty_dir(&paths.install_dir);
+    }
+
+    output(
+        ctx,
+        json!({
+            "action": "uninstall",
+            "dry_run": dry_run,
+            "remove_config": remove_config,
+            "remove_data": remove_data,
+            "all_versions": all_versions,
+            "down_attempted": down_attempted,
+            "down_skipped": down_skipped,
+            "planned": planned,
+            "removed": removed,
+            "missing": missing,
+        }),
+    )
 }
 
 fn handle_logs(ctx: &Context, command: LogsCommand) -> Result<(), LassoError> {
@@ -853,53 +1834,6 @@ fn resolve_token(cfg: &Config) -> Result<String, LassoError> {
     ))
 }
 
-fn run_command(
-    ctx: &Context,
-    mut cmd: Command,
-    json_payload: serde_json::Value,
-    capture_output: bool,
-) -> Result<(), LassoError> {
-    if capture_output {
-        let cmd_output = cmd
-            .output()
-            .map_err(|err| LassoError::Process(format!("failed to run command: {err}")))?;
-        if !cmd_output.status.success() {
-            let stderr = String::from_utf8_lossy(&cmd_output.stderr)
-                .trim()
-                .to_string();
-            let mut message = format!("command failed with status {}", cmd_output.status);
-            if !stderr.is_empty() {
-                message = format!("{message}: {stderr}");
-                let lower = stderr.to_lowercase();
-                if lower.contains("denied")
-                    || lower.contains("unauthorized")
-                    || lower.contains("authentication")
-                {
-                    message = format!(
-                        "{message}\nHint: authenticate with `docker login ghcr.io` for private images."
-                    );
-                }
-            }
-            return Err(LassoError::Process(message));
-        }
-        if !cmd_output.stdout.is_empty() && !ctx.json {
-            let stdout = String::from_utf8_lossy(&cmd_output.stdout);
-            print!("{stdout}");
-        }
-        return output(ctx, json_payload);
-    }
-
-    let status = cmd
-        .status()
-        .map_err(|err| LassoError::Process(format!("failed to run command: {err}")))?;
-    if !status.success() {
-        return Err(LassoError::Process(format!(
-            "command failed with status {status}"
-        )));
-    }
-    output(ctx, json_payload)
-}
-
 fn output(ctx: &Context, payload: serde_json::Value) -> Result<(), LassoError> {
     if ctx.json {
         let wrapper = JsonResult {
@@ -923,7 +1857,75 @@ fn print_json<T: Serialize>(payload: &T) -> Result<(), LassoError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::cell::RefCell;
     use tempfile::tempdir;
+
+    #[derive(Debug, Clone)]
+    struct RecordedCall {
+        args: Vec<String>,
+        capture_output: bool,
+    }
+
+    #[derive(Default)]
+    struct MockDockerRunner {
+        calls: RefCell<Vec<RecordedCall>>,
+        outputs: RefCell<Vec<CommandOutput>>,
+    }
+
+    impl MockDockerRunner {
+        fn push_output(&self, output: CommandOutput) {
+            self.outputs.borrow_mut().push(output);
+        }
+
+        fn calls(&self) -> Vec<RecordedCall> {
+            self.calls.borrow().clone()
+        }
+    }
+
+    impl DockerRunner for MockDockerRunner {
+        fn run(
+            &self,
+            args: &[String],
+            _cwd: &Path,
+            capture_output: bool,
+        ) -> Result<CommandOutput, io::Error> {
+            self.calls.borrow_mut().push(RecordedCall {
+                args: args.to_vec(),
+                capture_output,
+            });
+            let mut queued = self.outputs.borrow_mut();
+            if queued.is_empty() {
+                return Ok(CommandOutput {
+                    status_code: 0,
+                    stdout: Vec::new(),
+                    stderr: Vec::new(),
+                });
+            }
+            Ok(queued.remove(0))
+        }
+    }
+
+    fn write_minimal_config(path: &Path) {
+        fs::write(path, "version: 1\n").unwrap();
+    }
+
+    fn write_default_compose_files(dir: &Path) {
+        fs::write(dir.join("compose.yml"), "services: {}\n").unwrap();
+        fs::write(dir.join("compose.codex.yml"), "services: {}\n").unwrap();
+        fs::write(dir.join("compose.ui.yml"), "services: {}\n").unwrap();
+    }
+
+    fn make_context(dir: &Path) -> Context {
+        let config_path = dir.join("config.yaml");
+        let env_file = dir.join("compose.env");
+        Context {
+            config_path,
+            env_file,
+            bundle_dir: dir.to_path_buf(),
+            compose_file_overrides: Vec::new(),
+            json: true,
+        }
+    }
 
     #[test]
     fn config_unknown_field_errors() {
@@ -962,5 +1964,115 @@ paths:
         let content = fs::read_to_string(&env_path).unwrap();
         assert!(content.contains("LASSO_VERSION="));
         assert!(content.contains("LASSO_LOG_ROOT="));
+    }
+
+    #[test]
+    fn up_wait_timeout_builds_expected_compose_args() {
+        let dir = tempdir().unwrap();
+        write_minimal_config(&dir.path().join("config.yaml"));
+        write_default_compose_files(dir.path());
+        let ctx = make_context(dir.path());
+        let runner = MockDockerRunner::default();
+
+        handle_up(&ctx, false, false, None, true, Some(45), &runner).unwrap();
+
+        let calls = runner.calls();
+        assert_eq!(calls.len(), 1);
+        let args = &calls[0].args;
+        assert!(calls[0].capture_output);
+        assert!(args.iter().any(|x| x == "--wait"));
+        let idx = args.iter().position(|x| x == "--wait-timeout").unwrap();
+        assert_eq!(args[idx + 1], "45");
+    }
+
+    #[test]
+    fn up_timeout_requires_wait() {
+        let dir = tempdir().unwrap();
+        write_minimal_config(&dir.path().join("config.yaml"));
+        write_default_compose_files(dir.path());
+        let ctx = make_context(dir.path());
+        let runner = MockDockerRunner::default();
+
+        let err = handle_up(&ctx, false, false, None, false, Some(10), &runner)
+            .expect_err("timeout without wait should fail");
+        assert!(err.to_string().contains("--timeout-sec requires --wait"));
+    }
+
+    #[test]
+    fn down_cleanup_flags_build_expected_args() {
+        let dir = tempdir().unwrap();
+        write_minimal_config(&dir.path().join("config.yaml"));
+        write_default_compose_files(dir.path());
+        let ctx = make_context(dir.path());
+        let runner = MockDockerRunner::default();
+
+        handle_down(&ctx, false, false, true, true, &runner).unwrap();
+
+        let calls = runner.calls();
+        assert_eq!(calls.len(), 1);
+        let args = &calls[0].args;
+        assert!(args.iter().any(|x| x == "--volumes"));
+        assert!(args.iter().any(|x| x == "--remove-orphans"));
+    }
+
+    #[test]
+    fn compose_file_override_replaces_default_compose_selection() {
+        let dir = tempdir().unwrap();
+        write_minimal_config(&dir.path().join("config.yaml"));
+        let override_file = dir.path().join("custom.compose.yml");
+        fs::write(&override_file, "services: {}\n").unwrap();
+        let mut ctx = make_context(dir.path());
+        ctx.compose_file_overrides = vec![override_file.clone()];
+        let runner = MockDockerRunner::default();
+        runner.push_output(CommandOutput {
+            status_code: 0,
+            stdout: b"[]\n".to_vec(),
+            stderr: Vec::new(),
+        });
+
+        handle_status(&ctx, true, true, &runner).unwrap();
+
+        let calls = runner.calls();
+        assert_eq!(calls.len(), 1);
+        let args = &calls[0].args;
+        assert!(args
+            .iter()
+            .any(|x| x == &override_file.to_string_lossy().to_string()));
+        assert!(!args.iter().any(|x| x.ends_with("compose.codex.yml")));
+        assert!(!args.iter().any(|x| x.ends_with("compose.ui.yml")));
+    }
+
+    #[test]
+    fn normalize_version_tag_adds_prefix() {
+        assert_eq!(normalize_version_tag("0.1.0"), "v0.1.0");
+        assert_eq!(normalize_version_tag("v0.1.0"), "v0.1.0");
+    }
+
+    #[test]
+    fn select_previous_version_uses_installed_order() {
+        let installed = vec![
+            "0.1.0".to_string(),
+            "0.2.0".to_string(),
+            "0.3.0".to_string(),
+        ];
+        assert_eq!(
+            select_previous_version("v0.3.0", &installed),
+            Some("v0.2.0".to_string())
+        );
+        assert_eq!(select_previous_version("v0.1.0", &installed), None);
+    }
+
+    #[test]
+    fn parse_checksum_reads_first_token() {
+        let hash = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+        let content = format!("{hash}  lasso_0.1.0_linux_amd64.tar.gz");
+        assert_eq!(parse_checksum(&content), Some(hash.to_string()));
+    }
+
+    #[test]
+    fn parse_checksum_supports_openssl_output() {
+        let hash = "abcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcd";
+        let content = format!("SHA2-256(file.tar.gz)= {hash}");
+        assert_eq!(parse_checksum(&content), Some(hash.to_string()));
     }
 }

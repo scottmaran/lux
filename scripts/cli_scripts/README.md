@@ -18,6 +18,7 @@ config, and drive `lasso` commands to validate artifacts.
 - `LASSO_VERSION` — image tag to use (default: `v0.1.0`).
 - `HARNESS_API_TOKEN` — harness API token used by `lasso run` (default: `dev-token`).
 - `LASSO_BUNDLE_DIR` — directory containing compose files (default: repo root).
+- `LASSO_PROJECT_NAME` — explicit compose project name (default: per-script temp-derived name).
 
 If running from source, point `LASSO_BIN` at the built binary, e.g.:
 `LASSO_BIN=~/lasso/lasso/target/debug/lasso`.
@@ -25,6 +26,8 @@ If running from source, point `LASSO_BIN` at the built binary, e.g.:
 Each script creates a temporary config, log root, and workspace root under a
 fresh temp directory. No permanent files are written to your home directory.
 GHCR auth is handled by Docker’s credential store (no extra env vars needed).
+Each lifecycle script uses unconditional teardown (`trap ... EXIT`) so cleanup
+runs on both success and failure.
 
 ## Run All Tests
 
@@ -78,3 +81,31 @@ scripts/cli_scripts/run_all.sh
 - `12_missing_ghcr_auth.sh`
   - Validates that `lasso up` fails with an auth-related error when GHCR
     credentials are missing (skips if already logged in).
+
+- `13_up_wait_timeout.sh`
+  - Validates `lasso up --wait --timeout-sec` reaches running state and
+    `lasso down --volumes --remove-orphans` fully tears down.
+
+- `14_down_cleanup_flags.sh`
+  - Validates `down --volumes --remove-orphans` removes project volumes and
+    leaves no running containers.
+
+- `15_paths_json.sh`
+  - Validates `lasso paths --json` returns resolved config/env/install/runtime
+    paths with override support.
+
+- `16_uninstall_dry_run.sh`
+  - Validates `lasso uninstall --dry-run` reports planned removals without
+    mutating install/config/data paths.
+
+- `17_uninstall_exec.sh`
+  - Validates `lasso uninstall --yes` removes requested targets and stops the
+  running compose stack before deletion.
+
+- `18_update_dry_run.sh`
+  - Validates `lasso update apply --dry-run --to <version>` resolves and reports
+    target paths/version without mutating install symlinks.
+
+- `19_update_rollback_dry_run.sh`
+  - Validates `lasso update rollback --dry-run --previous` selects the correct
+    prior installed version without mutating current links.

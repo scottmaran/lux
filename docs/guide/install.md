@@ -99,6 +99,23 @@ lasso up
 lasso run "hello"
 ```
 
+## Updating
+
+Check for updates:
+```bash
+lasso update check
+```
+
+Apply latest release:
+```bash
+lasso update apply --yes
+```
+
+Preview an update without changes:
+```bash
+lasso update apply --to v0.1.5 --dry-run
+```
+
 ## GHCR Authentication (Private Images)
 
 If images are private, authenticate once:
