@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from tests.support.integration_stack import ComposeStack, run_cmd
+from tests.support.integration_stack import ComposeFiles, ComposeStack, run_cmd
 
 
 pytestmark = pytest.mark.regression
@@ -43,6 +43,20 @@ def _uid_1002_can_write_logs(path: Path, root_dir: Path) -> bool:
     except OSError:
         pass
     return True
+
+
+def _write_collector_failure_override(path: Path) -> Path:
+    override = path / "compose.collector.fail.override.yml"
+    override.write_text(
+        (
+            "services:\n"
+            "  collector:\n"
+            "    entrypoint: [\"/bin/sh\", \"-lc\", "
+            "\"echo forced-collector-startup-failure >&2; exit 13\"]\n"
+        ),
+        encoding="utf-8",
+    )
+    return override
 
 
 def test_regression_startup_fails_fast_when_harness_exits_due_to_logs_permissions(
@@ -85,8 +99,52 @@ def test_regression_startup_fails_fast_when_harness_exits_due_to_logs_permission
     assert "terminal state" in message.lower()
     assert "harness" in message
     assert "exited" in message.lower()
-    assert "compose logs:" in message.lower()
+    assert "startup service logs:" in message.lower()
+    assert "[harness]" in message
     assert (
         "/logs is not writable" in message
         or "permission denied" in message.lower()
+    )
+
+
+def test_regression_startup_includes_failed_collector_log_tails(
+    tmp_path: Path,
+    compose_files,
+    build_local_images,
+) -> None:
+    """
+    Regression guard:
+    when collector fails during startup, stack diagnostics should include
+    collector log tails explicitly.
+    """
+    root_dir = compose_files.base.parent
+    collector_fail_override = _write_collector_failure_override(tmp_path)
+    compose_with_failure = ComposeFiles(
+        base=compose_files.base,
+        overrides=compose_files.overrides + (collector_fail_override,),
+    )
+    stack = ComposeStack(
+        root_dir=root_dir,
+        temp_root=tmp_path,
+        test_slug="startup-collector-logs-regression",
+        compose_files=compose_with_failure,
+    )
+
+    start = time.monotonic()
+    try:
+        with pytest.raises(AssertionError) as exc_info:
+            stack.up()
+        elapsed = time.monotonic() - start
+    finally:
+        stack.down()
+
+    message = str(exc_info.value)
+    assert elapsed < 60.0, f"Startup failure was not fail-fast (elapsed={elapsed:.1f}s)"
+    assert "terminal state" in message.lower()
+    assert "collector" in message
+    assert "startup service logs:" in message.lower()
+    assert "[collector]" in message
+    assert (
+        "forced-collector-startup-failure" in message
+        or "exit 13" in message.lower()
     )

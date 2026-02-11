@@ -244,12 +244,12 @@ class ComposeStack:
             self.wait_for_services_running(("collector", "agent", "harness"), timeout_sec=90.0)
             self.wait_for_harness_ready()
         except AssertionError as exc:
-            logs = self.capture_compose_logs("harness", "agent")
+            logs = self._capture_startup_failure_logs(("collector", "agent", "harness"))
             if not logs.strip():
-                logs = self.capture_compose_logs()
+                logs = self.capture_compose_logs(tail=200)
             mount_info = self._mount_root_diagnostics()
             raise AssertionError(
-                f"{exc}\n\nMount roots:\n{mount_info}\n\nCompose logs:\n{logs}"
+                f"{exc}\n\nMount roots:\n{mount_info}\n\nStartup service logs:\n{logs}"
             ) from exc
 
     def down(self) -> None:
@@ -258,11 +258,40 @@ class ComposeStack:
         self.compose("down", "-v", check=False, timeout=120)
         self._up = False
 
-    def capture_compose_logs(self, *services: str) -> str:
+    def capture_compose_logs(self, *services: str, tail: int | None = None) -> str:
         args: list[str] = ["logs", "--no-color"]
+        if tail is not None:
+            args.extend(["--tail", str(max(1, tail))])
         args.extend(services)
         result = self.compose(*args, check=False, timeout=120)
         return (result.stdout or "") + ("\n" + result.stderr if result.stderr else "")
+
+    def _startup_failure_services(self, required_services: tuple[str, ...]) -> tuple[str, ...]:
+        terminal_states = {"dead", "exited"}
+        running = self.running_services()
+        states = self.service_states()
+        failed: list[str] = []
+        for service in required_services:
+            if service not in running:
+                failed.append(service)
+                continue
+            state = str((states.get(service) or {}).get("state") or "").strip().lower()
+            if state in terminal_states:
+                failed.append(service)
+        return tuple(dict.fromkeys(failed))
+
+    def _capture_startup_failure_logs(
+        self,
+        required_services: tuple[str, ...],
+        *,
+        tail_lines: int = 200,
+    ) -> str:
+        services = self._startup_failure_services(required_services) or required_services
+        sections: list[str] = []
+        for service in services:
+            logs = self.capture_compose_logs(service, tail=tail_lines).strip()
+            sections.append(f"[{service}]\n{logs or '<no logs>'}")
+        return "\n\n".join(sections)
 
     def running_services(self) -> set[str]:
         result = self.compose("ps", "--status", "running", "--services", check=False, timeout=30)
