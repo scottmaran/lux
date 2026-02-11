@@ -20,7 +20,7 @@ In scope:
 - Harness job/session lifecycle behavior
 - Timeline ownership and schema invariants
 - Regression protection for previously fixed bugs
-- Local agent end-to-end validation through Codex (`exec` and TUI path)
+- Local agent end-to-end validation through Codex (`exec` and interactive TUI)
 
 Out of scope:
 - Throughput benchmarking and performance tuning
@@ -165,6 +165,9 @@ uv run python scripts/all_tests.py --lane full
 
 # Local-only Codex lane
 uv run python scripts/all_tests.py --lane codex
+
+# Local comprehensive lane (CI-safe + Codex)
+uv run python scripts/all_tests.py --lane local-full
 ```
 
 ## CI and Merge Gates
@@ -177,7 +180,7 @@ Required gates for protected branches:
 6. Any repository-specific static checks
 
 Codex policy:
-- Codex `exec` + TUI agent-e2e tests are required for local release confidence.
+- Codex `exec` + interactive TUI agent-e2e tests are required for local release confidence.
 - They are not required in GitHub CI because credentials are unavailable there.
 
 Stress-full policy:

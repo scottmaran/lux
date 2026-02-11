@@ -18,14 +18,14 @@ docs/README.md (you are here)
 │  └─ UI_API.md — UI API contract
 ├─ dev/
 │  ├─ DEVELOPING.md — manual compose + component runs (legacy/advanced)
-│  ├─ TESTING.md — filter test cases and expected outcomes
-│  └─ EXAMPLE_FLOW.md — end-to-end example walkthroughs
+│  ├─ TESTING.md — testing quickstart and links to canonical test docs
+│  └─ EXAMPLE_FLOW.md — illustrative end-to-end walkthrough (non-normative)
 ├─ history/
 │  ├─ HISTORY.md — narrative history and decisions
 │  └─ dev_log.md — implementation log
 ├─ scratch/
 │  └─ scratch_notes.md — working notes
-└─ Components (in repo root)
+├─ Components (in repo root)
    ├─ agent/README.md — agent container setup
    ├─ harness/README.md — harness behavior and config
    ├─ collector/README.md — collector setup and pipeline
@@ -36,4 +36,9 @@ docs/README.md (you are here)
    ├─ ui/README.md — UI build/run notes
    ├─ ui/src/Attributions.md — asset attributions
    └─ lasso/ — Rust CLI source (release bundles ship the binary only)
+└─ Testing Docs (in `tests/`)
+   ├─ tests/README.md — canonical testing contract and runnable commands
+   ├─ tests/test_principles.md — concise test invariants
+   ├─ tests/SYNTHETIC_LOGS.md — synthetic-data fidelity guidance
+   └─ tests/testing_prompt.md — implementation contract for test-suite subagents
 ```

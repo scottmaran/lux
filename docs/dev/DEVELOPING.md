@@ -56,5 +56,15 @@ The UI reads from `${LASSO_LOG_ROOT:-./logs}` and binds to
 - `compose.ui.yml`: UI-only service that mounts `./logs` read-only.
 
 ## Testing and examples
-- `docs/dev/TESTING.md`: integration tests and filter test cases.
-- `docs/dev/EXAMPLE_FLOW.md`: end-to-end example walkthroughs.
+- `tests/README.md`: canonical test architecture, required gates, and commands.
+- `docs/dev/TESTING.md`: quickstart/testing entrypoint that points to canonical test docs.
+- `tests/test_principles.md`: concise statement of testing invariants.
+- `tests/SYNTHETIC_LOGS.md`: synthetic data scope, fidelity status, and constraints.
+- `docs/dev/EXAMPLE_FLOW.md`: illustrative walkthrough (not a normative test contract).
+
+Legacy integration scripts under `scripts/run_integration_*.sh` are still useful
+for ad-hoc debugging, but canonical local/CI test gating is via:
+
+```bash
+uv run python scripts/all_tests.py --lane <fast|pr|full|codex|local-full>
+```
