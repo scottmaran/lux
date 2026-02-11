@@ -259,7 +259,10 @@ class ComposeStack:
             logs = self.capture_compose_logs("harness", "agent")
             if not logs.strip():
                 logs = self.capture_compose_logs()
-            raise AssertionError(f"{exc}\n\nCompose logs:\n{logs}") from exc
+            mount_info = self._mount_root_diagnostics()
+            raise AssertionError(
+                f"{exc}\n\nMount roots:\n{mount_info}\n\nCompose logs:\n{logs}"
+            ) from exc
 
     def down(self) -> None:
         if not self._up:
@@ -348,6 +351,20 @@ class ComposeStack:
                 f"status={info.get('status')!r})"
             )
         return ", ".join(rendered)
+
+    def _mount_root_diagnostics(self) -> str:
+        lines: list[str] = []
+        for name, path in (("log_root", self.log_root), ("workspace_root", self.workspace_root)):
+            if not path.exists():
+                lines.append(f"{name}={path} <missing>")
+                continue
+            stat = path.stat()
+            lines.append(
+                f"{name}={path} "
+                f"mode={oct(stat.st_mode & 0o777)} "
+                f"uid={stat.st_uid} gid={stat.st_gid}"
+            )
+        return "\n".join(lines)
 
     def wait_for_services_running(
         self,
