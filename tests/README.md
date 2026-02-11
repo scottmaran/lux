@@ -64,6 +64,7 @@ tests/
     pipeline/
       case_*/
   integration/
+    compose.test.override.yml    <- test-only compose deltas layered onto `compose.yml`
     config/                    <- test-only collector filter config overrides for compose
                                 (keeps CI-safe bash attribution without changing prod defaults)
     test_*.py                  <- real Docker stack tests

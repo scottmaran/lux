@@ -24,7 +24,8 @@ from tests.support.integration_stack import (
 
 
 ROOT_DIR = Path(__file__).resolve().parents[2]
-COMPOSE_BASE = ROOT_DIR / "tests" / "integration" / "compose.stack.yml"
+COMPOSE_BASE = ROOT_DIR / "compose.yml"
+COMPOSE_TEST_OVERRIDE = ROOT_DIR / "tests" / "integration" / "compose.test.override.yml"
 COMPOSE_CODEX = ROOT_DIR / "compose.codex.yml"
 TEST_PROJECT_PREFIX = "lasso-test-"
 
@@ -67,24 +68,20 @@ def _discover_test_projects() -> list[str]:
 
 def _cleanup_stale_test_projects() -> None:
     for project in _discover_test_projects():
-        run_cmd(
-            [
-                "docker",
-                "compose",
-                "-p",
-                project,
-                "-f",
-                str(COMPOSE_BASE),
-                "-f",
-                str(COMPOSE_CODEX),
-                "down",
-                "-v",
-                "--remove-orphans",
-            ],
-            cwd=ROOT_DIR,
-            check=False,
-            timeout=180,
-        )
+        for compose_files in (
+            (COMPOSE_BASE, COMPOSE_TEST_OVERRIDE),
+            (COMPOSE_BASE, COMPOSE_TEST_OVERRIDE, COMPOSE_CODEX),
+        ):
+            cmd = ["docker", "compose", "-p", project]
+            for compose_file in compose_files:
+                cmd.extend(["-f", str(compose_file)])
+            cmd.extend(["down", "-v", "--remove-orphans"])
+            run_cmd(
+                cmd,
+                cwd=ROOT_DIR,
+                check=False,
+                timeout=180,
+            )
 
 
 @pytest.hookimpl(hookwrapper=True, tryfirst=True)
@@ -96,12 +93,12 @@ def pytest_runtest_makereport(item, call):
 
 @pytest.fixture(scope="session")
 def compose_files() -> ComposeFiles:
-    return ComposeFiles(base=COMPOSE_BASE)
+    return ComposeFiles(base=COMPOSE_BASE, overrides=(COMPOSE_TEST_OVERRIDE,))
 
 
 @pytest.fixture(scope="session")
 def compose_files_codex() -> ComposeFiles:
-    return ComposeFiles(base=COMPOSE_BASE, overrides=(COMPOSE_CODEX,))
+    return ComposeFiles(base=COMPOSE_BASE, overrides=(COMPOSE_TEST_OVERRIDE, COMPOSE_CODEX))
 
 
 @pytest.fixture(scope="session", autouse=True)
@@ -120,16 +117,10 @@ def cleanup_stale_test_stacks(ensure_docker_available):
 @pytest.fixture(scope="session")
 def build_local_images(compose_files: ComposeFiles) -> None:
     """Build local images once so docker-backed tests run branch code."""
-    cmd = [
-        "docker",
-        "compose",
-        "-f",
-        str(compose_files.base),
-        "build",
-        "collector",
-        "agent",
-        "harness",
-    ]
+    cmd = ["docker", "compose", "-f", str(compose_files.base)]
+    for override in compose_files.overrides:
+        cmd.extend(["-f", str(override)])
+    cmd.extend(["build", "collector", "agent", "harness"])
     run_cmd(cmd, cwd=ROOT_DIR, check=True, timeout=1800)
 
 

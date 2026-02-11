@@ -22,6 +22,10 @@ If there is a conflict, `tests/README.md` is authoritative.
 ## Practical Implications
 - Do not use offline synthetic replay as integration acceptance evidence.
 - Keep fixture schema and timeline invariants enforced in code.
+- Keep integration compose wiring anchored to shipping `compose.yml`, with only
+  minimal test-only override deltas.
+- Enforce compose parity/contracts in tests (see
+  `tests/unit/test_compose_contract_parity.py`) to block drift.
 - For Codex lanes, validate real behavior:
   - `agent_codex` `exec` path,
   - interactive TUI path with input/output/ownership evidence.
