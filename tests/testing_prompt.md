@@ -50,12 +50,16 @@ Read these files before editing:
 12. `tests/integration/test_*.py`
 13. `tests/support/integration_stack.py`
 14. `tests/support/pytest_docker.py`
-15. `scripts/all_tests.py`
-16. `scripts/verify_test_delta.py`
-17. `scripts/cli_scripts/*`
-18. `example_logs/audit.log`
-19. `example_logs/ebpf.jsonl`
-20. `.github/workflows/release.yml`
+15. `compose.yml`
+16. `tests/integration/compose.test.override.yml`
+17. `compose.codex.yml`
+18. `tests/unit/test_compose_contract_parity.py`
+19. `scripts/all_tests.py`
+20. `scripts/verify_test_delta.py`
+21. `scripts/cli_scripts/*`
+22. `example_logs/audit.log`
+23. `example_logs/ebpf.jsonl`
+24. `.github/workflows/release.yml`
 
 Then implement. Do not stop at analysis.
 
@@ -68,6 +72,10 @@ Then implement. Do not stop at analysis.
 6. Integration/regression/stress assertions must come from live stack outputs.
 7. Add regression coverage for bug-fix class changes.
 8. Include explicit Codex agent coverage (`exec` and interactive `tui`).
+9. Integration compose must layer on shipping `compose.yml` with minimal
+   test-only overrides; do not maintain a copied test stack file.
+10. Compose parity must be enforced in tests for service/env/volume contracts
+    and allowlisted override deltas.
 
 ## 4) Required Deliverables
 
@@ -137,6 +145,23 @@ Minimum:
 - collector core logic covered via top-level entry behavior
 - fixture tests for filter/summary/merge contracts
 
+### E2) Compose Topology + Parity Contract
+Integration stack wiring must use:
+
+- base: `compose.yml`
+- test override: `tests/integration/compose.test.override.yml`
+- codex override (codex lanes): `compose.codex.yml`
+
+Requirements:
+- no standalone copied integration stack file (e.g. `compose.stack.yml` clones)
+- test override must contain only test-only deltas (local build/image wiring,
+  collector test-config mount/env, no broad runtime contract rewrites)
+- harness host port must be parameterized for isolated tests (`HARNESS_HOST_PORT`)
+- add/maintain compose parity tests that assert:
+  - required runtime contracts in base compose
+  - override allowlist boundaries
+  - codex override remains scoped to expected mounts only
+
 ### F) Integration Layer (Live End-to-End)
 Create integration tests that:
 
@@ -144,6 +169,10 @@ Create integration tests that:
 - submit real jobs through supported harness API/CLI user paths
 - wait for completion via polling/status
 - assert live outputs and artifacts from running stack
+
+Compose rule:
+- integration stack must be composed from `compose.yml` + test override
+  (and codex override where applicable), not from a copied compose definition.
 
 Required assertion sources:
 - `/logs/jobs/<job_id>/*`
@@ -291,6 +320,9 @@ Required architecture guards:
 - fail if integration/stress/regression core assertions depend on offline replay helpers
 - fail if Codex tests use forbidden template `HARNESS_RUN_CMD_TEMPLATE=bash -lc {prompt}`
 - fail if required Codex lanes are missing
+- fail if a copied integration compose stack file is introduced instead of
+  base + override layering
+- fail if compose parity contract tests are missing from the unit suite
 
 Required TUI guard:
 - fail if tests marked as interactive TUI do not send stdin after startup
@@ -305,11 +337,12 @@ Keep v1 pragmatic. Avoid fragile deep static analysis.
 4. Passing full prompt on command line and claiming interactive behavior without stdin-driven evidence.
 5. Integration acceptance via offline replay.
 6. Silencing flaky tests instead of fixing readiness/isolation.
+7. Copying `compose.yml` into a separate integration stack and allowing drift.
 
 ## 6) Implementation Order
 1. pytest config + directory scaffolding
 2. fixture schema validation + representative cases
-3. shared timeline validator
+3. compose base+override wiring + parity contract tests
 4. unit baseline
 5. live integration suite
 6. Codex lanes (`exec`, `tui-smoke`, `tui-concurrent`) with strict interactive evidence
@@ -363,7 +396,8 @@ Done means all are true:
 9. synthetic fidelity program exists with real-log parity tests
 10. Codex `exec` lane passes in credentialed environment
 11. Codex interactive TUI lanes prove stdin-driven behavior and session-owned execution evidence
-12. docs and commands match real implementation
+12. compose parity tests enforce base runtime contracts + override boundaries
+13. docs and commands match real implementation
 
 ## 10) Stretch Goals (Only After Core Green)
 1. decommission legacy Bash tests after equivalent Python coverage exists
