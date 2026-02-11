@@ -53,14 +53,16 @@ harness:
 - **Default:** `~/lasso-logs`
 - **Meaning:** host directory where logs are written and mounted into containers.
 - **Notes:** `lasso config apply` creates this directory if missing. A leading
-  `~/` is expanded to your home directory.
+  `~/` is expanded to your home directory. On Unix, `lasso config apply`
+  normalizes directory mode to `0777` so container users can write bind mounts.
 
 ### paths.workspace_root
 - **Type:** string (path)
 - **Default:** `~/lasso-workspace`
 - **Meaning:** host directory mounted into the agent/harness as `/work`.
 - **Notes:** `lasso config apply` creates this directory if missing. A leading
-  `~/` is expanded to your home directory.
+  `~/` is expanded to your home directory. On Unix, `lasso config apply`
+  normalizes directory mode to `0777` so container users can write bind mounts.
 
 ### release.tag
 - **Type:** string
@@ -134,6 +136,8 @@ Notes:
 `lasso config apply` validates the file and then:
 1) Writes a compose env file (default `~/.config/lasso/compose.env`).
 2) Creates `paths.log_root` and `paths.workspace_root` if missing.
+3) On Unix, sets both directories to mode `0777` for Docker bind-mount UID
+   compatibility (agent uid `1001`, harness uid `1002`).
 
 The compose env file includes:
 - `LASSO_VERSION` (from `release.tag` or CLI version)

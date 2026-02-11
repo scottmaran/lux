@@ -172,6 +172,8 @@ class ComposeStack:
         self.workspace_root = temp_root / "workspace"
         self.log_root.mkdir(parents=True, exist_ok=True)
         self.workspace_root.mkdir(parents=True, exist_ok=True)
+        self._chmod_bind_mount_dir_writable(self.log_root)
+        self._chmod_bind_mount_dir_writable(self.workspace_root)
 
         self.compose_files = compose_files
         self.project_name = f"lasso-test-{test_slug}-{uuid.uuid4().hex[:8]}"
@@ -195,6 +197,16 @@ class ComposeStack:
 
         self.token = token
         self._up = False
+
+    @staticmethod
+    def _chmod_bind_mount_dir_writable(path: Path) -> None:
+        """
+        Ensure docker bind-mount roots are writable by non-root service users.
+
+        Linux CI runners enforce UID/GID permissions on bind mounts, unlike some
+        Docker Desktop setups that can appear more permissive.
+        """
+        path.chmod(0o777)
 
     @property
     def base_url(self) -> str:
@@ -265,6 +277,74 @@ class ComposeStack:
             if line.strip()
         }
 
+    def service_states(self) -> dict[str, dict[str, Any]]:
+        """
+        Return current docker compose service states keyed by compose service name.
+
+        Uses `docker compose ps --all --format json` and tolerates both:
+        - a JSON array payload, and
+        - newline-delimited JSON object rows.
+        """
+        result = self.compose("ps", "--all", "--format", "json", check=False, timeout=30)
+        raw = (result.stdout or "").strip()
+        if not raw:
+            return {}
+
+        rows: list[dict[str, Any]] = []
+        try:
+            parsed = json.loads(raw)
+        except json.JSONDecodeError:
+            parsed = None
+
+        if isinstance(parsed, list):
+            rows = [row for row in parsed if isinstance(row, dict)]
+        elif isinstance(parsed, dict):
+            rows = [parsed]
+        else:
+            for line in raw.splitlines():
+                item = line.strip()
+                if not item:
+                    continue
+                try:
+                    payload = json.loads(item)
+                except json.JSONDecodeError:
+                    continue
+                if isinstance(payload, dict):
+                    rows.append(payload)
+
+        states: dict[str, dict[str, Any]] = {}
+        for row in rows:
+            service = row.get("Service") or row.get("service")
+            if not isinstance(service, str) or not service:
+                continue
+            state = row.get("State") or row.get("state") or "unknown"
+            status = row.get("Status") or row.get("status") or ""
+            states[service] = {
+                "state": str(state).strip().lower(),
+                "status": str(status).strip(),
+                "exit_code": row.get("ExitCode", row.get("exit_code")),
+            }
+        return states
+
+    def _format_service_state_map(
+        self,
+        states: dict[str, dict[str, Any]],
+        services: tuple[str, ...],
+    ) -> str:
+        rendered: list[str] = []
+        for service in services:
+            info = states.get(service)
+            if not info:
+                rendered.append(f"{service}=<missing>")
+                continue
+            rendered.append(
+                f"{service}="
+                f"{info.get('state')}("
+                f"exit_code={info.get('exit_code')}, "
+                f"status={info.get('status')!r})"
+            )
+        return ", ".join(rendered)
+
     def wait_for_services_running(
         self,
         services: tuple[str, ...],
@@ -272,19 +352,36 @@ class ComposeStack:
         timeout_sec: float = 60.0,
         interval_sec: float = 1.0,
     ) -> None:
+        terminal_states = {"dead", "exited"}
         deadline = time.time() + timeout_sec
         last_running: set[str] = set()
+        last_states: dict[str, dict[str, Any]] = {}
         while time.time() < deadline:
             running = self.running_services()
+            states = self.service_states()
             last_running = running
+            last_states = states
             missing = [svc for svc in services if svc not in running]
             if not missing:
                 return
+
+            failed = {
+                service: info
+                for service, info in states.items()
+                if service in services and str(info.get("state", "")).lower() in terminal_states
+            }
+            if failed:
+                state_map = self._format_service_state_map(states, services)
+                raise AssertionError(
+                    "Required service entered terminal state before startup completed. "
+                    f"failed={sorted(failed)} running={sorted(running)} states=[{state_map}]"
+                )
             time.sleep(interval_sec)
         missing = [svc for svc in services if svc not in last_running]
+        state_map = self._format_service_state_map(last_states, services)
         raise AssertionError(
             f"Timed out waiting for running services={services}. "
-            f"Missing={missing}, running={sorted(last_running)}."
+            f"Missing={missing}, running={sorted(last_running)}, states=[{state_map}]."
         )
 
     def exec_service(

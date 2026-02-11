@@ -1,5 +1,5 @@
-use clap::{Parser, Subcommand};
 use chrono::{DateTime, Utc};
+use clap::{Parser, Subcommand};
 use dirs::home_dir;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -181,13 +181,17 @@ impl Default for Paths {
 
 impl Default for Release {
     fn default() -> Self {
-        Self { tag: "".to_string() }
+        Self {
+            tag: "".to_string(),
+        }
     }
 }
 
 impl Default for Docker {
     fn default() -> Self {
-        Self { project_name: "lasso".to_string() }
+        Self {
+            project_name: "lasso".to_string(),
+        }
     }
 }
 
@@ -225,9 +229,13 @@ fn main() -> Result<(), LassoError> {
         Commands::Up { codex, ui, pull } => handle_up(&ctx, codex, ui, pull),
         Commands::Down { codex, ui } => handle_down(&ctx, codex, ui),
         Commands::Status { codex, ui } => handle_status(&ctx, codex, ui),
-        Commands::Run { prompt, capture_input, cwd, timeout_sec, env } => {
-            handle_run(&ctx, prompt, capture_input, cwd, timeout_sec, env)
-        }
+        Commands::Run {
+            prompt,
+            capture_input,
+            cwd,
+            timeout_sec,
+            env,
+        } => handle_run(&ctx, prompt, capture_input, cwd, timeout_sec, env),
         Commands::Tui { codex } => handle_tui(&ctx, codex),
         Commands::Jobs { command } => handle_jobs(&ctx, command),
         Commands::Doctor => handle_doctor(&ctx),
@@ -357,13 +365,19 @@ fn config_to_env(cfg: &Config) -> BTreeMap<String, String> {
         cfg.release.tag.trim().to_string()
     };
     envs.insert("LASSO_VERSION".to_string(), tag);
-    envs.insert("LASSO_LOG_ROOT".to_string(), expand_path(&cfg.paths.log_root));
+    envs.insert(
+        "LASSO_LOG_ROOT".to_string(),
+        expand_path(&cfg.paths.log_root),
+    );
     envs.insert(
         "LASSO_WORKSPACE_ROOT".to_string(),
         expand_path(&cfg.paths.workspace_root),
     );
     if !cfg.harness.api_token.trim().is_empty() {
-        envs.insert("HARNESS_API_TOKEN".to_string(), cfg.harness.api_token.clone());
+        envs.insert(
+            "HARNESS_API_TOKEN".to_string(),
+            cfg.harness.api_token.clone(),
+        );
     }
     envs.insert(
         "HARNESS_HTTP_PORT".to_string(),
@@ -380,6 +394,53 @@ fn write_env_file(path: &Path, envs: &BTreeMap<String, String>) -> Result<(), La
     }
     fs::write(path, content)?;
     Ok(())
+}
+
+fn ensure_runtime_mount_dir(path: &Path) -> Result<(), LassoError> {
+    fs::create_dir_all(path)?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        fs::set_permissions(path, fs::Permissions::from_mode(0o777))?;
+    }
+    Ok(())
+}
+
+fn host_dir_writable(path: &Path) -> bool {
+    fs::create_dir_all(path)
+        .and_then(|_| {
+            let test_path = path.join(".lasso_write_test");
+            fs::write(&test_path, b"ok")?;
+            fs::remove_file(&test_path)?;
+            Ok(())
+        })
+        .is_ok()
+}
+
+fn uid_can_write_dir(path: &Path, uid: u32) -> bool {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::{MetadataExt, PermissionsExt};
+
+        let metadata = match fs::metadata(path) {
+            Ok(metadata) => metadata,
+            Err(_) => return false,
+        };
+        let mode = metadata.permissions().mode();
+        let owner_uid = metadata.uid();
+        let owner_gid = metadata.gid();
+        let user_gid = uid;
+
+        let has_owner = uid == owner_uid && (mode & 0o300) == 0o300;
+        let has_group = user_gid == owner_gid && (mode & 0o030) == 0o030;
+        let has_other = (mode & 0o003) == 0o003;
+        has_owner || has_group || has_other
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = uid;
+        host_dir_writable(path)
+    }
 }
 
 fn handle_config(ctx: &Context, command: ConfigCommand) -> Result<(), LassoError> {
@@ -402,7 +463,9 @@ fn handle_config(ctx: &Context, command: ConfigCommand) -> Result<(), LassoError
                 let status = Command::new(editor)
                     .arg(&ctx.config_path)
                     .status()
-                    .map_err(|err| LassoError::Process(format!("failed to launch editor: {err}")))?;
+                    .map_err(|err| {
+                        LassoError::Process(format!("failed to launch editor: {err}"))
+                    })?;
                 if !status.success() {
                     return Err(LassoError::Process("editor exited with error".to_string()));
                 }
@@ -431,9 +494,9 @@ fn handle_config(ctx: &Context, command: ConfigCommand) -> Result<(), LassoError
             let envs = config_to_env(&cfg);
             write_env_file(&ctx.env_file, &envs)?;
             let log_root = PathBuf::from(expand_path(&cfg.paths.log_root));
-            fs::create_dir_all(&log_root)?;
+            ensure_runtime_mount_dir(&log_root)?;
             let workspace_root = PathBuf::from(expand_path(&cfg.paths.workspace_root));
-            fs::create_dir_all(&workspace_root)?;
+            ensure_runtime_mount_dir(&workspace_root)?;
             output(
                 ctx,
                 json!({"env_file": ctx.env_file, "log_root": log_root, "workspace_root": workspace_root}),
@@ -499,11 +562,13 @@ fn handle_down(ctx: &Context, codex: bool, ui: bool) -> Result<(), LassoError> {
 fn handle_status(ctx: &Context, codex: bool, ui: bool) -> Result<(), LassoError> {
     let mut cmd = compose_base_command(ctx, codex, ui)?;
     cmd.arg("ps").arg("--format").arg("json");
-    let output = cmd.output().map_err(|err| {
-        LassoError::Process(format!("failed to run docker compose: {err}"))
-    })?;
+    let output = cmd
+        .output()
+        .map_err(|err| LassoError::Process(format!("failed to run docker compose: {err}")))?;
     if !output.status.success() {
-        return Err(LassoError::Process(String::from_utf8_lossy(&output.stderr).to_string()));
+        return Err(LassoError::Process(
+            String::from_utf8_lossy(&output.stderr).to_string(),
+        ));
     }
     let text = String::from_utf8_lossy(&output.stdout);
     let rows: serde_json::Value = match serde_json::from_str(&text) {
@@ -581,7 +646,8 @@ fn handle_run(
         )));
     }
     if ctx.json {
-        let payload: serde_json::Value = serde_json::from_str(&body).unwrap_or(json!({"raw": body}));
+        let payload: serde_json::Value =
+            serde_json::from_str(&body).unwrap_or(json!({"raw": body}));
         let wrapper = JsonResult {
             ok: true,
             result: Some(payload),
@@ -628,7 +694,8 @@ fn handle_jobs(ctx: &Context, command: JobsCommand) -> Result<(), LassoError> {
                 return Err(LassoError::Process(format!("job not found: {id}")));
             }
             let content = fs::read_to_string(status_path)?;
-            let data: serde_json::Value = serde_json::from_str(&content).unwrap_or(json!({"raw": content}));
+            let data: serde_json::Value =
+                serde_json::from_str(&content).unwrap_or(json!({"raw": content}));
             output(ctx, data)
         }
     }
@@ -651,24 +718,50 @@ fn handle_doctor(ctx: &Context) -> Result<(), LassoError> {
 
     let cfg = read_config(&ctx.config_path)?;
     let log_root = PathBuf::from(expand_path(&cfg.paths.log_root));
-    let log_ok = fs::create_dir_all(&log_root)
-        .and_then(|_| {
-            let test_path = log_root.join(".lasso_write_test");
-            fs::write(&test_path, b"ok")?;
-            fs::remove_file(&test_path)?;
-            Ok(())
-        })
-        .is_ok();
+    let log_ok = host_dir_writable(&log_root);
     checks.insert("log_root_writable".to_string(), log_ok);
+    let workspace_root = PathBuf::from(expand_path(&cfg.paths.workspace_root));
+    let workspace_ok = host_dir_writable(&workspace_root);
+    checks.insert("workspace_root_writable".to_string(), workspace_ok);
 
-    let ok = docker_ok && log_ok;
-    let error = if ok {
-        None
-    } else if !docker_ok {
-        Some("docker is not available".to_string())
-    } else {
-        Some("log root is not writable".to_string())
-    };
+    let harness_log_ok = uid_can_write_dir(&log_root, 1002);
+    checks.insert(
+        "harness_uid_1002_log_root_writable".to_string(),
+        harness_log_ok,
+    );
+    let harness_workspace_ok = uid_can_write_dir(&workspace_root, 1002);
+    checks.insert(
+        "harness_uid_1002_workspace_root_writable".to_string(),
+        harness_workspace_ok,
+    );
+    let agent_workspace_ok = uid_can_write_dir(&workspace_root, 1001);
+    checks.insert(
+        "agent_uid_1001_workspace_root_writable".to_string(),
+        agent_workspace_ok,
+    );
+
+    let mut failures: Vec<String> = Vec::new();
+    if !docker_ok {
+        failures.push("docker is not available".to_string());
+    }
+    if !log_ok {
+        failures.push("log root is not writable by current user".to_string());
+    }
+    if !workspace_ok {
+        failures.push("workspace root is not writable by current user".to_string());
+    }
+    if !harness_log_ok {
+        failures.push("harness uid 1002 cannot write log_root".to_string());
+    }
+    if !harness_workspace_ok {
+        failures.push("harness uid 1002 cannot write workspace_root".to_string());
+    }
+    if !agent_workspace_ok {
+        failures.push("agent uid 1001 cannot write workspace_root".to_string());
+    }
+
+    let ok = failures.is_empty();
+    let error = if ok { None } else { Some(failures.join("; ")) };
 
     if ctx.json {
         let payload = JsonResult {
@@ -680,13 +773,52 @@ fn handle_doctor(ctx: &Context) -> Result<(), LassoError> {
         return Ok(());
     }
 
-    println!("Docker: {}", if docker_ok { "ok" } else { "missing or not running" });
-    println!("Log root: {}", if log_ok { "writable" } else { "not writable" });
-    if !docker_ok {
-        return Err(LassoError::Process("docker is not available".to_string()));
-    }
-    if !log_ok {
-        return Err(LassoError::Process("log root is not writable".to_string()));
+    println!(
+        "Docker: {}",
+        if docker_ok {
+            "ok"
+        } else {
+            "missing or not running"
+        }
+    );
+    println!(
+        "Log root: {}",
+        if log_ok { "writable" } else { "not writable" }
+    );
+    println!(
+        "Workspace root: {}",
+        if workspace_ok {
+            "writable"
+        } else {
+            "not writable"
+        }
+    );
+    println!(
+        "Harness uid 1002 -> log root: {}",
+        if harness_log_ok {
+            "writable"
+        } else {
+            "not writable"
+        }
+    );
+    println!(
+        "Harness uid 1002 -> workspace root: {}",
+        if harness_workspace_ok {
+            "writable"
+        } else {
+            "not writable"
+        }
+    );
+    println!(
+        "Agent uid 1001 -> workspace root: {}",
+        if agent_workspace_ok {
+            "writable"
+        } else {
+            "not writable"
+        }
+    );
+    if let Some(message) = error {
+        return Err(LassoError::Process(message));
     }
     Ok(())
 }
@@ -720,10 +852,14 @@ fn logs_stats(ctx: &Context) -> Result<(), LassoError> {
             let meta: serde_json::Value = serde_json::from_str(&meta_raw).unwrap_or(json!({}));
             let started = meta.get("started_at").and_then(|v| v.as_str());
             let ended = meta.get("ended_at").and_then(|v| v.as_str());
-            let (Some(started), Some(ended)) = (started, ended) else { continue; };
+            let (Some(started), Some(ended)) = (started, ended) else {
+                continue;
+            };
             let start_dt = DateTime::parse_from_rfc3339(started).ok();
             let end_dt = DateTime::parse_from_rfc3339(ended).ok();
-            let (Some(start_dt), Some(end_dt)) = (start_dt, end_dt) else { continue; };
+            let (Some(start_dt), Some(end_dt)) = (start_dt, end_dt) else {
+                continue;
+            };
             let duration = end_dt.with_timezone(&Utc) - start_dt.with_timezone(&Utc);
             let hours = duration.num_seconds() as f64 / 3600.0;
             if hours <= 0.0 {
@@ -760,7 +896,10 @@ fn logs_tail(ctx: &Context, lines: usize, file: Option<String>) -> Result<(), La
         Some(name) => log_root.join(name),
     };
     if !target.exists() {
-        return Err(LassoError::Process(format!("log not found: {}", target.display())));
+        return Err(LassoError::Process(format!(
+            "log not found: {}",
+            target.display()
+        )));
     }
     if ctx.json {
         let payload = JsonResult {
@@ -820,11 +959,13 @@ fn run_command(
     capture_output: bool,
 ) -> Result<(), LassoError> {
     if capture_output {
-        let cmd_output = cmd.output().map_err(|err| {
-            LassoError::Process(format!("failed to run command: {err}"))
-        })?;
+        let cmd_output = cmd
+            .output()
+            .map_err(|err| LassoError::Process(format!("failed to run command: {err}")))?;
         if !cmd_output.status.success() {
-            let stderr = String::from_utf8_lossy(&cmd_output.stderr).trim().to_string();
+            let stderr = String::from_utf8_lossy(&cmd_output.stderr)
+                .trim()
+                .to_string();
             let mut message = format!("command failed with status {}", cmd_output.status);
             if !stderr.is_empty() {
                 message = format!("{message}: {stderr}");
@@ -847,11 +988,13 @@ fn run_command(
         return output(ctx, json_payload);
     }
 
-    let status = cmd.status().map_err(|err| {
-        LassoError::Process(format!("failed to run command: {err}"))
-    })?;
+    let status = cmd
+        .status()
+        .map_err(|err| LassoError::Process(format!("failed to run command: {err}")))?;
     if !status.success() {
-        return Err(LassoError::Process(format!("command failed with status {status}")));
+        return Err(LassoError::Process(format!(
+            "command failed with status {status}"
+        )));
     }
     output(ctx, json_payload)
 }

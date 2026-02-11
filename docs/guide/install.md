@@ -81,7 +81,8 @@ Set:
 - `paths.log_root`
 - `paths.workspace_root`
 
-2) Apply config (creates directories + compose env file):
+2) Apply config (creates directories + compose env file, and on Unix sets
+   log/workspace mode to `0777` for container UID compatibility):
 
 ```bash
 lasso config apply
