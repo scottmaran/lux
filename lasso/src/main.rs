@@ -396,16 +396,6 @@ fn write_env_file(path: &Path, envs: &BTreeMap<String, String>) -> Result<(), La
     Ok(())
 }
 
-fn ensure_runtime_mount_dir(path: &Path) -> Result<(), LassoError> {
-    fs::create_dir_all(path)?;
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        fs::set_permissions(path, fs::Permissions::from_mode(0o777))?;
-    }
-    Ok(())
-}
-
 fn host_dir_writable(path: &Path) -> bool {
     fs::create_dir_all(path)
         .and_then(|_| {
@@ -415,32 +405,6 @@ fn host_dir_writable(path: &Path) -> bool {
             Ok(())
         })
         .is_ok()
-}
-
-fn uid_can_write_dir(path: &Path, uid: u32) -> bool {
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::{MetadataExt, PermissionsExt};
-
-        let metadata = match fs::metadata(path) {
-            Ok(metadata) => metadata,
-            Err(_) => return false,
-        };
-        let mode = metadata.permissions().mode();
-        let owner_uid = metadata.uid();
-        let owner_gid = metadata.gid();
-        let user_gid = uid;
-
-        let has_owner = uid == owner_uid && (mode & 0o300) == 0o300;
-        let has_group = user_gid == owner_gid && (mode & 0o030) == 0o030;
-        let has_other = (mode & 0o003) == 0o003;
-        has_owner || has_group || has_other
-    }
-    #[cfg(not(unix))]
-    {
-        let _ = uid;
-        host_dir_writable(path)
-    }
 }
 
 fn handle_config(ctx: &Context, command: ConfigCommand) -> Result<(), LassoError> {
@@ -494,9 +458,9 @@ fn handle_config(ctx: &Context, command: ConfigCommand) -> Result<(), LassoError
             let envs = config_to_env(&cfg);
             write_env_file(&ctx.env_file, &envs)?;
             let log_root = PathBuf::from(expand_path(&cfg.paths.log_root));
-            ensure_runtime_mount_dir(&log_root)?;
+            fs::create_dir_all(&log_root)?;
             let workspace_root = PathBuf::from(expand_path(&cfg.paths.workspace_root));
-            ensure_runtime_mount_dir(&workspace_root)?;
+            fs::create_dir_all(&workspace_root)?;
             output(
                 ctx,
                 json!({"env_file": ctx.env_file, "log_root": log_root, "workspace_root": workspace_root}),
@@ -720,48 +684,14 @@ fn handle_doctor(ctx: &Context) -> Result<(), LassoError> {
     let log_root = PathBuf::from(expand_path(&cfg.paths.log_root));
     let log_ok = host_dir_writable(&log_root);
     checks.insert("log_root_writable".to_string(), log_ok);
-    let workspace_root = PathBuf::from(expand_path(&cfg.paths.workspace_root));
-    let workspace_ok = host_dir_writable(&workspace_root);
-    checks.insert("workspace_root_writable".to_string(), workspace_ok);
-
-    let harness_log_ok = uid_can_write_dir(&log_root, 1002);
-    checks.insert(
-        "harness_uid_1002_log_root_writable".to_string(),
-        harness_log_ok,
-    );
-    let harness_workspace_ok = uid_can_write_dir(&workspace_root, 1002);
-    checks.insert(
-        "harness_uid_1002_workspace_root_writable".to_string(),
-        harness_workspace_ok,
-    );
-    let agent_workspace_ok = uid_can_write_dir(&workspace_root, 1001);
-    checks.insert(
-        "agent_uid_1001_workspace_root_writable".to_string(),
-        agent_workspace_ok,
-    );
-
-    let mut failures: Vec<String> = Vec::new();
-    if !docker_ok {
-        failures.push("docker is not available".to_string());
-    }
-    if !log_ok {
-        failures.push("log root is not writable by current user".to_string());
-    }
-    if !workspace_ok {
-        failures.push("workspace root is not writable by current user".to_string());
-    }
-    if !harness_log_ok {
-        failures.push("harness uid 1002 cannot write log_root".to_string());
-    }
-    if !harness_workspace_ok {
-        failures.push("harness uid 1002 cannot write workspace_root".to_string());
-    }
-    if !agent_workspace_ok {
-        failures.push("agent uid 1001 cannot write workspace_root".to_string());
-    }
-
-    let ok = failures.is_empty();
-    let error = if ok { None } else { Some(failures.join("; ")) };
+    let ok = docker_ok && log_ok;
+    let error = if ok {
+        None
+    } else if !docker_ok {
+        Some("docker is not available".to_string())
+    } else {
+        Some("log root is not writable".to_string())
+    };
 
     if ctx.json {
         let payload = JsonResult {
@@ -785,40 +715,11 @@ fn handle_doctor(ctx: &Context) -> Result<(), LassoError> {
         "Log root: {}",
         if log_ok { "writable" } else { "not writable" }
     );
-    println!(
-        "Workspace root: {}",
-        if workspace_ok {
-            "writable"
-        } else {
-            "not writable"
-        }
-    );
-    println!(
-        "Harness uid 1002 -> log root: {}",
-        if harness_log_ok {
-            "writable"
-        } else {
-            "not writable"
-        }
-    );
-    println!(
-        "Harness uid 1002 -> workspace root: {}",
-        if harness_workspace_ok {
-            "writable"
-        } else {
-            "not writable"
-        }
-    );
-    println!(
-        "Agent uid 1001 -> workspace root: {}",
-        if agent_workspace_ok {
-            "writable"
-        } else {
-            "not writable"
-        }
-    );
-    if let Some(message) = error {
-        return Err(LassoError::Process(message));
+    if !docker_ok {
+        return Err(LassoError::Process("docker is not available".to_string()));
+    }
+    if !log_ok {
+        return Err(LassoError::Process("log root is not writable".to_string()));
     }
     Ok(())
 }

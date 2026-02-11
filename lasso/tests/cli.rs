@@ -115,15 +115,6 @@ fn config_apply_writes_env_and_dirs() {
 
     assert!(log_root.exists());
     assert!(work_root.exists());
-
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        let log_mode = fs::metadata(&log_root).unwrap().permissions().mode() & 0o777;
-        let work_mode = fs::metadata(&work_root).unwrap().permissions().mode() & 0o777;
-        assert_eq!(log_mode, 0o777);
-        assert_eq!(work_mode, 0o777);
-    }
 }
 
 #[test]
@@ -177,10 +168,6 @@ fn doctor_reports_missing_docker_in_json() {
 
     let value = parse_json(&output);
     assert!(!value["ok"].as_bool().unwrap());
-    assert!(value["result"]["checks"]["workspace_root_writable"].is_boolean());
-    assert!(value["result"]["checks"]["harness_uid_1002_log_root_writable"].is_boolean());
-    assert!(value["result"]["checks"]["harness_uid_1002_workspace_root_writable"].is_boolean());
-    assert!(value["result"]["checks"]["agent_uid_1001_workspace_root_writable"].is_boolean());
     let error = value["error"].as_str().unwrap_or_default();
     assert!(error.contains("docker"));
 }

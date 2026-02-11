@@ -172,8 +172,6 @@ class ComposeStack:
         self.workspace_root = temp_root / "workspace"
         self.log_root.mkdir(parents=True, exist_ok=True)
         self.workspace_root.mkdir(parents=True, exist_ok=True)
-        self._chmod_bind_mount_dir_writable(self.log_root)
-        self._chmod_bind_mount_dir_writable(self.workspace_root)
 
         self.compose_files = compose_files
         self.project_name = f"lasso-test-{test_slug}-{uuid.uuid4().hex[:8]}"
@@ -197,16 +195,6 @@ class ComposeStack:
 
         self.token = token
         self._up = False
-
-    @staticmethod
-    def _chmod_bind_mount_dir_writable(path: Path) -> None:
-        """
-        Ensure docker bind-mount roots are writable by non-root service users.
-
-        Linux CI runners enforce UID/GID permissions on bind mounts, unlike some
-        Docker Desktop setups that can appear more permissive.
-        """
-        path.chmod(0o777)
 
     @property
     def base_url(self) -> str:
