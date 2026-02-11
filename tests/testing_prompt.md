@@ -47,12 +47,15 @@ Read these files before editing:
 9. `collector/tests/test_ebpf_filter.py`
 10. `collector/tests/test_ebpf_summary.py`
 11. `collector/tests/test_merge_filtered.py`
-12. `scripts/run_integration_*.sh`
-13. `scripts/run_lasso_cli_integration.sh`
-14. `scripts/cli_scripts/*`
-15. `example_logs/audit.log`
-16. `example_logs/ebpf.jsonl`
-17. `.github/workflows/release.yml`
+12. `tests/integration/test_*.py`
+13. `tests/support/integration_stack.py`
+14. `tests/support/pytest_docker.py`
+15. `scripts/all_tests.py`
+16. `scripts/verify_test_delta.py`
+17. `scripts/cli_scripts/*`
+18. `example_logs/audit.log`
+19. `example_logs/ebpf.jsonl`
+20. `.github/workflows/release.yml`
 
 Then implement. Do not stop at analysis.
 

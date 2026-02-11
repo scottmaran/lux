@@ -2,6 +2,8 @@
 
 A running log of implementation work on Lasso (agent_harness)
 
+Historical note: entries capture what existed at the time; some referenced scripts/files may have since been removed or replaced.
+
 # Collector
 
 Blocks of Work

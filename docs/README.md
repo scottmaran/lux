@@ -17,14 +17,11 @@ docs/README.md (you are here)
 │  ├─ UI_DESIGN.md — UI behavior and layout
 │  └─ UI_API.md — UI API contract
 ├─ dev/
-│  ├─ DEVELOPING.md — manual compose + component runs (legacy/advanced)
-│  ├─ TESTING.md — testing quickstart and links to canonical test docs
+│  ├─ DEVELOPING.md — manual compose + component runs (advanced)
 │  └─ EXAMPLE_FLOW.md — illustrative end-to-end walkthrough (non-normative)
 ├─ history/
 │  ├─ HISTORY.md — narrative history and decisions
 │  └─ dev_log.md — implementation log
-├─ scratch/
-│  └─ scratch_notes.md — working notes
 ├─ Components (in repo root)
    ├─ agent/README.md — agent container setup
    ├─ harness/README.md — harness behavior and config
