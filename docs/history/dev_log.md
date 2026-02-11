@@ -165,6 +165,16 @@ host-side logs.
 - Created `docs/dev/EXAMPLE_FLOW.md` with TUI + server-mode scenarios, expected commands, and UI outputs.
 - Added `example_logs/` fixtures and YAML configs for summary + merge filtering examples.
 
+## Block 4:
+- Added a concurrent integration scenario to validate overlapping TUI sessions and API jobs.
+- Fixed attribution under concurrency by moving from time-window mapping to root-PID + PID-lineage mapping.
+
+### Details
+- Added `scripts/run_integration_concurrent_sessions_jobs.sh` (historical script; later retired when pytest integration coverage replaced legacy scripts).
+- Updated `harness/harness.py` to capture and persist namespaced `root_pid` for both jobs and TUI sessions.
+- Updated `collector/scripts/filter_audit_logs.py` and `collector/scripts/filter_ebpf_logs.py` to index runs by root PID and propagate ownership through PID ancestry, including namespace PID handling.
+- Updated docs in `collector/config/filtering_rules.md` to describe root-PID-based session/job mapping semantics.
+
 # Lasso CLI + Release
 
 ## Block 1:

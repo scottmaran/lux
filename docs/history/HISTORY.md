@@ -90,7 +90,14 @@ This phase also introduced a dedicated CLI test suite (`scripts/cli_scripts`) an
 **Phase 18: Documentation restructure + user guide bundling (Feb 4, 2026)**
 Docs were reorganized into a dedicated `docs/` tree with a user-first guide (`docs/guide/`) and a developer section (`docs/dev/`). The documentation map moved to `docs/README.md`, and the root `README.md` was simplified to point users to the guide while keeping a developer pointer. The release bundle was updated to ship `docs/guide/` for offline access, and the config reference was expanded (including a clear explanation of `HARNESS_API_TOKEN`).
 
-**Phase 19: Test-suite hardening + compose parity (Feb 10-11, 2026)**
+**Phase 19: Concurrency attribution correction (Feb 6, 2026)**
+As concurrent sessions/jobs were exercised more aggressively, time-window attribution proved too weak under overlap. This phase introduced root-PID based run indexing across harness and collector filters so events are attributed by process lineage rather than only timestamps.
+
+Harness writes run root PID metadata for jobs and TUI sessions, and both audit/eBPF filters were updated to follow PID ancestry (including namespace PID handling) when assigning `session_id`/`job_id`. A dedicated concurrent integration script was added to validate overlapping TUI + job lanes and confirm isolation/ownership in merged timeline evidence.
+
+This phase is important context for the later pytest migration: the migration changed test architecture, but this phase changed attribution semantics.
+
+**Phase 20: Test-suite hardening + compose parity (Feb 10-11, 2026)**
 The project moved from mixed ad-hoc script testing to a strict, layered pytest architecture with one canonical `uv` execution surface. The suite was reorganized into `unit`, `fixture`, `integration`, `stress`, and `regression` layers, with CI lanes aligned to those contracts and explicit local-only Codex gates. This phase also tightened the meaning of "integration": live stack assertions only, with synthetic data constrained to unit/fixture contracts.
 
 A key refinement in this phase was clarifying that interactive agent behavior must be validated as actual TUI interaction evidence (stdin/stdout/session metadata/timeline exec rows), not just harness PTY plumbing. Codex coverage now explicitly includes both non-interactive `exec` and interactive TUI paths, including concurrent TUI behavior checks.
