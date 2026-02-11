@@ -1,6 +1,6 @@
 [project]
 name = "lasso-tests"
-version = "0.1.0"
+version = "0.1.6"
 description = "Testing and CI tooling for Lasso"
 requires-python = ">=3.10"
 dependencies = [
