@@ -90,6 +90,13 @@ This phase also introduced a dedicated CLI test suite (`scripts/cli_scripts`) an
 **Phase 18: Documentation restructure + user guide bundling (Feb 4, 2026)**
 Docs were reorganized into a dedicated `docs/` tree with a user-first guide (`docs/guide/`) and a developer section (`docs/dev/`). The documentation map moved to `docs/README.md`, and the root `README.md` was simplified to point users to the guide while keeping a developer pointer. The release bundle was updated to ship `docs/guide/` for offline access, and the config reference was expanded (including a clear explanation of `HARNESS_API_TOKEN`).
 
+**Phase 19: Test-suite hardening + compose parity (Feb 10-11, 2026)**
+The project moved from mixed ad-hoc script testing to a strict, layered pytest architecture with one canonical `uv` execution surface. The suite was reorganized into `unit`, `fixture`, `integration`, `stress`, and `regression` layers, with CI lanes aligned to those contracts and explicit local-only Codex gates. This phase also tightened the meaning of "integration": live stack assertions only, with synthetic data constrained to unit/fixture contracts.
+
+A key refinement in this phase was clarifying that interactive agent behavior must be validated as actual TUI interaction evidence (stdin/stdout/session metadata/timeline exec rows), not just harness PTY plumbing. Codex coverage now explicitly includes both non-interactive `exec` and interactive TUI paths, including concurrent TUI behavior checks.
+
+Finally, compose drift risk in tests was reduced by anchoring docker-backed tests to shipping `compose.yml`, layering only a minimal test override, and adding parity contract checks for service/env/volume invariants. Legacy integration/bash test scripts and duplicate testing docs were removed once equivalent Python coverage existed, and documentation was updated to make `scripts/all_tests.py` + `uv run pytest ...` the authoritative test interface.
+
 **Open questions and deliberate TODOs**
 Some choices were intentionally deferred and still appear as TODOs in the docs:
 - Kernel feature requirements and minimum versions for audit sources.
