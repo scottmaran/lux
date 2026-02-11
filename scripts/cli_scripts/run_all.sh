@@ -17,6 +17,8 @@ SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 "$SCRIPT_DIR/15_paths_json.sh"
 "$SCRIPT_DIR/16_uninstall_dry_run.sh"
 "$SCRIPT_DIR/17_uninstall_exec.sh"
+"$SCRIPT_DIR/18_update_dry_run.sh"
+"$SCRIPT_DIR/19_update_rollback_dry_run.sh"
 "$SCRIPT_DIR/10_stack_smoke.sh"
 
 echo "All CLI integration scripts completed."

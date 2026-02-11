@@ -412,3 +412,95 @@ fn uninstall_exec_removes_requested_targets() {
     assert!(!log_root.exists());
     assert!(!work_root.exists());
 }
+
+#[test]
+fn update_apply_requires_yes_without_dry_run() {
+    let dir = tempdir().unwrap();
+    let config_path = dir.path().join("config.yaml");
+    fs::write(&config_path, "version: 1\n").unwrap();
+
+    let output = bin()
+        .arg("--json")
+        .arg("--config")
+        .arg(&config_path)
+        .arg("update")
+        .arg("apply")
+        .arg("--to")
+        .arg("v0.1.0")
+        .assert()
+        .failure()
+        .get_output()
+        .stdout
+        .clone();
+
+    let value = parse_json(&output);
+    let error = value["error"].as_str().unwrap_or_default();
+    assert!(error.contains("requires --yes"));
+}
+
+#[test]
+fn update_apply_dry_run_reports_target() {
+    let dir = tempdir().unwrap();
+    let config_path = dir.path().join("config.yaml");
+    let install_dir = dir.path().join("install");
+    let bin_dir = dir.path().join("bin");
+    fs::write(&config_path, "version: 1\n").unwrap();
+
+    let output = bin()
+        .arg("--json")
+        .arg("--config")
+        .arg(&config_path)
+        .env("LASSO_INSTALL_DIR", &install_dir)
+        .env("LASSO_BIN_DIR", &bin_dir)
+        .arg("update")
+        .arg("apply")
+        .arg("--to")
+        .arg("0.9.9")
+        .arg("--dry-run")
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+
+    let value = parse_json(&output);
+    assert!(value["ok"].as_bool().unwrap());
+    assert_eq!(value["result"]["target_version"], "v0.9.9");
+    assert_eq!(value["result"]["dry_run"], true);
+}
+
+#[cfg(unix)]
+#[test]
+fn update_rollback_dry_run_previous_selects_prior_version() {
+    let dir = tempdir().unwrap();
+    let config_path = dir.path().join("config.yaml");
+    let install_dir = dir.path().join("install");
+    let versions_dir = install_dir.join("versions");
+    let v1 = versions_dir.join("0.1.0");
+    let v2 = versions_dir.join("0.2.0");
+    fs::create_dir_all(&v1).unwrap();
+    fs::create_dir_all(&v2).unwrap();
+    fs::write(v1.join("lasso"), "v1").unwrap();
+    fs::write(v2.join("lasso"), "v2").unwrap();
+    symlink(&v2, install_dir.join("current")).unwrap();
+    fs::write(&config_path, "version: 1\n").unwrap();
+
+    let output = bin()
+        .arg("--json")
+        .arg("--config")
+        .arg(&config_path)
+        .env("LASSO_INSTALL_DIR", &install_dir)
+        .arg("update")
+        .arg("rollback")
+        .arg("--dry-run")
+        .arg("--previous")
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+
+    let value = parse_json(&output);
+    assert!(value["ok"].as_bool().unwrap());
+    assert_eq!(value["result"]["target_version"], "v0.1.0");
+}

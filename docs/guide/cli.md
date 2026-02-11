@@ -24,6 +24,8 @@ lasso status
 lasso tui --codex
 lasso down --volumes --remove-orphans
 lasso paths --json
+lasso update check
+lasso update apply --yes
 lasso logs stats
 ```
 
@@ -119,6 +121,23 @@ Options:
 - `--yes`: confirm destructive actions.
 - `--dry-run`: preview removals without mutating filesystem.
 - `--force`: skip the pre-uninstall `down` attempt.
+
+### update
+Manage release updates for the installed CLI bundle.
+
+- `lasso update check`
+  - Resolves latest release and reports whether the current install is up to date.
+
+- `lasso update apply [--to <version>] [--latest] [--yes] [--dry-run]`
+  - Downloads release bundle + checksum, verifies SHA256, and atomically switches
+    `current` + binary symlinks.
+  - Defaults to latest release when `--to` is omitted.
+  - Requires `--yes` unless using `--dry-run`.
+
+- `lasso update rollback [--previous|--to <version>] [--yes] [--dry-run]`
+  - Switches back to an already installed version without re-downloading.
+  - `--previous` (or no target) chooses the prior installed version.
+  - Requires `--yes` unless using `--dry-run`.
 
 ### logs
 Inspect logs at a high level.

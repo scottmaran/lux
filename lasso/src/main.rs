@@ -7,8 +7,11 @@ use std::collections::BTreeMap;
 use std::env;
 use std::fs;
 use std::io;
+#[cfg(unix)]
+use std::os::unix::fs::symlink;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
+use std::time::{SystemTime, UNIX_EPOCH};
 use thiserror::Error;
 
 const DEFAULT_CONFIG_YAML: &str = include_str!("../config/default.yaml");
@@ -85,6 +88,10 @@ enum Commands {
     },
     Doctor,
     Paths,
+    Update {
+        #[command(subcommand)]
+        command: UpdateCommand,
+    },
     Uninstall {
         #[arg(long)]
         remove_config: bool,
@@ -102,6 +109,31 @@ enum Commands {
     Logs {
         #[command(subcommand)]
         command: LogsCommand,
+    },
+}
+
+#[derive(Subcommand, Debug)]
+enum UpdateCommand {
+    Check,
+    Apply {
+        #[arg(long, conflicts_with = "latest")]
+        to: Option<String>,
+        #[arg(long)]
+        latest: bool,
+        #[arg(long)]
+        yes: bool,
+        #[arg(long)]
+        dry_run: bool,
+    },
+    Rollback {
+        #[arg(long, conflicts_with = "previous")]
+        to: Option<String>,
+        #[arg(long)]
+        previous: bool,
+        #[arg(long)]
+        yes: bool,
+        #[arg(long)]
+        dry_run: bool,
     },
 }
 
@@ -337,6 +369,7 @@ fn main() -> Result<(), LassoError> {
         Commands::Jobs { command } => handle_jobs(&ctx, command),
         Commands::Doctor => handle_doctor(&ctx),
         Commands::Paths => handle_paths(&ctx),
+        Commands::Update { command } => handle_update(&ctx, command),
         Commands::Uninstall {
             remove_config,
             remove_data,
@@ -658,6 +691,275 @@ fn resolve_runtime_paths(ctx: &Context) -> Result<(RuntimePaths, bool), LassoErr
         },
         config_exists,
     ))
+}
+
+#[derive(Debug, Clone)]
+struct UpdatePlan {
+    target_version: String,
+    target_version_tag: String,
+    bundle_name: String,
+    checksum_name: String,
+    bundle_url: String,
+    checksum_url: String,
+    target_dir: PathBuf,
+}
+
+#[derive(Debug, Deserialize)]
+struct GitHubReleasePayload {
+    tag_name: String,
+}
+
+fn normalize_version_tag(raw: &str) -> String {
+    let trimmed = raw.trim();
+    if trimmed.starts_with('v') {
+        trimmed.to_string()
+    } else {
+        format!("v{trimmed}")
+    }
+}
+
+fn release_platform() -> Result<(String, String), LassoError> {
+    let os = match env::consts::OS {
+        "macos" => "darwin",
+        "linux" => "linux",
+        value => {
+            return Err(LassoError::Config(format!(
+                "unsupported operating system for update: {value}"
+            )))
+        }
+    };
+    let arch = match env::consts::ARCH {
+        "x86_64" => "amd64",
+        "aarch64" => "arm64",
+        value => {
+            return Err(LassoError::Config(format!(
+                "unsupported architecture for update: {value}"
+            )))
+        }
+    };
+    Ok((os.to_string(), arch.to_string()))
+}
+
+fn build_update_plan(paths: &RuntimePaths, target_version: &str) -> Result<UpdatePlan, LassoError> {
+    let target_version_tag = target_version.trim_start_matches('v').to_string();
+    let (os, arch) = release_platform()?;
+    let bundle_name = format!("lasso_{}_{}_{}.tar.gz", target_version_tag, os, arch);
+    let checksum_name = format!("{bundle_name}.sha256");
+    let base_url =
+        format!("https://github.com/scottmaran/lasso/releases/download/{target_version}");
+    Ok(UpdatePlan {
+        target_version: target_version.to_string(),
+        target_version_tag: target_version_tag.clone(),
+        bundle_name: bundle_name.clone(),
+        checksum_name: checksum_name.clone(),
+        bundle_url: format!("{base_url}/{bundle_name}"),
+        checksum_url: format!("{base_url}/{checksum_name}"),
+        target_dir: paths.versions_dir.join(target_version_tag),
+    })
+}
+
+fn read_current_version(paths: &RuntimePaths) -> Option<String> {
+    let target = safe_current_target(&paths.current_link, &paths.versions_dir)?;
+    let version_tag = target.file_name()?.to_string_lossy().to_string();
+    Some(format!("v{version_tag}"))
+}
+
+fn parse_version_key(version_tag: &str) -> Option<Vec<u64>> {
+    let mut values = Vec::new();
+    for part in version_tag.split('.') {
+        let value = part.parse::<u64>().ok()?;
+        values.push(value);
+    }
+    if values.is_empty() {
+        None
+    } else {
+        Some(values)
+    }
+}
+
+fn compare_version_tags(a: &str, b: &str) -> std::cmp::Ordering {
+    match (parse_version_key(a), parse_version_key(b)) {
+        (Some(left), Some(right)) => left.cmp(&right),
+        _ => a.cmp(b),
+    }
+}
+
+fn list_installed_version_tags(paths: &RuntimePaths) -> Result<Vec<String>, LassoError> {
+    if !paths.versions_dir.exists() {
+        return Ok(Vec::new());
+    }
+    let mut versions = Vec::new();
+    for entry in fs::read_dir(&paths.versions_dir)? {
+        let entry = entry?;
+        if !entry.file_type()?.is_dir() {
+            continue;
+        }
+        versions.push(entry.file_name().to_string_lossy().to_string());
+    }
+    versions.sort_by(|a, b| compare_version_tags(a, b));
+    Ok(versions)
+}
+
+fn select_previous_version(current: &str, installed_tags: &[String]) -> Option<String> {
+    let current_tag = current.trim_start_matches('v');
+    let mut previous: Option<String> = None;
+    for item in installed_tags {
+        if item == current_tag {
+            break;
+        }
+        previous = Some(item.clone());
+    }
+    previous.map(|tag| format!("v{tag}"))
+}
+
+fn fetch_latest_release_tag() -> Result<String, LassoError> {
+    let url = "https://api.github.com/repos/scottmaran/lasso/releases/latest";
+    let client = reqwest::blocking::Client::new();
+    let response = client
+        .get(url)
+        .header("Accept", "application/vnd.github+json")
+        .header("User-Agent", "lasso-cli")
+        .send()?;
+    let status = response.status();
+    if !status.is_success() {
+        let body = response.text().unwrap_or_default();
+        return Err(LassoError::Process(format!(
+            "failed to resolve latest release: HTTP {} {}",
+            status, body
+        )));
+    }
+    let payload: GitHubReleasePayload = response.json()?;
+    Ok(normalize_version_tag(&payload.tag_name))
+}
+
+fn download_file(url: &str, path: &Path) -> Result<(), LassoError> {
+    let client = reqwest::blocking::Client::new();
+    let response = client.get(url).header("User-Agent", "lasso-cli").send()?;
+    let status = response.status();
+    if !status.is_success() {
+        let body = response.text().unwrap_or_default();
+        return Err(LassoError::Process(format!(
+            "download failed: {} (HTTP {} {})",
+            url, status, body
+        )));
+    }
+    let bytes = response.bytes()?;
+    ensure_parent(path)?;
+    fs::write(path, &bytes)?;
+    Ok(())
+}
+
+fn parse_checksum(content: &str) -> Option<String> {
+    for raw in content.split_whitespace() {
+        let candidate = raw
+            .trim_matches(|c: char| !c.is_ascii_hexdigit())
+            .to_lowercase();
+        if candidate.len() == 64 && candidate.chars().all(|c| c.is_ascii_hexdigit()) {
+            return Some(candidate);
+        }
+    }
+    None
+}
+
+fn sha256_file(path: &Path) -> Result<String, LassoError> {
+    let path_str = path.to_string_lossy().to_string();
+    let attempts: Vec<(&str, Vec<String>)> = vec![
+        (
+            "shasum",
+            vec!["-a".to_string(), "256".to_string(), path_str.clone()],
+        ),
+        ("sha256sum", vec![path_str.clone()]),
+        (
+            "openssl",
+            vec!["dgst".to_string(), "-sha256".to_string(), path_str],
+        ),
+    ];
+    for (program, args) in attempts {
+        let output = Command::new(program).args(&args).output();
+        let Ok(output) = output else { continue };
+        if !output.status.success() {
+            continue;
+        }
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        if let Some(token) = parse_checksum(&stdout) {
+            return Ok(token);
+        }
+    }
+    Err(LassoError::Process(
+        "no SHA256 tool found (expected shasum, sha256sum, or openssl)".to_string(),
+    ))
+}
+
+fn verify_bundle_checksum(bundle_path: &Path, checksum_path: &Path) -> Result<(), LassoError> {
+    let checksum_content = fs::read_to_string(checksum_path)?;
+    let Some(expected) = parse_checksum(&checksum_content) else {
+        return Err(LassoError::Process(format!(
+            "invalid checksum file: {}",
+            checksum_path.display()
+        )));
+    };
+    let actual = sha256_file(bundle_path)?;
+    if expected != actual {
+        return Err(LassoError::Process(format!(
+            "checksum mismatch for {}: expected {}, got {}",
+            bundle_path.display(),
+            expected,
+            actual
+        )));
+    }
+    Ok(())
+}
+
+fn extract_bundle(bundle_path: &Path, destination_dir: &Path) -> Result<(), LassoError> {
+    fs::create_dir_all(destination_dir)?;
+    let status = Command::new("tar")
+        .arg("-xzf")
+        .arg(bundle_path)
+        .arg("-C")
+        .arg(destination_dir)
+        .status()
+        .map_err(|err| LassoError::Process(format!("failed to run tar: {err}")))?;
+    if !status.success() {
+        return Err(LassoError::Process(format!(
+            "tar extraction failed with status {status}"
+        )));
+    }
+    Ok(())
+}
+
+fn force_symlink(target: &Path, link_path: &Path) -> Result<(), LassoError> {
+    ensure_parent(link_path)?;
+    match fs::symlink_metadata(link_path) {
+        Ok(meta) => {
+            if meta.file_type().is_symlink() || meta.file_type().is_file() {
+                fs::remove_file(link_path)?;
+            } else {
+                return Err(LassoError::Process(format!(
+                    "refusing to replace directory with symlink: {}",
+                    link_path.display()
+                )));
+            }
+        }
+        Err(err) if err.kind() == io::ErrorKind::NotFound => {}
+        Err(err) => return Err(LassoError::Io(err)),
+    }
+    #[cfg(unix)]
+    {
+        symlink(target, link_path)?;
+        return Ok(());
+    }
+    #[allow(unreachable_code)]
+    Err(LassoError::Config(
+        "update is not supported on this platform".to_string(),
+    ))
+}
+
+fn temp_download_dir() -> PathBuf {
+    let nanos = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_nanos())
+        .unwrap_or(0);
+    env::temp_dir().join(format!("lasso-update-{}-{}", std::process::id(), nanos))
 }
 
 fn configured_compose_files(ctx: &Context, codex: bool, ui: bool) -> Vec<PathBuf> {
@@ -1046,6 +1348,220 @@ fn handle_paths(ctx: &Context) -> Result<(), LassoError> {
             "current_link": paths.current_link,
             "bin_dir": paths.bin_dir,
             "bin_path": paths.bin_path,
+        }),
+    )
+}
+
+fn handle_update(ctx: &Context, command: UpdateCommand) -> Result<(), LassoError> {
+    match command {
+        UpdateCommand::Check => update_check(ctx),
+        UpdateCommand::Apply {
+            to,
+            latest,
+            yes,
+            dry_run,
+        } => update_apply(ctx, to, latest, yes, dry_run),
+        UpdateCommand::Rollback {
+            to,
+            previous,
+            yes,
+            dry_run,
+        } => update_rollback(ctx, to, previous, yes, dry_run),
+    }
+}
+
+fn update_check(ctx: &Context) -> Result<(), LassoError> {
+    let (paths, _) = resolve_runtime_paths(ctx)?;
+    let current_version = read_current_version(&paths);
+    let latest_version = fetch_latest_release_tag()?;
+    let up_to_date = current_version.as_deref() == Some(latest_version.as_str());
+    output(
+        ctx,
+        json!({
+            "current_version": current_version,
+            "latest_version": latest_version,
+            "up_to_date": up_to_date,
+        }),
+    )
+}
+
+fn update_apply(
+    ctx: &Context,
+    to: Option<String>,
+    latest: bool,
+    yes: bool,
+    dry_run: bool,
+) -> Result<(), LassoError> {
+    let (paths, _) = resolve_runtime_paths(ctx)?;
+    let current_version = read_current_version(&paths);
+    let target_version = match to {
+        Some(value) => normalize_version_tag(&value),
+        None => {
+            let _ = latest;
+            fetch_latest_release_tag()?
+        }
+    };
+    let plan = build_update_plan(&paths, &target_version)?;
+    let already_current = current_version.as_deref() == Some(target_version.as_str());
+    if dry_run {
+        return output(
+            ctx,
+            json!({
+                "action": "update_apply",
+                "dry_run": true,
+                "current_version": current_version,
+                "target_version": plan.target_version,
+                "target_version_tag": plan.target_version_tag,
+                "already_current": already_current,
+                "bundle_url": plan.bundle_url,
+                "checksum_url": plan.checksum_url,
+                "target_dir": plan.target_dir,
+                "current_link": paths.current_link,
+                "bin_path": paths.bin_path,
+            }),
+        );
+    }
+    if !yes {
+        return Err(LassoError::Config(
+            "update apply requires --yes (or use --dry-run to preview)".to_string(),
+        ));
+    }
+    if already_current {
+        return output(
+            ctx,
+            json!({
+                "action": "update_apply",
+                "updated": false,
+                "reason": "already_current",
+                "current_version": current_version,
+                "target_version": target_version,
+            }),
+        );
+    }
+
+    let download_dir = temp_download_dir();
+    fs::create_dir_all(&download_dir)?;
+    let bundle_path = download_dir.join(&plan.bundle_name);
+    let checksum_path = download_dir.join(&plan.checksum_name);
+
+    let update_result = (|| -> Result<(), LassoError> {
+        download_file(&plan.bundle_url, &bundle_path)?;
+        download_file(&plan.checksum_url, &checksum_path)?;
+        verify_bundle_checksum(&bundle_path, &checksum_path)?;
+        if plan.target_dir.exists() {
+            fs::remove_dir_all(&plan.target_dir)?;
+        }
+        extract_bundle(&bundle_path, &plan.target_dir)?;
+        let lasso_binary = plan.target_dir.join("lasso");
+        if !lasso_binary.exists() {
+            return Err(LassoError::Process(format!(
+                "bundle did not contain expected binary: {}",
+                lasso_binary.display()
+            )));
+        }
+        fs::create_dir_all(&paths.install_dir)?;
+        fs::create_dir_all(&paths.bin_dir)?;
+        force_symlink(&plan.target_dir, &paths.current_link)?;
+        force_symlink(&paths.current_link.join("lasso"), &paths.bin_path)?;
+        Ok(())
+    })();
+    let _ = fs::remove_dir_all(&download_dir);
+    update_result?;
+
+    output(
+        ctx,
+        json!({
+            "action": "update_apply",
+            "updated": true,
+            "from_version": current_version,
+            "to_version": target_version,
+            "target_dir": plan.target_dir,
+            "bin_path": paths.bin_path,
+        }),
+    )
+}
+
+fn update_rollback(
+    ctx: &Context,
+    to: Option<String>,
+    previous: bool,
+    yes: bool,
+    dry_run: bool,
+) -> Result<(), LassoError> {
+    let (paths, _) = resolve_runtime_paths(ctx)?;
+    let current_version = read_current_version(&paths);
+    let installed_tags = list_installed_version_tags(&paths)?;
+    if installed_tags.is_empty() {
+        return Err(LassoError::Process(
+            "no installed versions found under install directory".to_string(),
+        ));
+    }
+    let target_version = match to {
+        Some(value) => normalize_version_tag(&value),
+        None => {
+            let _ = previous;
+            let Some(current) = current_version.as_deref() else {
+                return Err(LassoError::Process(
+                    "cannot infer rollback target: current version is not set".to_string(),
+                ));
+            };
+            let Some(prev) = select_previous_version(current, &installed_tags) else {
+                return Err(LassoError::Process(
+                    "no previous installed version available for rollback".to_string(),
+                ));
+            };
+            prev
+        }
+    };
+    let target_tag = target_version.trim_start_matches('v');
+    let target_dir = paths.versions_dir.join(target_tag);
+    if !target_dir.exists() {
+        return Err(LassoError::Process(format!(
+            "rollback target is not installed: {}",
+            target_version
+        )));
+    }
+    if dry_run {
+        return output(
+            ctx,
+            json!({
+                "action": "update_rollback",
+                "dry_run": true,
+                "current_version": current_version,
+                "target_version": target_version,
+                "target_dir": target_dir,
+            }),
+        );
+    }
+    if !yes {
+        return Err(LassoError::Config(
+            "update rollback requires --yes (or use --dry-run to preview)".to_string(),
+        ));
+    }
+    if current_version.as_deref() == Some(target_version.as_str()) {
+        return output(
+            ctx,
+            json!({
+                "action": "update_rollback",
+                "updated": false,
+                "reason": "already_current",
+                "current_version": current_version,
+                "target_version": target_version,
+            }),
+        );
+    }
+    fs::create_dir_all(&paths.install_dir)?;
+    fs::create_dir_all(&paths.bin_dir)?;
+    force_symlink(&target_dir, &paths.current_link)?;
+    force_symlink(&paths.current_link.join("lasso"), &paths.bin_path)?;
+    output(
+        ctx,
+        json!({
+            "action": "update_rollback",
+            "updated": true,
+            "from_version": current_version,
+            "to_version": target_version,
+            "target_dir": target_dir,
         }),
     )
 }
@@ -1521,5 +2037,39 @@ paths:
             .any(|x| x == &override_file.to_string_lossy().to_string()));
         assert!(!args.iter().any(|x| x.ends_with("compose.codex.yml")));
         assert!(!args.iter().any(|x| x.ends_with("compose.ui.yml")));
+    }
+
+    #[test]
+    fn normalize_version_tag_adds_prefix() {
+        assert_eq!(normalize_version_tag("0.1.0"), "v0.1.0");
+        assert_eq!(normalize_version_tag("v0.1.0"), "v0.1.0");
+    }
+
+    #[test]
+    fn select_previous_version_uses_installed_order() {
+        let installed = vec![
+            "0.1.0".to_string(),
+            "0.2.0".to_string(),
+            "0.3.0".to_string(),
+        ];
+        assert_eq!(
+            select_previous_version("v0.3.0", &installed),
+            Some("v0.2.0".to_string())
+        );
+        assert_eq!(select_previous_version("v0.1.0", &installed), None);
+    }
+
+    #[test]
+    fn parse_checksum_reads_first_token() {
+        let hash = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+        let content = format!("{hash}  lasso_0.1.0_linux_amd64.tar.gz");
+        assert_eq!(parse_checksum(&content), Some(hash.to_string()));
+    }
+
+    #[test]
+    fn parse_checksum_supports_openssl_output() {
+        let hash = "abcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcd";
+        let content = format!("SHA2-256(file.tar.gz)= {hash}");
+        assert_eq!(parse_checksum(&content), Some(hash.to_string()));
     }
 }

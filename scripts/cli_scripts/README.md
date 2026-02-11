@@ -100,4 +100,12 @@ scripts/cli_scripts/run_all.sh
 
 - `17_uninstall_exec.sh`
   - Validates `lasso uninstall --yes` removes requested targets and stops the
-    running compose stack before deletion.
+  running compose stack before deletion.
+
+- `18_update_dry_run.sh`
+  - Validates `lasso update apply --dry-run --to <version>` resolves and reports
+    target paths/version without mutating install symlinks.
+
+- `19_update_rollback_dry_run.sh`
+  - Validates `lasso update rollback --dry-run --previous` selects the correct
+    prior installed version without mutating current links.
