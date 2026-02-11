@@ -5,6 +5,7 @@ ROOT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)
 LASSO_BIN=${LASSO_BIN:-lasso}
 LASSO_VERSION=${LASSO_VERSION:-v0.1.0}
 HARNESS_API_TOKEN=${HARNESS_API_TOKEN:-dev-token}
+LASSO_PROJECT_NAME=${LASSO_PROJECT_NAME:-}
 CONFIG_PATH=""
 ENV_FILE=""
 LOG_ROOT=""
@@ -25,6 +26,9 @@ require_cmd() {
 
 setup_env() {
   TMP_DIR=$(mktemp -d)
+  if [ -z "$LASSO_PROJECT_NAME" ]; then
+    LASSO_PROJECT_NAME="lasso-test-$(basename "$TMP_DIR")"
+  fi
   LOG_ROOT="$TMP_DIR/logs"
   WORK_ROOT="$TMP_DIR/workspace"
   ENV_FILE="$TMP_DIR/compose.env"
@@ -43,7 +47,7 @@ paths:
 release:
   tag: "$LASSO_VERSION"
 docker:
-  project_name: lasso-test
+  project_name: $LASSO_PROJECT_NAME
 harness:
   api_host: 127.0.0.1
   api_port: 8081

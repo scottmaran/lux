@@ -22,7 +22,8 @@ lasso config apply
 lasso up --codex
 lasso status
 lasso tui --codex
-lasso down
+lasso down --volumes --remove-orphans
+lasso paths --json
 lasso logs stats
 ```
 
@@ -50,6 +51,8 @@ Options:
 - `--codex`: include `compose.codex.yml`.
 - `--ui`: include `compose.ui.yml`.
 - `--pull <always|missing|never>`: control image pulls.
+- `--wait`: wait until services are running/healthy.
+- `--timeout-sec <n>`: wait timeout in seconds (requires `--wait`).
 
 ### down
 Stop the stack via Docker Compose.
@@ -57,6 +60,8 @@ Stop the stack via Docker Compose.
 Options:
 - `--codex`: include `compose.codex.yml`.
 - `--ui`: include `compose.ui.yml`.
+- `--volumes`: remove named volumes.
+- `--remove-orphans`: remove orphaned containers.
 
 ### status
 Show running containers (compose `ps` output).
@@ -95,6 +100,26 @@ Inspect job records written by the harness.
 ### doctor
 Check local prerequisites (Docker available, log root writable).
 
+### paths
+Print resolved runtime paths (`config`, `compose.env`, bundle, log/work roots,
+install/bin layout). Useful for automation and tests.
+
+### uninstall
+Remove the CLI install footprint with explicit safety controls.
+
+Default behavior:
+- Remove CLI symlink/current install only.
+- Keep config and data unless flags are provided.
+- Requires `--yes` unless using `--dry-run`.
+
+Options:
+- `--remove-config`: remove `config.yaml` and `compose.env`.
+- `--remove-data`: remove resolved log/workspace roots.
+- `--all-versions`: remove all installed versions under install dir.
+- `--yes`: confirm destructive actions.
+- `--dry-run`: preview removals without mutating filesystem.
+- `--force`: skip the pre-uninstall `down` attempt.
+
 ### logs
 Inspect logs at a high level.
 
@@ -109,6 +134,7 @@ Inspect logs at a high level.
 
 - `--config <path>`: Use a specific config file.
 - `--json`: Emit machine‑readable JSON output.
+- `--compose-file <path>`: Override compose files (repeatable).
 - `--bundle-dir <path>`: Override bundle directory (advanced; for dev use).
 - `--env-file <path>`: Override compose env file path (advanced; for dev use).
 

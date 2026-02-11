@@ -1,6 +1,8 @@
 use assert_cmd::Command;
 use serde_json::Value;
 use std::fs;
+#[cfg(unix)]
+use std::os::unix::fs::symlink;
 use tempfile::tempdir;
 
 fn bin() -> Command {
@@ -208,4 +210,205 @@ fn run_requires_token() {
     let value = parse_json(&output);
     let error = value["error"].as_str().unwrap_or_default();
     assert!(error.contains("HARNESS_API_TOKEN"));
+}
+
+#[test]
+fn paths_reports_resolved_values() {
+    let dir = tempdir().unwrap();
+    let config_path = dir.path().join("config.yaml");
+    let env_file = dir.path().join("compose.env");
+    let log_root = dir.path().join("logs");
+    let work_root = dir.path().join("work");
+    let install_dir = dir.path().join("install");
+    let bin_dir = dir.path().join("bin");
+    fs::create_dir_all(&log_root).unwrap();
+    fs::create_dir_all(&work_root).unwrap();
+    fs::write(&env_file, "LASSO_VERSION=v0.1.0\n").unwrap();
+    fs::write(
+        &config_path,
+        format!(
+            "version: 1\npaths:\n  log_root: {}\n  workspace_root: {}\n",
+            log_root.display(),
+            work_root.display()
+        ),
+    )
+    .unwrap();
+
+    let output = bin()
+        .arg("--json")
+        .arg("--config")
+        .arg(&config_path)
+        .env("LASSO_ENV_FILE", &env_file)
+        .env("LASSO_INSTALL_DIR", &install_dir)
+        .env("LASSO_BIN_DIR", &bin_dir)
+        .arg("paths")
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+
+    let value = parse_json(&output);
+    assert!(value["ok"].as_bool().unwrap());
+    assert_eq!(
+        value["result"]["log_root"].as_str().unwrap(),
+        log_root.to_string_lossy()
+    );
+    assert_eq!(
+        value["result"]["workspace_root"].as_str().unwrap(),
+        work_root.to_string_lossy()
+    );
+    assert_eq!(
+        value["result"]["install_dir"].as_str().unwrap(),
+        install_dir.to_string_lossy()
+    );
+    assert_eq!(
+        value["result"]["bin_dir"].as_str().unwrap(),
+        bin_dir.to_string_lossy()
+    );
+}
+
+#[test]
+fn uninstall_requires_yes_without_dry_run() {
+    let dir = tempdir().unwrap();
+    let config_path = dir.path().join("config.yaml");
+    fs::write(&config_path, "version: 1\n").unwrap();
+
+    let output = bin()
+        .arg("--json")
+        .arg("--config")
+        .arg(&config_path)
+        .arg("uninstall")
+        .arg("--force")
+        .assert()
+        .failure()
+        .get_output()
+        .stdout
+        .clone();
+
+    let value = parse_json(&output);
+    let error = value["error"].as_str().unwrap_or_default();
+    assert!(error.contains("--yes"));
+}
+
+#[cfg(unix)]
+#[test]
+fn uninstall_dry_run_preserves_files() {
+    let dir = tempdir().unwrap();
+    let config_path = dir.path().join("config.yaml");
+    let env_file = dir.path().join("compose.env");
+    let log_root = dir.path().join("logs");
+    let work_root = dir.path().join("work");
+    let install_dir = dir.path().join("install");
+    let versions_dir = install_dir.join("versions").join("0.1.0");
+    let current_link = install_dir.join("current");
+    let bin_dir = dir.path().join("bin");
+    let bin_link = bin_dir.join("lasso");
+    fs::create_dir_all(&versions_dir).unwrap();
+    fs::create_dir_all(&bin_dir).unwrap();
+    fs::create_dir_all(&log_root).unwrap();
+    fs::create_dir_all(&work_root).unwrap();
+    fs::write(versions_dir.join("lasso"), "binary").unwrap();
+    symlink(&versions_dir, &current_link).unwrap();
+    symlink(current_link.join("lasso"), &bin_link).unwrap();
+    fs::write(&env_file, "LASSO_VERSION=v0.1.0\n").unwrap();
+    fs::write(
+        &config_path,
+        format!(
+            "version: 1\npaths:\n  log_root: {}\n  workspace_root: {}\n",
+            log_root.display(),
+            work_root.display()
+        ),
+    )
+    .unwrap();
+
+    let output = bin()
+        .arg("--json")
+        .arg("--config")
+        .arg(&config_path)
+        .env("LASSO_ENV_FILE", &env_file)
+        .env("LASSO_INSTALL_DIR", &install_dir)
+        .env("LASSO_BIN_DIR", &bin_dir)
+        .arg("uninstall")
+        .arg("--dry-run")
+        .arg("--remove-config")
+        .arg("--remove-data")
+        .arg("--all-versions")
+        .arg("--force")
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+
+    let value = parse_json(&output);
+    assert!(value["result"]["dry_run"].as_bool().unwrap());
+    assert!(bin_link.exists());
+    assert!(current_link.exists());
+    assert!(install_dir.join("versions").exists());
+    assert!(config_path.exists());
+    assert!(env_file.exists());
+    assert!(log_root.exists());
+    assert!(work_root.exists());
+}
+
+#[cfg(unix)]
+#[test]
+fn uninstall_exec_removes_requested_targets() {
+    let dir = tempdir().unwrap();
+    let config_path = dir.path().join("config.yaml");
+    let env_file = dir.path().join("compose.env");
+    let log_root = dir.path().join("logs");
+    let work_root = dir.path().join("work");
+    let install_dir = dir.path().join("install");
+    let versions_dir = install_dir.join("versions").join("0.1.0");
+    let current_link = install_dir.join("current");
+    let bin_dir = dir.path().join("bin");
+    let bin_link = bin_dir.join("lasso");
+    fs::create_dir_all(&versions_dir).unwrap();
+    fs::create_dir_all(&bin_dir).unwrap();
+    fs::create_dir_all(&log_root).unwrap();
+    fs::create_dir_all(&work_root).unwrap();
+    fs::write(versions_dir.join("lasso"), "binary").unwrap();
+    symlink(&versions_dir, &current_link).unwrap();
+    symlink(current_link.join("lasso"), &bin_link).unwrap();
+    fs::write(&env_file, "LASSO_VERSION=v0.1.0\n").unwrap();
+    fs::write(
+        &config_path,
+        format!(
+            "version: 1\npaths:\n  log_root: {}\n  workspace_root: {}\n",
+            log_root.display(),
+            work_root.display()
+        ),
+    )
+    .unwrap();
+
+    let output = bin()
+        .arg("--json")
+        .arg("--config")
+        .arg(&config_path)
+        .env("LASSO_ENV_FILE", &env_file)
+        .env("LASSO_INSTALL_DIR", &install_dir)
+        .env("LASSO_BIN_DIR", &bin_dir)
+        .arg("uninstall")
+        .arg("--yes")
+        .arg("--remove-config")
+        .arg("--remove-data")
+        .arg("--all-versions")
+        .arg("--force")
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+
+    let value = parse_json(&output);
+    assert!(!value["result"]["dry_run"].as_bool().unwrap());
+    assert!(!bin_link.exists());
+    assert!(!current_link.exists());
+    assert!(!install_dir.join("versions").exists());
+    assert!(!config_path.exists());
+    assert!(!env_file.exists());
+    assert!(!log_root.exists());
+    assert!(!work_root.exists());
 }
