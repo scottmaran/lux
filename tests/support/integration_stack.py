@@ -244,8 +244,13 @@ class ComposeStack:
             self.wait_for_services_running(("collector", "agent", "harness"), timeout_sec=90.0)
             self.wait_for_harness_ready()
         except AssertionError as exc:
-            logs = self.capture_compose_logs()
-            raise AssertionError(f"{exc}\n\nCompose logs:\n{logs}") from exc
+            logs = self._capture_startup_failure_logs(("collector", "agent", "harness"))
+            if not logs.strip():
+                logs = self.capture_compose_logs(tail=200)
+            mount_info = self._mount_root_diagnostics()
+            raise AssertionError(
+                f"{exc}\n\nMount roots:\n{mount_info}\n\nStartup service logs:\n{logs}"
+            ) from exc
 
     def down(self) -> None:
         if not self._up:
@@ -253,9 +258,40 @@ class ComposeStack:
         self.compose("down", "-v", check=False, timeout=120)
         self._up = False
 
-    def capture_compose_logs(self) -> str:
-        result = self.compose("logs", "--no-color", check=False, timeout=120)
+    def capture_compose_logs(self, *services: str, tail: int | None = None) -> str:
+        args: list[str] = ["logs", "--no-color"]
+        if tail is not None:
+            args.extend(["--tail", str(max(1, tail))])
+        args.extend(services)
+        result = self.compose(*args, check=False, timeout=120)
         return (result.stdout or "") + ("\n" + result.stderr if result.stderr else "")
+
+    def _startup_failure_services(self, required_services: tuple[str, ...]) -> tuple[str, ...]:
+        terminal_states = {"dead", "exited"}
+        running = self.running_services()
+        states = self.service_states()
+        failed: list[str] = []
+        for service in required_services:
+            if service not in running:
+                failed.append(service)
+                continue
+            state = str((states.get(service) or {}).get("state") or "").strip().lower()
+            if state in terminal_states:
+                failed.append(service)
+        return tuple(dict.fromkeys(failed))
+
+    def _capture_startup_failure_logs(
+        self,
+        required_services: tuple[str, ...],
+        *,
+        tail_lines: int = 200,
+    ) -> str:
+        services = self._startup_failure_services(required_services) or required_services
+        sections: list[str] = []
+        for service in services:
+            logs = self.capture_compose_logs(service, tail=tail_lines).strip()
+            sections.append(f"[{service}]\n{logs or '<no logs>'}")
+        return "\n\n".join(sections)
 
     def running_services(self) -> set[str]:
         result = self.compose("ps", "--status", "running", "--services", check=False, timeout=30)
@@ -265,6 +301,88 @@ class ComposeStack:
             if line.strip()
         }
 
+    def service_states(self) -> dict[str, dict[str, Any]]:
+        """
+        Return current docker compose service states keyed by compose service name.
+
+        Uses `docker compose ps --all --format json` and tolerates both:
+        - a JSON array payload, and
+        - newline-delimited JSON object rows.
+        """
+        result = self.compose("ps", "--all", "--format", "json", check=False, timeout=30)
+        raw = (result.stdout or "").strip()
+        if not raw:
+            return {}
+
+        rows: list[dict[str, Any]] = []
+        try:
+            parsed = json.loads(raw)
+        except json.JSONDecodeError:
+            parsed = None
+
+        if isinstance(parsed, list):
+            rows = [row for row in parsed if isinstance(row, dict)]
+        elif isinstance(parsed, dict):
+            rows = [parsed]
+        else:
+            for line in raw.splitlines():
+                item = line.strip()
+                if not item:
+                    continue
+                try:
+                    payload = json.loads(item)
+                except json.JSONDecodeError:
+                    continue
+                if isinstance(payload, dict):
+                    rows.append(payload)
+
+        states: dict[str, dict[str, Any]] = {}
+        for row in rows:
+            service = row.get("Service") or row.get("service")
+            if not isinstance(service, str) or not service:
+                continue
+            state = row.get("State") or row.get("state") or "unknown"
+            status = row.get("Status") or row.get("status") or ""
+            states[service] = {
+                "state": str(state).strip().lower(),
+                "status": str(status).strip(),
+                "exit_code": row.get("ExitCode", row.get("exit_code")),
+            }
+        return states
+
+    def _format_service_state_map(
+        self,
+        states: dict[str, dict[str, Any]],
+        services: tuple[str, ...],
+    ) -> str:
+        rendered: list[str] = []
+        for service in services:
+            info = states.get(service)
+            if not info:
+                rendered.append(f"{service}=<missing>")
+                continue
+            rendered.append(
+                f"{service}="
+                f"{info.get('state')}("
+                f"exit_code={info.get('exit_code')}, "
+                f"status={info.get('status')!r})"
+            )
+        return ", ".join(rendered)
+
+    def _mount_root_diagnostics(self) -> str:
+        lines: list[str] = []
+        for name, path in (("log_root", self.log_root), ("workspace_root", self.workspace_root)):
+            if not path.exists():
+                lines.append(f"{name}={path} <missing>")
+                continue
+            stat = path.stat()
+            lines.append(
+                f"{name}={path} "
+                f"mode={oct(stat.st_mode & 0o777)} "
+                f"uid={stat.st_uid} gid={stat.st_gid}"
+            )
+        return "\n".join(lines)
+
     def wait_for_services_running(
         self,
         services: tuple[str, ...],
@@ -272,19 +390,36 @@ class ComposeStack:
         timeout_sec: float = 60.0,
         interval_sec: float = 1.0,
     ) -> None:
+        terminal_states = {"dead", "exited"}
         deadline = time.time() + timeout_sec
         last_running: set[str] = set()
+        last_states: dict[str, dict[str, Any]] = {}
         while time.time() < deadline:
             running = self.running_services()
+            states = self.service_states()
             last_running = running
+            last_states = states
             missing = [svc for svc in services if svc not in running]
             if not missing:
                 return
+
+            failed = {
+                service: info
+                for service, info in states.items()
+                if service in services and str(info.get("state", "")).lower() in terminal_states
+            }
+            if failed:
+                state_map = self._format_service_state_map(states, services)
+                raise AssertionError(
+                    "Required service entered terminal state before startup completed. "
+                    f"failed={sorted(failed)} running={sorted(running)} states=[{state_map}]"
+                )
             time.sleep(interval_sec)
         missing = [svc for svc in services if svc not in last_running]
+        state_map = self._format_service_state_map(last_states, services)
         raise AssertionError(
             f"Timed out waiting for running services={services}. "
-            f"Missing={missing}, running={sorted(last_running)}."
+            f"Missing={missing}, running={sorted(last_running)}, states=[{state_map}]."
         )
 
     def exec_service(

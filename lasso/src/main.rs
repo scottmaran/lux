@@ -563,6 +563,17 @@ fn write_env_file(path: &Path, envs: &BTreeMap<String, String>) -> Result<(), La
     Ok(())
 }
 
+fn host_dir_writable(path: &Path) -> bool {
+    fs::create_dir_all(path)
+        .and_then(|_| {
+            let test_path = path.join(".lasso_write_test");
+            fs::write(&test_path, b"ok")?;
+            fs::remove_file(&test_path)?;
+            Ok(())
+        })
+        .is_ok()
+}
+
 fn handle_config(ctx: &Context, command: ConfigCommand) -> Result<(), LassoError> {
     match command {
         ConfigCommand::Init => {
@@ -1274,16 +1285,8 @@ fn handle_doctor(ctx: &Context) -> Result<(), LassoError> {
 
     let cfg = read_config(&ctx.config_path)?;
     let log_root = PathBuf::from(expand_path(&cfg.paths.log_root));
-    let log_ok = fs::create_dir_all(&log_root)
-        .and_then(|_| {
-            let test_path = log_root.join(".lasso_write_test");
-            fs::write(&test_path, b"ok")?;
-            fs::remove_file(&test_path)?;
-            Ok(())
-        })
-        .is_ok();
+    let log_ok = host_dir_writable(&log_root);
     checks.insert("log_root_writable".to_string(), log_ok);
-
     let ok = docker_ok && log_ok;
     let error = if ok {
         None

@@ -11,6 +11,8 @@ This module provides:
 
 import os
 import re
+import shutil
+import uuid
 from pathlib import Path
 
 import pytest
@@ -33,6 +35,13 @@ TEST_PROJECT_PREFIX = "lasso-test-"
 def _slugify(value: str) -> str:
     clean = re.sub(r"[^a-zA-Z0-9]+", "-", value).strip("-").lower()
     return clean[:40] or "test"
+
+
+def _runtime_root_for_test(node_name: str) -> Path:
+    slug = _slugify(node_name)
+    root = ROOT_DIR / ".pytest-runtime" / f"{slug}-{uuid.uuid4().hex[:8]}"
+    root.mkdir(parents=True, exist_ok=True)
+    return root
 
 
 def _codex_auth_path() -> Path:
@@ -156,15 +165,21 @@ def _bring_up_stack(stack: ComposeStack, tmp_path: Path) -> None:
 @pytest.fixture
 def docker_stack(tmp_path, request, compose_files: ComposeFiles, build_local_images) -> ComposeStack:
     _cleanup_stale_test_projects()
+    runtime_root = _runtime_root_for_test(request.node.name)
     stack = ComposeStack(
         root_dir=ROOT_DIR,
-        temp_root=tmp_path,
+        temp_root=runtime_root,
         test_slug=_slugify(request.node.name),
         compose_files=compose_files,
     )
-    _bring_up_stack(stack, tmp_path)
+    try:
+        _bring_up_stack(stack, tmp_path)
+    except Exception:
+        shutil.rmtree(runtime_root, ignore_errors=True)
+        raise
     yield stack
     _finalize_stack(stack, tmp_path, request)
+    shutil.rmtree(runtime_root, ignore_errors=True)
 
 
 @pytest.fixture
@@ -177,17 +192,23 @@ def codex_stack(
 ) -> ComposeStack:
     # Keep Codex command template aligned with legacy codex integration behavior.
     _cleanup_stale_test_projects()
+    runtime_root = _runtime_root_for_test(request.node.name)
     env_overrides = {
         "HARNESS_RUN_CMD_TEMPLATE": DEFAULT_CODEX_EXEC_TEMPLATE,
         "HOME": os.environ.get("HOME", str(Path.home())),
     }
     stack = ComposeStack(
         root_dir=ROOT_DIR,
-        temp_root=tmp_path,
+        temp_root=runtime_root,
         test_slug=_slugify(request.node.name),
         compose_files=compose_files_codex,
         env_overrides=env_overrides,
     )
-    _bring_up_stack(stack, tmp_path)
+    try:
+        _bring_up_stack(stack, tmp_path)
+    except Exception:
+        shutil.rmtree(runtime_root, ignore_errors=True)
+        raise
     yield stack
     _finalize_stack(stack, tmp_path, request)
+    shutil.rmtree(runtime_root, ignore_errors=True)

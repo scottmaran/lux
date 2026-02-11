@@ -14,6 +14,7 @@ ROOT_DIR = Path(__file__).resolve().parents[2]
 COMPOSE_BASE = ROOT_DIR / "compose.yml"
 COMPOSE_TEST_OVERRIDE = ROOT_DIR / "tests" / "integration" / "compose.test.override.yml"
 COMPOSE_CODEX = ROOT_DIR / "compose.codex.yml"
+AGENT_DOCKERFILE = ROOT_DIR / "agent" / "Dockerfile"
 
 
 def _load_yaml(path: Path) -> dict[str, Any]:
@@ -163,3 +164,9 @@ def test_codex_override_only_adds_expected_agent_mounts() -> None:
     volume_modes = _volume_modes(agent)
     assert volume_modes.get("/run/codex_auth.json") == "ro"
     assert volume_modes.get("/run/codex_skills") == "ro"
+
+
+def test_agent_dockerfile_config_dir_owned_by_harness_uid_for_shared_keys_volume() -> None:
+    content = AGENT_DOCKERFILE.read_text(encoding="utf-8")
+    assert "chown 1002:1002 /config" in content
+    assert "chmod 700 /config" in content
