@@ -165,6 +165,28 @@ class AuditFilterTests(unittest.TestCase):
         self.assertEqual(fs_events[0]["path"], "/work/a.txt")
         self.assertIn("cmd", fs_events[0])
 
+    def test_fs_create_before_child_exec_is_owned_via_parent(self) -> None:
+        base = datetime(2026, 1, 22, 0, 0, 0, tzinfo=timezone.utc)
+        ts = f"{int(base.timestamp())}.457"
+        audit_lines = [
+            make_syscall(ts, 1, 700, 1, 1001, 1001, "codex", "/usr/bin/codex", "exec"),
+            make_execve(ts, 1, ["codex"]),
+            make_syscall(ts, 2, 701, 700, 1001, 1001, "bash", "/usr/bin/bash", "exec"),
+            make_execve(ts, 2, ["bash", "-lc", "cat <<'PY' > /work/race.txt\nhello\nPY"]),
+            make_cwd(ts, 2, "/work"),
+            make_syscall(ts, 3, 702, 701, 1001, 1001, "bash", "/usr/bin/bash", "fs_watch"),
+            make_path(ts, 3, "/work/race.txt", "CREATE"),
+            make_syscall(ts, 4, 702, 701, 1001, 1001, "cat", "/usr/bin/cat", "exec"),
+            make_execve(ts, 4, ["cat"]),
+            make_cwd(ts, 4, "/work"),
+        ]
+
+        events = self.run_filter(audit_lines, self.base_config())
+        fs_events = [event for event in events if event["event_type"] == "fs_create"]
+        self.assertEqual(len(fs_events), 1)
+        self.assertEqual(fs_events[0]["path"], "/work/race.txt")
+        self.assertEqual(fs_events[0]["pid"], 702)
+
     def test_helper_suppression(self) -> None:
         base = datetime(2026, 1, 22, 0, 0, 0, tzinfo=timezone.utc)
         ts = f"{int(base.timestamp())}.789"
