@@ -1,173 +1,232 @@
-# Feature Plan: CLI Install/Setup/Uninstall Hardening and Pytest Migration
+# Feature Plan: Install/Update/Uninstall Hardening + Pytest-Only CLI Tests
 
 Date: 2026-02-12
 Owner: codex subagent
 Status: Draft for review
 
-## 1. Goals
+## 1. Why This Work
 
-1. Migrate all CLI behavior testing from `scripts/cli_scripts/` into pytest/Python.
-2. Fully remove `--remove-data` from `lasso uninstall`.
-3. Make uninstall resilient even when config is invalid or missing.
-4. Add deterministic, automated installer and real update coverage without external network dependency.
-5. Remove the `12_missing_ghcr_auth` CLI-script test case (do not re-implement it in pytest); keep any remaining GHCR references accurate and consistent with the codebase.
-6. Remove custom install location support for now: one fixed install layout under `$HOME` (`~/.lasso`, `~/.local/bin`, `~/.config/lasso`).
-7. Keep unconditional cleanup at the end of every test as a hard invariant.
+We are approaching beta and the highest-risk user lifecycle is:
 
-## 2. Locked Decisions
+1. Install the CLI (and bundle files).
+2. Configure and start the stack.
+3. Update to a new version and rollback if needed.
+4. Uninstall safely, even when config is missing or invalid.
 
-1. `scripts/cli_scripts/` will be deprecated and then deleted.
-2. The GHCR-auth negative test case (`12_missing_ghcr_auth`) is removed and not replaced in pytest. GHCR references may remain in docs/code if they are accurate and current.
-3. `--remove-data` is removed from CLI and docs.
-4. Installer verification is a required PR gate in intent, but temporarily disabled like other PR gates.
-5. Add a test hook to run install/update end-to-end against a local test release server.
-6. Remove `--install-dir/--bin-dir/--config-dir` from `install_lasso.sh` and remove `LASSO_INSTALL_DIR`/`LASSO_BIN_DIR` overrides from the CLI runtime path model. Install paths are derived solely from `$HOME`.
+Today, parts of this lifecycle are under-tested, and there is a release-bundle layout mismatch between the release workflow and the installer/updater extraction expectations.
 
-## 3. Scope
+## 2. Goals (Locked)
 
-In scope:
-- `lasso` CLI command surface and behavior around install/setup/uninstall/update.
-- Pytest integration coverage replacement for former bash CLI suite.
-- Release-bundle alignment and testability hooks.
-- Documentation updates for user and testing contracts.
+1. Move all CLI behavior testing into pytest/Python. Deprecate and delete `scripts/cli_scripts/`.
+2. Add deterministic installer and real update coverage that does not depend on external network or GitHub Releases.
+3. Fully remove `lasso uninstall --remove-data` (and all code/docs/tests mentioning it).
+4. Make uninstall resilient when config is missing or invalid (uninstall should still remove the installed CLI footprint).
+5. Remove only the `12_missing_ghcr_auth` negative test case (do not re-implement it in pytest). Keep GHCR references elsewhere if accurate and current.
+6. Fully remove custom install location support for now. Install layout is fixed under `$HOME`:
+   - `~/.lasso` (versions + `current` symlink)
+   - `~/.local/bin/lasso` (symlink to the current CLI)
+   - `~/.config/lasso` (config + compose env)
+7. Enforce unconditional cleanup in every docker-backed test and in every installer/update/uninstall test (no host pollution).
 
-Out of scope:
-- New product features unrelated to install/setup/uninstall/update lifecycle.
-- GHCR auth UX improvements (explicitly removed from test scope).
+## 3. Non-Goals
 
-## 4. Implementation Workstreams
+1. GHCR auth UX improvements (we are only removing the GHCR-auth negative test case).
+2. New product features unrelated to install/setup/uninstall/update.
+3. Re-introducing custom install paths now (we can revisit after beta).
 
-## A. Pytest-Only CLI Test Migration
+## 4. Key Findings to Address
 
-Implementation:
-1. Add Python integration tests that directly execute `lasso` via `subprocess`.
-2. Replace script-by-script wrappers with behavior-driven pytest modules.
-3. Preserve deterministic environment setup per test with isolated temp roots.
-4. Enforce teardown in `finally` or fixture finalizers with compose `down -v --remove-orphans`.
-5. Remove `tests/integration/test_cli_script_suite.py`.
-6. Remove `scripts/cli_scripts/` after parity is complete.
+1. Release bundle layout mismatch:
+   - `.github/workflows/release.yml` tars a top-level directory named like `lasso_<ver>_<os>_<arch>/...`.
+   - `install_lasso.sh` and `lasso update` currently extract into `.../versions/<ver>` and then assume files are directly at `.../versions/<ver>/lasso`, which will be false if the tar contains the top-level directory.
+2. Uninstall currently depends on parsing config when config exists, which makes uninstall brittle when config is invalid. This is unacceptable for uninstall.
+3. Custom install dir/bin dir behavior is currently "split brain":
+   - The installer can install to arbitrary locations, but the CLI defaults for update/uninstall/paths assume `~/.lasso` and `~/.local/bin` unless env overrides are set.
+   - This creates surprising outcomes and complicates tests.
+4. Current CLI bash suite and pytest wrapper mask some fragility; we want pytest-native tests with strong isolation invariants.
 
-Proposed test modules:
+## 5. Proposed Implementation
+
+### A) Fixed Install Layout (Remove Custom Install Dirs)
+
+Changes:
+1. `install_lasso.sh`:
+   - Remove flags: `--install-dir`, `--bin-dir`, `--config-dir`.
+   - Always install under `$HOME` fixed layout.
+2. `lasso` CLI:
+   - Remove `LASSO_INSTALL_DIR` and `LASSO_BIN_DIR` overrides from runtime path resolution.
+   - Continue to support config overrides (`--config`, `LASSO_CONFIG`, `LASSO_CONFIG_DIR`, `LASSO_ENV_FILE`) as they do not affect install layout.
+3. Update docs to reflect fixed layout and remove any mention of custom install dirs.
+
+Acceptance:
+- No code path depends on a configurable install/bin directory.
+- `lasso paths --json` still reports install/bin paths, but they are always derived from `$HOME`.
+
+### B) Bundle Extraction Fix (Installer + Update Must Match Release Workflow)
+
+We need a single rule:
+- If the tar contains a single top-level directory, extraction must flatten into the version directory so that `.../versions/<ver>/lasso` exists.
+- If the tar is "flat", extraction should still work.
+
+Changes:
+1. `install_lasso.sh`:
+   - After extraction, ensure expected layout exists.
+   - If extraction produced `DEST_DIR/<single-dir>/...`, flatten.
+2. `lasso update apply`:
+   - Update `extract_bundle()` or post-extract validation to support both layouts.
+   - Fail with a clear error if the bundle layout is neither acceptable shape.
+
+Acceptance:
+- Installer and updater work with artifacts produced by `.github/workflows/release.yml` without special-casing in tests.
+
+### C) Deterministic "Local Release Server" Hook (Installer + Update E2E Without External Network)
+
+We will add a test hook that only affects tests (but is safe to ship as an opt-in env override).
+
+Hook contract:
+1. Add env var `LASSO_RELEASE_BASE_URL`:
+   - Default: `https://github.com/scottmaran/lasso/releases/download`
+   - Semantics: artifact URL is `${LASSO_RELEASE_BASE_URL}/${VERSION}/${BUNDLE_NAME}`
+2. `install_lasso.sh` uses `LASSO_RELEASE_BASE_URL` if set.
+3. `lasso update apply` uses the same base for `bundle_url` and `checksum_url`.
+4. Tests will avoid `update check` (which calls the GitHub API) by always running `lasso update apply --to vX.Y.Z`.
+
+How fake release artifacts are produced (pytest fixture):
+1. Build or reuse a local `lasso` binary from the current source tree for the host platform.
+2. Assemble a directory exactly like the release workflow:
+   - `dist/lasso_<ver>_<os>_<arch>/lasso`
+   - `dist/lasso_<ver>_<os>_<arch>/compose.yml`
+   - `dist/lasso_<ver>_<os>_<arch>/compose.codex.yml`
+   - `dist/lasso_<ver>_<os>_<arch>/compose.ui.yml`
+   - `dist/lasso_<ver>_<os>_<arch>/config/default.yaml`
+   - `dist/lasso_<ver>_<os>_<arch>/README.md` and `VERSION` (optional but preferred to match release)
+3. Create `lasso_<ver>_<os>_<arch>.tar.gz` containing that top-level directory.
+4. Create `lasso_<ver>_<os>_<arch>.tar.gz.sha256` formatted for `shasum -c` / `sha256sum -c`.
+5. Serve the directory with a local HTTP server such that:
+   - `${BASE}/vX.Y.Z/lasso_<ver>_<os>_<arch>.tar.gz` resolves
+   - `${BASE}/vX.Y.Z/lasso_<ver>_<os>_<arch>.tar.gz.sha256` resolves
+
+Acceptance:
+- `install_lasso.sh` and `lasso update apply` can be tested end-to-end using only `localhost`.
+
+### D) Remove `lasso uninstall --remove-data` Completely
+
+Changes:
+1. Remove the `remove_data` flag from clap and all uninstall target logic that removes `log_root` and `workspace_root`.
+2. Update docs (`docs/guide/cli.md`, `docs/guide/install.md`) and test docs to remove mentions.
+3. Add tests asserting:
+   - `lasso uninstall --remove-data` is rejected (exit non-zero with clear message).
+   - uninstall never plans or deletes log/workspace roots under any option.
+
+Acceptance:
+- There is no CLI flag or code path that recursively deletes user-provided log/workspace directories.
+
+### E) Uninstall Resilience When Config Is Invalid or Missing
+
+Principle:
+- Uninstall must be able to remove the installed CLI footprint even when config cannot be parsed.
+
+Changes:
+1. Refactor uninstall to avoid reading/parsing `config.yaml` at all (unless a specific future option truly requires it).
+2. Uninstall target computation should be based on:
+   - fixed install layout under `$HOME`
+   - known config/env file paths (which come from CLI args/env and do not require parsing YAML)
+3. Preserve safety controls:
+   - Require `--yes` unless `--dry-run`.
+   - Keep `--force` to skip pre-uninstall stack shutdown.
+4. Keep JSON output detailed: planned/removed/missing, plus warnings if anything fails.
+
+Acceptance:
+- `lasso uninstall --yes --force` succeeds even if `~/.config/lasso/config.yaml` exists but is invalid YAML.
+
+### F) Pytest-Only CLI Test Migration (Replace Bash Suite)
+
+Strategy:
+- Replace script-by-script coverage with behavior-driven pytest modules that call the CLI via `subprocess`.
+
+New pytest modules (proposed):
 1. `tests/integration/test_cli_config_and_doctor.py`
 2. `tests/integration/test_cli_lifecycle.py`
 3. `tests/integration/test_cli_paths_uninstall.py`
 4. `tests/integration/test_cli_update.py`
 5. `tests/integration/test_cli_installer.py`
 
-Test isolation rule (non-negotiable):
-- Installer/update/uninstall tests must run with an isolated temporary `HOME`, so the fixed install layout remains fully contained and cannot touch the developer machine’s real `~/.lasso`, `~/.local/bin`, or `~/.config/lasso`.
-- Tests should execute the `lasso` binary via an explicit path inside the temp home (or by prepending the temp `~/.local/bin` to `PATH`), never relying on any pre-existing `lasso` in the host `PATH`.
+Non-negotiable isolation rules:
+1. Installer/update/uninstall tests run with a temporary isolated `HOME`.
+   - This guarantees the fixed install layout creates symlinks only under the temp home.
+   - Teardown is deleting the temp home directory.
+2. Tests execute the `lasso` binary by explicit path inside the temp home (or by prepending the temp `~/.local/bin` to `PATH`).
+3. Tests that interact with Docker must always teardown with `docker compose down --volumes --remove-orphans` in a `finally`/fixture-finalizer.
 
-## B. Remove `--remove-data` Completely
+Removal plan:
+1. Delete `tests/integration/test_cli_script_suite.py`.
+2. Delete `scripts/cli_scripts/` after pytest parity is complete.
+3. Specifically remove `scripts/cli_scripts/12_missing_ghcr_auth.sh` and remove it from any runners immediately (do not port into pytest).
 
-Implementation:
-1. Remove `remove_data` argument from CLI parser in `lasso/src/main.rs`.
-2. Remove all uninstall code paths that target `log_root` and `workspace_root`.
-3. Ensure uninstall cannot delete runtime data directories under any flag.
-4. Update CLI docs and test docs to remove `--remove-data` mentions.
-5. Add tests that assert the flag is rejected and data dirs are preserved.
+Acceptance:
+- `uv run pytest` is the single source of truth for CLI behavior tests.
 
-## C. Uninstall Guardrails and Error Handling
+### G) CI Gate (Initially Disabled)
 
-Implementation:
-1. Refactor uninstall path resolution to work even when config load fails.
-2. Use safe fallback paths for install/bin/config directories from env/defaults.
-3. Keep `--remove-config` support, but treat invalid config as warning, not hard blocker.
-4. Preserve current `--yes` and `--dry-run` semantics.
-5. Keep stack shutdown attempt behavior with `--force` escape hatch.
-6. Emit explicit JSON warnings for partial cleanup scenarios.
+Changes:
+1. Add an "installer verification" job to the PR workflow.
+2. Keep it disabled initially (matching existing disabled gate patterns) but structured so enabling it is a one-line change later.
+3. Ensure the job runs:
+   - local release server hook installer test
+   - real update apply + rollback test
+   - uninstall tests
 
-Coverage:
-1. Unit tests in `lasso/tests/cli.rs` for invalid-config uninstall flows.
-2. Integration tests validating dry-run plan and real removal behavior.
-3. Assertions that workspace/log roots are never removed.
+Acceptance:
+- The job exists and is easy to enable as a required PR gate when ready.
 
-## D. Installer and Real Update End-to-End Test Hook
+### H) Docs Updates (Up To Date, Not "No GHCR")
 
-Implementation:
-1. Add `LASSO_RELEASE_BASE_URL` override support.
-2. `install_lasso.sh` uses hook URL when set; defaults to current GitHub release URL.
-3. `lasso update` path uses same override in update plan URL construction.
-4. Add pytest fixture that launches a local HTTP server hosting fake release artifacts.
-5. Generate test bundles/checksums matching release workflow layout.
-6. Cover real install, real update apply, and rollback behavior against local server.
+Changes:
+1. Remove all mentions of `--remove-data`.
+2. Update install docs to match the fixed install layout and current install script behavior.
+3. Keep GHCR references only if consistent with:
+   - current compose image references (`ghcr.io/...`)
+   - current public/private image posture
+   - current CLI error messages and guidance
 
-Release-bundle alignment:
-1. Treat release workflow artifact structure as source of truth.
-2. Make installer/update robust to the current release tar layout (which includes a top-level directory), so install/update produce the expected `.../versions/<ver>/lasso` path.
-3. Keep backward compatibility with older “flat” bundles if they exist.
+Acceptance:
+- Docs are consistent with code and not stale.
 
-## E. Remove GHCR-Related Test Surface
+## 6. Acceptance Criteria (Summary Checklist)
 
-Implementation:
-1. Delete `scripts/cli_scripts/12_missing_ghcr_auth.sh` and remove it from any runners (`run_all.sh`, pytest wrappers, docs under `scripts/cli_scripts/`).
-2. Do not port this GHCR-auth negative case into the new pytest suite.
-3. Keep GHCR references elsewhere (e.g. user install docs) only if they match reality for the current release (private vs public images, `docker login ghcr.io` requirements, etc).
+1. `install_lasso.sh` has no custom directory flags and installs only into the fixed `$HOME` layout.
+2. `lasso` no longer supports `LASSO_INSTALL_DIR` or `LASSO_BIN_DIR`.
+3. Installer and updater correctly handle the release tar layout produced by `.github/workflows/release.yml`.
+4. `LASSO_RELEASE_BASE_URL` enables fully local installer + update apply/rollback tests.
+5. `lasso uninstall` has no `--remove-data` option and never deletes log/workspace roots.
+6. Uninstall works even with invalid config present.
+7. `scripts/cli_scripts/12_missing_ghcr_auth.sh` is removed and not replaced in pytest.
+8. `scripts/cli_scripts/` is deleted and no tests depend on it.
+9. Installer/update/uninstall tests do not modify the real host `~/.lasso`, `~/.local/bin`, or `~/.config/lasso` (validated by temp-`HOME` tests).
 
-## F. Gate and Workflow Updates
-
-Implementation:
-1. Add installer verification job in `.github/workflows/ci-pr.yml`.
-2. Mark it temporarily disabled with clear TODO note, matching current disabled-gate pattern.
-3. Keep canonical local lane coverage in `scripts/all_tests.py` aligned with new pytest modules.
-4. Remove obsolete references to `scripts/cli_scripts/run_all.sh`.
-
-## G. Documentation and Contract Updates
-
-Files to update:
-1. `docs/guide/cli.md`
-2. `docs/guide/install.md`
-3. `tests/README.md`
-4. `docs/history/HISTORY.md`
-5. `docs/history/dev_log.md`
-
-Required doc outcomes:
-1. No `--remove-data` references remain.
-2. CLI testing is described as pytest/Python only.
-3. Installer/update testing explains local release hook usage for deterministic validation.
-4. No stale GHCR references in docs (GHCR can be mentioned, but must be consistent with the current code and release posture).
-
-## 5. Acceptance Criteria
-
-1. No tests depend on `scripts/cli_scripts/`.
-2. `scripts/cli_scripts/` is deleted or fully unused and scheduled for deletion in same change.
-3. `lasso uninstall` has no `--remove-data` option.
-4. Uninstall succeeds in cleanup mode even with invalid config (with explicit warnings where relevant).
-5. Installer test is automated in pytest and runs without external network.
-6. Update apply and rollback have real mutation-path coverage in pytest.
-7. `12_missing_ghcr_auth` is removed and not re-implemented in pytest.
-8. Every docker-backed test has unconditional teardown.
-9. Updated docs are consistent with runtime behavior and test architecture.
-10. Installer/update/uninstall tests do not modify the host’s real `~/.lasso`, `~/.local/bin`, or `~/.config/lasso` (validated by running tests with a temp `HOME`).
-
-## 6. Validation Plan
+## 7. Validation Commands
 
 1. `cargo test -q --manifest-path lasso/Cargo.toml`
-2. `uv run pytest tests/integration/test_cli_config_and_doctor.py -q`
-3. `uv run pytest tests/integration/test_cli_lifecycle.py -q`
-4. `uv run pytest tests/integration/test_cli_paths_uninstall.py -q`
-5. `uv run pytest tests/integration/test_cli_update.py -q`
-6. `uv run pytest tests/integration/test_cli_installer.py -q`
-7. `uv run pytest tests/integration -m "integration and not agent_codex" -q`
-8. `uv run python scripts/all_tests.py --lane pr --skip-contract`
+2. `uv run pytest -q`
+3. `uv run pytest tests/integration/test_cli_installer.py -q`
+4. `uv run pytest tests/integration/test_cli_update.py -q`
 
-## 7. Risks and Mitigations
+## 8. Risks and Mitigations
 
-1. Risk: installer/update hook diverges from production flow.
-Mitigation: default path unchanged; hook only overrides base URL.
+1. Risk: local-release hook diverges from production behavior.
+Mitigation: default remains GitHub; hook only changes the base URL for downloads.
 
-2. Risk: uninstall fallback behavior may miss some edge paths.
-Mitigation: explicit JSON reporting of planned/removed/missing/warnings and added tests.
+2. Risk: bundle layout variability breaks extraction.
+Mitigation: explicitly support both "single top-level directory" and "flat" layouts, with clear errors otherwise.
 
-3. Risk: deleting bash scripts may remove useful ad-hoc tooling.
-Mitigation: replace all behavior with pytest equivalents before deletion.
+3. Risk: accidental host pollution from installer symlinks.
+Mitigation: all installer/update/uninstall tests run under an isolated temp `HOME` and tear down by deleting it.
 
-## 8. Execution Order
+## 9. Execution Order
 
-1. Add test hook support in installer and update code.
-2. Implement pytest replacements for CLI coverage.
-3. Remove `12_missing_ghcr_auth` coverage (and do not re-add it in pytest).
-4. Remove `--remove-data` and harden uninstall fallback behavior.
-5. Delete deprecated `scripts/cli_scripts/` and remove references.
-6. Update docs and workflows.
-7. Run full validation set.
+1. Fixed install layout changes (remove custom dirs in installer and CLI).
+2. Bundle extraction fix (installer + updater) and add `LASSO_RELEASE_BASE_URL` hook.
+3. Implement pytest local-release server fixture and installer/update/uninstall tests (temp `HOME`).
+4. Remove `--remove-data` and refactor uninstall to be config-parse independent.
+5. Remove `12_missing_ghcr_auth` and migrate remaining CLI scripts to pytest; then delete `scripts/cli_scripts/` and wrappers.
+6. Update docs and add the disabled CI installer verification gate.
