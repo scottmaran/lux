@@ -221,6 +221,8 @@ logical event. This example includes the minimal actions: `pwd` and creating
 - `cmd` is derived from the exec argv for that PID.
 - When exec fails and argv is unavailable, `cmd` falls back to `exec_attempted_path` for clarity.
 - `fs_create` uses the PATH record with `nametype=CREATE`.
+- Filesystem events can arrive before the child process's own `exec` record; ownership is
+  still attributed through an already-owned parent PID (`ppid`) when available.
 - Internal helper execs (e.g., `locale-check`, repo probes) are omitted.
 
 ### Open questions

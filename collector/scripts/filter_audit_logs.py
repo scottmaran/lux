@@ -486,7 +486,8 @@ def build_event(
         return event, ts
 
     if audit_key in include_fs:
-        if not state.is_owned(ns_pid, root_pids):
+        owned = state.mark_owned(ns_pid, ns_ppid, uid, agent_uid, comm, root_comm, root_pids)
+        if not owned:
             return None
         nametypes = {record.get("nametype") for record in path_records if record.get("nametype")}
         event_type = derive_fs_event_type(audit_key, nametypes)
