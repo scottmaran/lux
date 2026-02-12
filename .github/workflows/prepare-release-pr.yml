@@ -1,0 +1,83 @@
+name: prepare-release-pr
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Target release version (e.g. v0.1.6)"
+        required: true
+      base_branch:
+        description: "Branch to open PR against"
+        required: true
+        default: "main"
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  prepare-release-pr:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout base branch
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.base_branch }}
+
+      - name: Validate version input
+        run: |
+          set -euo pipefail
+          VERSION="${{ inputs.version }}"
+          if [[ ! "$VERSION" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "version must match vX.Y.Z (got: $VERSION)" >&2
+            exit 1
+          fi
+          echo "VERSION_NO_V=${VERSION#v}" >> "$GITHUB_ENV"
+
+      - name: Update version files
+        run: |
+          set -euo pipefail
+          sed -E -i "0,/^version = \".*\"/s//version = \"${VERSION_NO_V}\"/" lasso/Cargo.toml
+          sed -E -i "0,/^version = \".*\"/s//version = \"${VERSION_NO_V}\"/" pyproject.toml
+
+      - name: Verify updated versions
+        run: |
+          set -euo pipefail
+          CARGO_VERSION=$(sed -n 's/^version = "\(.*\)"/\1/p' lasso/Cargo.toml | head -n 1)
+          PYPROJECT_VERSION=$(sed -n 's/^version = "\(.*\)"/\1/p' pyproject.toml | head -n 1)
+
+          echo "cargo version:  $CARGO_VERSION"
+          echo "pyproject ver:  $PYPROJECT_VERSION"
+
+          if [[ "$CARGO_VERSION" != "$VERSION_NO_V" || "$PYPROJECT_VERSION" != "$VERSION_NO_V" ]]; then
+            echo "version update failed" >&2
+            exit 1
+          fi
+
+      - name: Open release prep PR
+        id: create_pr
+        uses: peter-evans/create-pull-request@v6
+        with:
+          commit-message: "chore(release): bump version to ${{ inputs.version }}"
+          title: "chore(release): bump version to ${{ inputs.version }}"
+          body: |
+            ## Summary
+            - bump `lasso/Cargo.toml` to `${{ env.VERSION_NO_V }}`
+            - bump `pyproject.toml` to `${{ env.VERSION_NO_V }}`
+
+            ## Why
+            Keeps embedded CLI version and release workflow input aligned.
+          branch: release/${{ inputs.version }}
+          base: ${{ inputs.base_branch }}
+          delete-branch: true
+          add-paths: |
+            lasso/Cargo.toml
+            pyproject.toml
+
+      - name: Print PR URL
+        run: |
+          if [[ -n "${{ steps.create_pr.outputs.pull-request-url }}" ]]; then
+            echo "Created/updated PR: ${{ steps.create_pr.outputs.pull-request-url }}"
+          else
+            echo "No PR created because no file changes were needed."
+          fi
