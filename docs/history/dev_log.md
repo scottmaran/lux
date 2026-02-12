@@ -270,3 +270,15 @@ host-side logs.
 - Kept `script(1)` as a hard requirement for TUI smoke coverage in the CLI suite.
 - Added `tests/integration/test_agent_codex_cli_tui.py` to validate a real Codex interactive TUI flow through `lasso tui --codex` with default harness TUI command behavior.
 - Kept `lasso tui` strict to CLI-defined behavior (no ambient `HARNESS_TUI_CMD` passthrough), and moved deterministic TUI stubbing into the dedicated test-only compose override.
+
+## Block 7:
+- Added SID-based run markers and attribution fallback to harden concurrent startup ownership.
+- Expanded validation/tests to require and exercise `root_sid` metadata end-to-end.
+
+### Details
+- Updated `harness/harness.py` launch paths to persist both `root_pid` and `root_sid` for jobs and TUI sessions, with `setsid`-based run startup so each run has a stable SID marker.
+- Updated collector filters (`collector/scripts/filter_audit_logs.py`, `collector/scripts/filter_ebpf_logs.py`) to ingest `root_sid` from run metadata and apply SID fallback after PID-lineage lookup.
+- Updated timeline validation in `tests/conftest.py` to require integer `root_sid` alongside `root_pid` for referenced session/job owners.
+- Added marker-focused unit coverage in `tests/unit/test_harness_markers.py`.
+- Added SID fallback unit coverage in `collector/tests/test_filter.py` and `collector/tests/test_ebpf_filter.py`.
+- Added focused startup race regression coverage in `tests/regression/test_startup_attribution_race.py` and updated integration assertions to check `root_sid` presence in run metadata.

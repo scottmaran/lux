@@ -127,7 +127,7 @@ def validate_timeline_outputs(
       - job-owned rows (`session_id == "unknown"`) must set a known `job_id`,
     - referenced session/job IDs exist in on-disk metadata,
     - event-specific required details are present (`fs_*`, `exec`, `net_summary`),
-    - every referenced session/job includes integer `root_pid` metadata.
+    - every referenced session/job includes integer root markers (`root_pid`, `root_sid`) metadata.
     """
     timeline = timeline_path or (log_root / "filtered_timeline.jsonl")
     rows = read_jsonl(timeline)
@@ -185,17 +185,27 @@ def validate_timeline_outputs(
                 )
 
     for session_id in sorted(referenced_sessions):
-        root_pid = sessions.get(session_id, {}).get("root_pid")
+        session_meta = sessions.get(session_id, {})
+        root_pid = session_meta.get("root_pid")
+        root_sid = session_meta.get("root_sid")
         if not isinstance(root_pid, int):
             raise AssertionError(f"Session {session_id} is missing integer root_pid.")
+        if not isinstance(root_sid, int):
+            raise AssertionError(f"Session {session_id} is missing integer root_sid.")
 
     for job_id in sorted(referenced_jobs):
         payload = jobs.get(job_id, {})
         input_pid = payload.get("input", {}).get("root_pid")
         status_pid = payload.get("status", {}).get("root_pid")
+        input_sid = payload.get("input", {}).get("root_sid")
+        status_sid = payload.get("status", {}).get("root_sid")
         if not isinstance(input_pid, int) or not isinstance(status_pid, int):
             raise AssertionError(
                 f"Job {job_id} is missing integer root_pid in input.json and/or status.json."
+            )
+        if not isinstance(input_sid, int) or not isinstance(status_sid, int):
+            raise AssertionError(
+                f"Job {job_id} is missing integer root_sid in input.json and/or status.json."
             )
 
     return rows

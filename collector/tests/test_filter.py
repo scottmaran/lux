@@ -124,11 +124,13 @@ class AuditFilterTests(unittest.TestCase):
             "submitted_at": base.isoformat(),
             "started_at": base.isoformat(),
             "root_pid": 100,
+            "root_sid": 100,
             "status": {
                 "job_id": job_id,
                 "started_at": base.isoformat(),
                 "ended_at": (base + timedelta(seconds=5)).isoformat(),
                 "root_pid": 100,
+                "root_sid": 100,
             },
         }]
 
@@ -234,22 +236,85 @@ class AuditFilterTests(unittest.TestCase):
             "mode": "tui",
             "command": "codex",
             "root_pid": 500,
+            "root_sid": 500,
         }]
         jobs = [{
             "job_id": job_id,
             "submitted_at": base.isoformat(),
             "started_at": base.isoformat(),
             "root_pid": 600,
+            "root_sid": 600,
             "status": {
                 "job_id": job_id,
                 "started_at": base.isoformat(),
                 "ended_at": (base + timedelta(seconds=5)).isoformat(),
                 "root_pid": 600,
+                "root_sid": 600,
             },
         }]
 
         audit_lines = [
             make_syscall(ts, 1, 500, 1, 1001, 1001, "codex", "/usr/bin/codex", "exec"),
+            make_execve(ts, 1, ["codex"]),
+        ]
+
+        events = self.run_filter(audit_lines, self.base_config(), jobs=jobs, sessions=sessions)
+        self.assertEqual(events[0]["session_id"], session_id)
+        self.assertNotIn("job_id", events[0])
+
+    def test_session_mapping_falls_back_to_root_sid_when_root_pid_missing(self) -> None:
+        base = datetime(2026, 1, 22, 0, 0, 0, tzinfo=timezone.utc)
+        ts = f"{int(base.timestamp())}.655"
+        session_id = "session_test_sid_fallback"
+        sessions = [{
+            "session_id": session_id,
+            "started_at": base.isoformat(),
+            "ended_at": (base + timedelta(seconds=5)).isoformat(),
+            "mode": "tui",
+            "command": "codex",
+            "root_pid": 500,
+            "root_sid": 910,
+        }]
+        audit_lines = [
+            make_syscall(ts, 1, 910, 1, 1001, 1001, "codex", "/usr/bin/codex", "exec"),
+            make_execve(ts, 1, ["codex"]),
+        ]
+
+        events = self.run_filter(audit_lines, self.base_config(), sessions=sessions)
+        self.assertEqual(events[0]["session_id"], session_id)
+        self.assertNotIn("job_id", events[0])
+
+    def test_session_sid_mapping_takes_precedence_over_job_sid_mapping(self) -> None:
+        base = datetime(2026, 1, 22, 0, 0, 0, tzinfo=timezone.utc)
+        ts = f"{int(base.timestamp())}.656"
+        session_id = "session_test_sid_precedence"
+        job_id = "job_test_sid_precedence"
+        shared_sid = 920
+        sessions = [{
+            "session_id": session_id,
+            "started_at": base.isoformat(),
+            "ended_at": (base + timedelta(seconds=5)).isoformat(),
+            "mode": "tui",
+            "command": "codex",
+            "root_pid": 501,
+            "root_sid": shared_sid,
+        }]
+        jobs = [{
+            "job_id": job_id,
+            "submitted_at": base.isoformat(),
+            "started_at": base.isoformat(),
+            "root_pid": 601,
+            "root_sid": shared_sid,
+            "status": {
+                "job_id": job_id,
+                "started_at": base.isoformat(),
+                "ended_at": (base + timedelta(seconds=5)).isoformat(),
+                "root_pid": 601,
+                "root_sid": shared_sid,
+            },
+        }]
+        audit_lines = [
+            make_syscall(ts, 1, shared_sid, 1, 1001, 1001, "codex", "/usr/bin/codex", "exec"),
             make_execve(ts, 1, ["codex"]),
         ]
 

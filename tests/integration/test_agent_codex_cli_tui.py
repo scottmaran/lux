@@ -318,6 +318,7 @@ def test_codex_tui_via_lasso_cli_produces_prompt_driven_session_evidence(
     stdout_text = stdout_path.read_text(encoding="utf-8", errors="replace")
     assert meta.get("mode") == "tui", f"Unexpected session mode: {meta}"
     assert isinstance(meta.get("root_pid"), int), f"Expected integer root_pid in session meta: {meta}"
+    assert isinstance(meta.get("root_sid"), int), f"Expected integer root_sid in session meta: {meta}"
     assert "codex -C /work -s danger-full-access" in str(meta.get("command", "")), (
         "Expected default harness TUI command in session meta.\n"
         f"meta={meta}"

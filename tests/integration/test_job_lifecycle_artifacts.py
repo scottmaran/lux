@@ -9,8 +9,8 @@ import pytest
 pytestmark = pytest.mark.integration
 
 
-def test_completed_job_persists_artifacts_and_root_pid(integration_stack) -> None:
-    """Completed jobs persist status/input artifacts and integer root_pid metadata."""
+def test_completed_job_persists_artifacts_and_root_markers(integration_stack) -> None:
+    """Completed jobs persist status/input artifacts and integer root_pid/root_sid metadata."""
     output_path = f"/work/lifecycle_{uuid.uuid4().hex[:8]}.txt"
     prompt = f"pwd; printf 'ok' > {output_path}"
     job_id, status = integration_stack.submit_and_wait(prompt)
@@ -33,6 +33,8 @@ def test_completed_job_persists_artifacts_and_root_pid(integration_stack) -> Non
     assert status_meta["job_id"] == job_id
     assert isinstance(input_meta.get("root_pid"), int)
     assert isinstance(status_meta.get("root_pid"), int)
+    assert isinstance(input_meta.get("root_sid"), int)
+    assert isinstance(status_meta.get("root_sid"), int)
     assert status_meta.get("exit_code") == 0
 
     host_stdout = integration_stack.host_log_path_from_container_path(str(status.get("output_path")))

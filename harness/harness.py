@@ -159,12 +159,41 @@ def root_pid_path(run_id: str) -> str:
     return f"/tmp/lasso_root_pid_{run_id}.txt"
 
 
+def root_sid_path(run_id: str) -> str:
+    return f"/tmp/lasso_root_sid_{run_id}.txt"
+
+
 def root_pid_prefix(pid_path: str) -> str:
     return (
         "ROOT_PID=$(awk '/^NSpid:/ {print $NF}' /proc/$$/status); "
         "if [ -z \"$ROOT_PID\" ]; then ROOT_PID=$$; fi; "
-        f"printf '%s' \"$ROOT_PID\" > {shlex.quote(pid_path)}; "
+        f"printf '%s\\n' \"$ROOT_PID\" > {shlex.quote(pid_path)}; "
     )
+
+
+def root_marker_prefix(pid_path: str, sid_path: str) -> str:
+    return (
+        "ROOT_PID=$(awk '/^NSpid:/ {print $NF}' /proc/$$/status); "
+        "if [ -z \"$ROOT_PID\" ]; then ROOT_PID=$$; fi; "
+        "ROOT_SID=$(awk '/^NSsid:/ {print $NF}' /proc/$$/status); "
+        "if [ -z \"$ROOT_SID\" ]; then ROOT_SID=$(ps -o sid= -p $$ 2>/dev/null | tr -d '[:space:]'); fi; "
+        "if [ -z \"$ROOT_SID\" ]; then ROOT_SID=$ROOT_PID; fi; "
+        f"printf '%s\\n' \"$ROOT_PID\" > {shlex.quote(pid_path)}; "
+        f"printf '%s\\n' \"$ROOT_SID\" > {shlex.quote(sid_path)}; "
+    )
+
+
+def wrap_with_setsid(inner_cmd: str, with_ctty: bool) -> str:
+    quoted_inner = shlex.quote(inner_cmd)
+    if with_ctty:
+        return (
+            "if setsid -c true >/dev/null 2>&1; then "
+            f"exec setsid -c bash -lc {quoted_inner}; "
+            "else "
+            f"exec setsid bash -lc {quoted_inner}; "
+            "fi"
+        )
+    return f"exec setsid bash -lc {quoted_inner}"
 
 
 def read_remote_root_pid(pid_path: str, timeout_sec: float | None = None) -> int | None:
@@ -188,6 +217,30 @@ def read_remote_root_pid(pid_path: str, timeout_sec: float | None = None) -> int
     return None
 
 
+def read_remote_root_markers(
+    pid_path: str,
+    sid_path: str,
+    timeout_sec: float | None = None,
+) -> tuple[int | None, int | None]:
+    timeout_sec = timeout_sec if timeout_sec is not None else ROOT_PID_TIMEOUT_SEC
+    deadline = time.time() + timeout_sec
+    cat_cmd = f"cat {shlex.quote(pid_path)} {shlex.quote(sid_path)} 2>/dev/null || true"
+    while time.time() < deadline:
+        cmd = ssh_base_args() + [ssh_target(), "bash", "-lc", shlex.quote(cat_cmd)]
+        result = subprocess.run(
+            cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            text=True,
+        )
+        if result.returncode == 0:
+            values = [piece.strip() for piece in result.stdout.split() if piece.strip()]
+            if len(values) >= 2 and values[0].isdigit() and values[1].isdigit():
+                return int(values[0]), int(values[1])
+        time.sleep(ROOT_PID_POLL_SEC)
+    return None, None
+
+
 def update_json(path: str, updates: dict) -> None:
     payload = {}
     if os.path.isfile(path):
@@ -206,12 +259,17 @@ def build_remote_command(
     env: dict,
     timeout: int | None,
     pid_path: str | None = None,
+    sid_path: str | None = None,
 ) -> str:
     env_parts = []
     for key, value in env.items():
         env_parts.append(f"{key}={shlex.quote(value)}")
     prefix = " ".join(env_parts)
-    cmd = root_pid_prefix(pid_path) if pid_path else ""
+    cmd = ""
+    if pid_path and sid_path:
+        cmd += root_marker_prefix(pid_path, sid_path)
+    elif pid_path:
+        cmd += root_pid_prefix(pid_path)
     cmd += f"cd {shlex.quote(cwd)} && "
     if prefix:
         cmd += f"{prefix} "
@@ -221,7 +279,7 @@ def build_remote_command(
     else:
         run_cmd = RUN_CMD_TEMPLATE
     cmd += f"exec {timeout_prefix}{run_cmd}"
-    return cmd.strip()
+    return wrap_with_setsid(cmd.strip(), with_ctty=False)
 
 
 def write_json(path: str, payload: dict) -> None:
@@ -282,7 +340,8 @@ def run_job(job_id: str, prompt: str, logged_prompt: str, cwd: str, env: dict, t
         return
 
     pid_path = root_pid_path(job_id)
-    remote_cmd = build_remote_command(prompt, cwd, env, timeout, pid_path=pid_path)
+    sid_path = root_sid_path(job_id)
+    remote_cmd = build_remote_command(prompt, cwd, env, timeout, pid_path=pid_path, sid_path=sid_path)
     cmd = ssh_base_args() + [ssh_target(), "bash", "-lc", shlex.quote(remote_cmd)]
 
     with open(stdout_path, "wb") as out, open(stderr_path, "wb") as err:
@@ -290,14 +349,18 @@ def run_job(job_id: str, prompt: str, logged_prompt: str, cwd: str, env: dict, t
         root_pid_thread = None
 
         def capture_root_pid() -> None:
-            root_pid = read_remote_root_pid(pid_path)
-            if root_pid is None:
+            root_pid, root_sid = read_remote_root_markers(pid_path, sid_path)
+            if root_pid is None or root_sid is None:
                 return
             with JOBS_LOCK:
                 JOBS[job_id]["root_pid"] = root_pid
-            update_json(os.path.join(job_path, "input.json"), {"root_pid": root_pid})
+                JOBS[job_id]["root_sid"] = root_sid
+            update_json(
+                os.path.join(job_path, "input.json"),
+                {"root_pid": root_pid, "root_sid": root_sid},
+            )
             if os.path.exists(status_path):
-                update_json(status_path, {"root_pid": root_pid})
+                update_json(status_path, {"root_pid": root_pid, "root_sid": root_sid})
 
         root_pid_thread = threading.Thread(target=capture_root_pid, daemon=True)
         root_pid_thread.start()
@@ -358,6 +421,7 @@ def handle_run(payload: dict) -> tuple[dict, int]:
             "output_path": None,
             "error_path": None,
             "root_pid": None,
+            "root_sid": None,
         }
 
     ensure_dir(JOB_DIR)
@@ -489,7 +553,9 @@ def run_tui(tui_name: str | None) -> int:
         write_label(SESSION_LABEL_DIR, session_id, label_name)
 
     pid_path = root_pid_path(session_id)
-    remote_cmd = f"{root_pid_prefix(pid_path)}cd {shlex.quote(DEFAULT_CWD)} && exec {TUI_CMD}" # e.g. cd /work && codex
+    sid_path = root_sid_path(session_id)
+    # Keep TUI on the native SSH PTY path; capture SID from that session without forcing a new session.
+    remote_cmd = f"{root_marker_prefix(pid_path, sid_path)}cd {shlex.quote(DEFAULT_CWD)} && exec {TUI_CMD}"
     cmd = ssh_base_args() + ["-tt", ssh_target(), "bash", "-lc", shlex.quote(remote_cmd)] # Build the ssh command with -tt (force PTY allocation)
 
     ''' 
@@ -507,10 +573,10 @@ def run_tui(tui_name: str | None) -> int:
         os.execvp(cmd[0], cmd)
 
     def capture_root_pid() -> None:
-        root_pid = read_remote_root_pid(pid_path)
-        if root_pid is None:
+        root_pid, root_sid = read_remote_root_markers(pid_path, sid_path)
+        if root_pid is None or root_sid is None:
             return
-        update_json(meta_path, {"root_pid": root_pid})
+        update_json(meta_path, {"root_pid": root_pid, "root_sid": root_sid})
 
     root_pid_thread = threading.Thread(target=capture_root_pid, daemon=True)
     root_pid_thread.start()

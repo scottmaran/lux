@@ -27,11 +27,13 @@ sessions_dir
 - Directory containing session metadata (`logs/sessions/*/meta.json`).
 - Used to map audit events to a `session_id` by tracking the session root PID
   and following the PID tree.
+- Also supports `root_sid` fallback mapping when PID lineage is not yet available.
 
 jobs_dir
 - Directory containing job metadata (`logs/jobs/*/input.json`, `status.json`).
 - Used to map audit events to `job_id` by tracking the job root PID
   and following the PID tree.
+- Also supports `root_sid` fallback mapping when PID lineage is not yet available.
 
 output.jsonl
 - Path to the filtered JSONL output.
@@ -51,6 +53,13 @@ agent_ownership.root_comm
 - Used to anchor the agent-owned process tree so unrelated UID-matching
   processes do not leak into the filtered log.
 - This is a pragmatic fallback when a root PID is not available.
+
+## Ownership assignment precedence
+For both audit and eBPF filtering, run attribution now applies this order:
+1. Root-PID/direct PID lineage mapping (`root_pid`, PID/PPID ancestry).
+2. Cached PID-to-run mapping from prior ownership resolution.
+3. Root-SID fallback mapping (`root_sid` from metadata matched against process SID).
+4. Unknown owner fallback (unchanged behavior).
 
 exec.include_keys
 - Audit rule keys that represent exec events (default `exec`).
