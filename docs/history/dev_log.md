@@ -283,3 +283,15 @@ host-side logs.
 - Updated `collector/entrypoint.sh` + merge/summary scripts to respect run-scoped output env overrides.
 - Updated `ui/server.py` to resolve run-scoped data, default to active run, and support `run_id` query selection.
 - Added regression/integration coverage for run layout invariants and timeline copy materialization in `tests/integration/test_run_scoped_log_layout.py`.
+
+## Block 8:
+- Added SID-based run markers and attribution fallback to harden concurrent startup ownership.
+- Expanded validation/tests to require and exercise `root_sid` metadata end-to-end.
+
+### Details
+- Updated `harness/harness.py` launch paths to persist both `root_pid` and `root_sid` for jobs and TUI sessions, with `setsid`-based run startup so each run has a stable SID marker.
+- Updated collector filters (`collector/scripts/filter_audit_logs.py`, `collector/scripts/filter_ebpf_logs.py`) to ingest `root_sid` from run metadata and apply SID fallback after PID-lineage lookup.
+- Updated timeline validation in `tests/conftest.py` to require integer `root_sid` alongside `root_pid` for referenced session/job owners.
+- Added marker-focused unit coverage in `tests/unit/test_harness_markers.py`.
+- Added SID fallback unit coverage in `collector/tests/test_filter.py` and `collector/tests/test_ebpf_filter.py`.
+- Added focused startup race regression coverage in `tests/regression/test_startup_attribution_race.py` and updated integration assertions to check `root_sid` presence in run metadata.

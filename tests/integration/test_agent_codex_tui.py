@@ -66,6 +66,7 @@ def test_codex_tui_path_runs_and_persists_session_artifacts(
     assert meta.get("mode") == "tui"
     assert meta.get("exit_code") == 0, f"Expected exit_code=0 in session meta: {meta}"
     assert isinstance(meta.get("root_pid"), int), f"Expected integer root_pid in session meta: {meta}"
+    assert isinstance(meta.get("root_sid"), int), f"Expected integer root_sid in session meta: {meta}"
     assert stdout_text.strip(), f"Expected non-empty TUI stdout for session {session_id}"
     assert token in stdout_text, (
         "TUI stdout does not look prompt-related; expected token missing.\n"
@@ -137,6 +138,7 @@ def test_codex_tui_prompt_pwd_emits_session_exec_row(
     stdout_text = (session_dir / "stdout.log").read_text(encoding="utf-8", errors="replace")
     assert meta.get("mode") == "tui", f"Expected mode=tui in session meta: {meta}"
     assert isinstance(meta.get("root_pid"), int), f"Expected integer root_pid in session meta: {meta}"
+    assert isinstance(meta.get("root_sid"), int), f"Expected integer root_sid in session meta: {meta}"
     assert stdout_text.strip(), f"Expected non-empty TUI stdout for session {session_id}"
     assert "pwd" in stdout_text.lower(), (
         "TUI stdout does not look prompt-related for pwd test.\n"

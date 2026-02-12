@@ -95,7 +95,10 @@ Any test that produces timeline output must run a shared validator that enforces
 2. Referential integrity: referenced session/job IDs exist in run metadata.
 3. Ordering: timeline timestamps are non-decreasing.
 4. Required fields: event has required keys for `schema_version` and `event_type`.
-5. Root PID completeness: attributed completed runs include persisted `root_pid`.
+5. Root marker completeness: attributed completed runs include persisted `root_pid` and `root_sid`.
+
+Attribution note:
+- Collector attribution is PID-lineage first, with `root_sid` fallback when PID lineage is temporarily unavailable during startup/concurrency windows.
 
 ## Change Protocol (For PRs and Agents)
 When code changes, test updates are mandatory and deterministic.

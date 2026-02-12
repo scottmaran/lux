@@ -123,6 +123,11 @@ Agent immutability hardening was restored in compose (`cap_drop: SYS_ADMIN`,
 `security_opt: no-new-privileges:true`), and integration coverage now asserts
 run-scoped layout invariants and no flat-root writes.
 
+**Phase 22: SID marker fallback for startup attribution races (Feb 12, 2026)**
+Concurrent startup revealed a remaining attribution gap: some early rows could be marked owned before root-PID run indexing had converged, yielding transient `unknown` ownership in live timelines. This phase adds a second run marker, `root_sid`, captured by harness at launch and persisted alongside `root_pid` for jobs and TUI sessions.
+
+Collector audit/eBPF attribution now remains PID-lineage first, but falls back to SID matching when PID lineage is temporarily unavailable. This preserves existing behavior while tightening concurrent startup attribution without introducing new emission-deferral semantics. Test coverage was extended with marker-unit tests and a focused startup-race regression scenario.
+
 **Open questions and deliberate TODOs**
 Some choices were intentionally deferred and still appear as TODOs in the docs:
 - Kernel feature requirements and minimum versions for audit sources.

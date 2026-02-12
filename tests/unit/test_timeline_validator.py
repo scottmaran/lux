@@ -21,11 +21,11 @@ def test_timeline_validator_accepts_valid_minimal_job_owned_timeline(tmp_path: P
     log_root = tmp_path / "logs"
     _write(
         log_root / "harness" / "jobs" / "job_1" / "input.json",
-        {"job_id": "job_1", "root_pid": 100},
+        {"job_id": "job_1", "root_pid": 100, "root_sid": 200},
     )
     _write(
         log_root / "harness" / "jobs" / "job_1" / "status.json",
-        {"job_id": "job_1", "root_pid": 100},
+        {"job_id": "job_1", "root_pid": 100, "root_sid": 200},
     )
     timeline = log_root / "collector" / "filtered" / "filtered_timeline.jsonl"
     timeline.parent.mkdir(parents=True, exist_ok=True)
@@ -70,4 +70,37 @@ def test_timeline_validator_rejects_missing_owner(tmp_path: Path) -> None:
     )
 
     with pytest.raises(AssertionError, match="unknown session without job owner"):
+        validate_timeline_outputs(log_root=log_root, timeline_path=timeline)
+
+
+def test_timeline_validator_rejects_missing_job_root_sid(tmp_path: Path) -> None:
+    """Validator rejects job-owned rows when job metadata lacks integer root_sid."""
+    log_root = tmp_path / "logs"
+    _write(
+        log_root / "harness" / "jobs" / "job_1" / "input.json",
+        {"job_id": "job_1", "root_pid": 100},
+    )
+    _write(
+        log_root / "harness" / "jobs" / "job_1" / "status.json",
+        {"job_id": "job_1", "root_pid": 100},
+    )
+    timeline = log_root / "collector" / "filtered" / "filtered_timeline.jsonl"
+    timeline.parent.mkdir(parents=True, exist_ok=True)
+    timeline.write_text(
+        json.dumps(
+            {
+                "schema_version": "timeline.filtered.v1",
+                "session_id": "unknown",
+                "job_id": "job_1",
+                "ts": "2026-01-22T00:00:01.000Z",
+                "source": "audit",
+                "event_type": "exec",
+                "details": {"cmd": "pwd"},
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(AssertionError, match="missing integer root_sid"):
         validate_timeline_outputs(log_root=log_root, timeline_path=timeline)

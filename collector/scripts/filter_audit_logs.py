@@ -202,10 +202,11 @@ def derive_fs_event_type(audit_key: str | None, nametypes: set[str]) -> str:
     return "fs_write"
 
 
-def load_session_roots(sessions_dir: str) -> dict[int, str]:
-    roots: dict[int, str] = {}
+def load_session_roots(sessions_dir: str) -> tuple[dict[int, str], dict[int, str]]:
+    roots_by_pid: dict[int, str] = {}
+    roots_by_sid: dict[int, str] = {}
     if not sessions_dir or not os.path.isdir(sessions_dir):
-        return roots
+        return roots_by_pid, roots_by_sid
     for entry in os.scandir(sessions_dir):
         if not entry.is_dir():
             continue
@@ -218,17 +219,20 @@ def load_session_roots(sessions_dir: str) -> dict[int, str]:
         except (OSError, json.JSONDecodeError):
             continue
         root_pid = parse_int(meta.get("root_pid"))
-        if root_pid is None:
-            continue
         session_id = meta.get("session_id") or entry.name
-        roots[root_pid] = session_id
-    return roots
+        if root_pid is not None:
+            roots_by_pid[root_pid] = session_id
+        root_sid = parse_int(meta.get("root_sid"))
+        if root_sid is not None:
+            roots_by_sid[root_sid] = session_id
+    return roots_by_pid, roots_by_sid
 
 
-def load_job_roots(jobs_dir: str) -> dict[int, str]:
-    roots: dict[int, str] = {}
+def load_job_roots(jobs_dir: str) -> tuple[dict[int, str], dict[int, str]]:
+    roots_by_pid: dict[int, str] = {}
+    roots_by_sid: dict[int, str] = {}
     if not jobs_dir or not os.path.isdir(jobs_dir):
-        return roots
+        return roots_by_pid, roots_by_sid
     for entry in os.scandir(jobs_dir):
         if not entry.is_dir():
             continue
@@ -252,10 +256,14 @@ def load_job_roots(jobs_dir: str) -> dict[int, str]:
         root_pid = parse_int(meta.get("root_pid"))
         if root_pid is None:
             root_pid = parse_int(status.get("root_pid"))
-        if root_pid is None:
-            continue
-        roots[root_pid] = job_id
-    return roots
+        if root_pid is not None:
+            roots_by_pid[root_pid] = job_id
+        root_sid = parse_int(meta.get("root_sid"))
+        if root_sid is None:
+            root_sid = parse_int(status.get("root_sid"))
+        if root_sid is not None:
+            roots_by_sid[root_sid] = job_id
+    return roots_by_pid, roots_by_sid
 
 
 class RunIndex:
@@ -264,14 +272,18 @@ class RunIndex:
         self.jobs_dir = jobs_dir
         self.refresh_sec = refresh_sec
         self.session_roots: dict[int, str] = {}
+        self.session_sids: dict[int, str] = {}
         self.job_roots: dict[int, str] = {}
+        self.job_sids: dict[int, str] = {}
         self.root_pids: set[int] = set()
+        self.root_sids: set[int] = set()
         self.last_refresh = 0.0
 
     def _refresh(self) -> None:
-        self.session_roots = load_session_roots(self.sessions_dir)
-        self.job_roots = load_job_roots(self.jobs_dir)
+        self.session_roots, self.session_sids = load_session_roots(self.sessions_dir)
+        self.job_roots, self.job_sids = load_job_roots(self.jobs_dir)
         self.root_pids = set(self.session_roots) | set(self.job_roots)
+        self.root_sids = set(self.session_sids) | set(self.job_sids)
         self.last_refresh = time.time()
 
     def maybe_refresh(self) -> None:
@@ -291,6 +303,7 @@ class FilterState:
         self.pid_to_session = {}
         self.pid_to_job = {}
         self.ns_pid_cache = {}
+        self.ns_sid_cache = {}
 
     def ns_pid(self, pid: int | None) -> int | None:
         if pid is None:
@@ -311,6 +324,28 @@ class FilterState:
             ns_pid = pid
         self.ns_pid_cache[pid] = ns_pid
         return ns_pid
+
+    def ns_sid(self, pid: int | None) -> int | None:
+        if pid is None:
+            return None
+        cached = self.ns_sid_cache.get(pid)
+        if cached is not None:
+            return cached
+        sid = None
+        try:
+            with open(f"/proc/{pid}/status", "r", encoding="utf-8") as handle:
+                for line in handle:
+                    if line.startswith("NSsid:"):
+                        parts = line.split()
+                        if len(parts) > 1 and parts[-1].isdigit():
+                            sid = int(parts[-1])
+                        break
+        except OSError:
+            sid = None
+        if sid is None:
+            sid = pid
+        self.ns_sid_cache[pid] = sid
+        return sid
 
     def is_owned(self, pid: int | None, root_pids: set[int] | None = None) -> bool:
         if pid is None:
@@ -347,42 +382,65 @@ class FilterState:
         self.owned_pids.add(pid)
         return True
 
-    def assign_run(self, pid: int | None, ppid: int | None, run_index: "RunIndex") -> tuple[str | None, str | None]:
-        if pid is None:
+    def assign_run(
+        self,
+        pid: int | None,
+        ppid: int | None,
+        sid: int | None,
+        run_index: "RunIndex",
+    ) -> tuple[str | None, str | None]:
+        if pid is None and sid is None:
             return None, None
-        if pid in self.pid_to_session or pid in self.pid_to_job:
+        if pid is not None and (pid in self.pid_to_session or pid in self.pid_to_job):
             return self.pid_to_session.get(pid), self.pid_to_job.get(pid)
         run_index.maybe_refresh()
-        session_id = run_index.session_roots.get(pid)
-        if session_id:
-            self.pid_to_session[pid] = session_id
-            self.pid_to_job[pid] = None
-            return session_id, None
-        job_id = run_index.job_roots.get(pid)
-        if job_id:
-            self.pid_to_session[pid] = None
-            self.pid_to_job[pid] = job_id
-            return None, job_id
+        if pid is not None:
+            session_id = run_index.session_roots.get(pid)
+            if session_id:
+                self.pid_to_session[pid] = session_id
+                self.pid_to_job[pid] = None
+                return session_id, None
+            job_id = run_index.job_roots.get(pid)
+            if job_id:
+                self.pid_to_session[pid] = None
+                self.pid_to_job[pid] = job_id
+                return None, job_id
         if ppid is not None:
             if ppid in self.pid_to_session or ppid in self.pid_to_job:
                 session_id = self.pid_to_session.get(ppid)
                 job_id = self.pid_to_job.get(ppid)
-                self.pid_to_session[pid] = session_id
-                self.pid_to_job[pid] = job_id
+                if pid is not None:
+                    self.pid_to_session[pid] = session_id
+                    self.pid_to_job[pid] = job_id
                 return session_id, job_id
             session_id = run_index.session_roots.get(ppid)
             if session_id:
                 self.pid_to_session[ppid] = session_id
                 self.pid_to_job[ppid] = None
-                self.pid_to_session[pid] = session_id
-                self.pid_to_job[pid] = None
+                if pid is not None:
+                    self.pid_to_session[pid] = session_id
+                    self.pid_to_job[pid] = None
                 return session_id, None
             job_id = run_index.job_roots.get(ppid)
             if job_id:
                 self.pid_to_session[ppid] = None
                 self.pid_to_job[ppid] = job_id
-                self.pid_to_session[pid] = None
-                self.pid_to_job[pid] = job_id
+                if pid is not None:
+                    self.pid_to_session[pid] = None
+                    self.pid_to_job[pid] = job_id
+                return None, job_id
+        if sid is not None:
+            session_id = run_index.session_sids.get(sid)
+            if session_id:
+                if pid is not None:
+                    self.pid_to_session[pid] = session_id
+                    self.pid_to_job[pid] = None
+                return session_id, None
+            job_id = run_index.job_sids.get(sid)
+            if job_id:
+                if pid is not None:
+                    self.pid_to_session[pid] = None
+                    self.pid_to_job[pid] = job_id
                 return None, job_id
         return None, None
 
@@ -409,6 +467,7 @@ def build_event(
     ppid = parse_int(fields.get("ppid"))
     ns_pid = state.ns_pid(pid)
     ns_ppid = state.ns_pid(ppid)
+    ns_sid = state.ns_sid(pid)
     uid = parse_int(fields.get("uid"))
     gid = parse_int(fields.get("gid"))
     comm = fields.get("comm") or ""
@@ -469,6 +528,7 @@ def build_event(
             "agent_owned": True,
             "_ns_pid": ns_pid,
             "_ns_ppid": ns_ppid,
+            "_ns_sid": ns_sid,
         }
         if exec_success is not None:
             event["exec_success"] = exec_success
@@ -522,6 +582,7 @@ def build_event(
             "agent_owned": True,
             "_ns_pid": ns_pid,
             "_ns_ppid": ns_ppid,
+            "_ns_sid": ns_sid,
         }
 
         if cfg.get("linking", {}).get("attach_cmd_to_fs", False) and ns_pid is not None:
@@ -600,13 +661,15 @@ def main() -> int:
     def assign_run(event: dict, force_refresh: bool = False) -> tuple[str | None, str | None]:
         pid = event.get("_ns_pid")
         ppid = event.get("_ns_ppid")
+        sid = event.get("_ns_sid")
         if pid is None:
             pid = event.get("pid")
             ppid = event.get("ppid")
-        session_id, job_id = state.assign_run(pid, ppid, run_index)
+            sid = state.ns_sid(pid)
+        session_id, job_id = state.assign_run(pid, ppid, sid, run_index)
         if not session_id and not job_id and force_refresh:
             run_index.force_refresh()
-            session_id, job_id = state.assign_run(pid, ppid, run_index)
+            session_id, job_id = state.assign_run(pid, ppid, sid, run_index)
         if session_id:
             event["session_id"] = session_id
             event.pop("job_id", None)
@@ -621,6 +684,7 @@ def main() -> int:
     def emit(event: dict) -> None:
         event.pop("_ns_pid", None)
         event.pop("_ns_ppid", None)
+        event.pop("_ns_sid", None)
         writer.write(json.dumps(event, separators=(",", ":")) + "\n")
         writer.flush()
 

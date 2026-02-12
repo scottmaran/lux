@@ -207,6 +207,8 @@ def test_codex_tui_concurrent_kalshi_and_nhl_lanes(
     assert nhl_meta.get("mode") == "tui", f"Unexpected mode for nhl lane: {nhl_meta}"
     assert isinstance(kalshi_meta.get("root_pid"), int), f"Missing root_pid for kalshi lane: {kalshi_meta}"
     assert isinstance(nhl_meta.get("root_pid"), int), f"Missing root_pid for nhl lane: {nhl_meta}"
+    assert isinstance(kalshi_meta.get("root_sid"), int), f"Missing root_sid for kalshi lane: {kalshi_meta}"
+    assert isinstance(nhl_meta.get("root_sid"), int), f"Missing root_sid for nhl lane: {nhl_meta}"
     assert kalshi_meta.get("ended_at"), f"Missing ended_at for kalshi lane: {kalshi_meta}"
     assert nhl_meta.get("ended_at"), f"Missing ended_at for nhl lane: {nhl_meta}"
 
