@@ -8,6 +8,7 @@ This directory contains the Rust source for the `lasso` CLI.
 - Writes a compose env file (`~/.config/lasso/compose.env`).
 - Wraps `docker compose` for stack lifecycle commands.
 - Calls the harness HTTP API for non‑interactive runs.
+- Creates a run id on `up` and scopes logs under `<log_root>/lasso__.../`.
 
 ## Build
 

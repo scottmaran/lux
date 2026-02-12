@@ -23,9 +23,10 @@ You can override with `HARNESS_MODE=tui` or `HARNESS_MODE=server`.
 
 ### TUI mode
 Launches Codex via `ssh -tt agent@agent` and proxies stdin/stdout through a PTY, logging both streams:
-- `logs/sessions/<session_id>/stdin.log`
-- `logs/sessions/<session_id>/stdout.log`
-- `logs/sessions/<session_id>/meta.json` (includes `root_pid` + `root_sid` run markers)
+- `logs/<run_id>/harness/sessions/<session_id>/stdin.log`
+- `logs/<run_id>/harness/sessions/<session_id>/stdout.log`
+- `logs/<run_id>/harness/sessions/<session_id>/filtered_timeline.jsonl`
+- `logs/<run_id>/harness/sessions/<session_id>/meta.json` (includes `root_pid` + `root_sid` run markers)
 
 By default the TUI uses `/work` as the working root and disables Codex sandboxing (`codex -C /work -s danger-full-access`).
 You can override the command with `HARNESS_TUI_CMD`.
@@ -63,6 +64,12 @@ TUI runs keep the native SSH PTY launch path and capture the corresponding PTY s
 - `HARNESS_TUI_NAME` (optional: display label for TUI sessions)
 - `HARNESS_RUN_CMD_TEMPLATE` (default: `codex -C /work -s danger-full-access exec {prompt}`)
 - `HARNESS_AGENT_WORKDIR` (default: `/work`)
+- `HARNESS_LOG_DIR` (default: `/logs`)
+- `HARNESS_TIMELINE_PATH` (default: `/logs/filtered_timeline.jsonl`)
+
+For run-scoped deployments, set:
+- `HARNESS_LOG_DIR=/logs/${LASSO_RUN_ID}/harness`
+- `HARNESS_TIMELINE_PATH=/logs/${LASSO_RUN_ID}/collector/filtered/filtered_timeline.jsonl`
 
 ## Security posture
 - No Docker socket required; SSH is used for control-plane access.

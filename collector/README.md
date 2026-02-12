@@ -18,6 +18,9 @@ writable by the audit group, starts auditd in daemon mode, then launches the fil
 `COLLECTOR_AUDIT_LOG`, `COLLECTOR_FILTER_CONFIG`, `COLLECTOR_FILTER_OUTPUT`,
 `COLLECTOR_EBPF_OUTPUT`, and `COLLECTOR_EBPF_BPF`.
 
+In normal `lasso up` usage, these env vars are run-scoped, e.g.
+`/logs/<run_id>/collector/raw/*` and `/logs/<run_id>/collector/filtered/*`.
+
 ## auditd.conf
 Configured to keep audit output local and file‑backed: `local_events = yes`, RAW log
 format, and an explicit `log_file` under `/logs`. Rotation is enabled with small log

@@ -193,8 +193,8 @@ def test_codex_tui_concurrent_kalshi_and_nhl_lanes(
         stop_results[kalshi_tui_name] = codex_stack.stop_harness_tui_interactive(kalshi_handle, wait_timeout_sec=30)
         stop_results[nhl_tui_name] = codex_stack.stop_harness_tui_interactive(nhl_handle, wait_timeout_sec=30)
 
-    kalshi_session_dir = codex_stack.log_root / "sessions" / kalshi_session_id
-    nhl_session_dir = codex_stack.log_root / "sessions" / nhl_session_id
+    kalshi_session_dir = codex_stack.session_dir(kalshi_session_id)
+    nhl_session_dir = codex_stack.session_dir(nhl_session_id)
     kalshi_meta = json.loads((kalshi_session_dir / "meta.json").read_text(encoding="utf-8"))
     nhl_meta = json.loads((nhl_session_dir / "meta.json").read_text(encoding="utf-8"))
     kalshi_stdout = (kalshi_session_dir / "stdout.log").read_text(encoding="utf-8", errors="replace")
@@ -287,4 +287,4 @@ def test_codex_tui_concurrent_kalshi_and_nhl_lanes(
         f"metrics={nhl_metrics}"
     )
 
-    timeline_validator(log_root=codex_stack.log_root)
+    timeline_validator(log_root=codex_stack.run_root)

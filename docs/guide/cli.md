@@ -12,7 +12,9 @@ HTTP API; for TUI runs it starts the harness in TUI mode.
    `LASSO_LOG_ROOT`, and `LASSO_WORKSPACE_ROOT`.
 3) `up/down/status/tui` shell out to `docker compose` with the bundle’s compose
    files and the generated env file.
-4) `run` and `jobs` call the harness HTTP API on `127.0.0.1:8081`.
+4) `up` creates a run id (`lasso__YYYY_MM_DD_HH_MM_SS`) and injects
+   `LASSO_RUN_ID` into compose runtime env.
+5) `run` and `jobs` call the harness HTTP API on `127.0.0.1:8081`.
 
 ## Examples
 
@@ -48,6 +50,10 @@ Manage the canonical config file.
 
 ### up
 Start the stack via Docker Compose.
+
+Behavior:
+- Fails fast with `already up: stack is already running` if services are already up.
+- Creates one run-scoped log directory per successful `lasso up`.
 
 Options:
 - `--codex`: include `compose.codex.yml`.
@@ -94,10 +100,14 @@ Options:
 Inspect job records written by the harness.
 
 - `lasso jobs list`  
-  List job IDs under the log root.
+  List job IDs for the active run.
 
 - `lasso jobs get <id>`  
-  Show job status.json for a specific job.
+  Show job status.json for a specific job in the active run.
+
+Options:
+- `--run-id <id>`: inspect a specific historical run.
+- `--latest`: inspect the most recent run directory.
 
 ### doctor
 Check local prerequisites (Docker available, log root writable).
@@ -143,11 +153,18 @@ Manage release updates for the installed CLI bundle.
 Inspect logs at a high level.
 
 - `lasso logs stats`  
-  Estimate average MB/hour from recent sessions.
+  Estimate average MB/hour from sessions in the selected run.
 
 - `lasso logs tail [--lines N] [--file <name>]`  
   Tail common logs (`audit`, `ebpf`, `timeline`) or a specific file path
-  relative to the log root.
+  relative to the selected run root.
+
+Run selection for both commands:
+- default: active run
+- `--run-id <id>`: explicit run
+- `--latest`: most recent run directory
+
+Log tree reference: `docs/guide/log_layout.md`.
 
 ## Global Options
 

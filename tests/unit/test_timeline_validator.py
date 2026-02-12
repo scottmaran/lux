@@ -20,14 +20,15 @@ def test_timeline_validator_accepts_valid_minimal_job_owned_timeline(tmp_path: P
     """Validator accepts timeline rows with valid job ownership and metadata references."""
     log_root = tmp_path / "logs"
     _write(
-        log_root / "jobs" / "job_1" / "input.json",
+        log_root / "harness" / "jobs" / "job_1" / "input.json",
         {"job_id": "job_1", "root_pid": 100, "root_sid": 200},
     )
     _write(
-        log_root / "jobs" / "job_1" / "status.json",
+        log_root / "harness" / "jobs" / "job_1" / "status.json",
         {"job_id": "job_1", "root_pid": 100, "root_sid": 200},
     )
-    timeline = log_root / "filtered_timeline.jsonl"
+    timeline = log_root / "collector" / "filtered" / "filtered_timeline.jsonl"
+    timeline.parent.mkdir(parents=True, exist_ok=True)
     timeline.write_text(
         json.dumps(
             {
@@ -51,7 +52,7 @@ def test_timeline_validator_accepts_valid_minimal_job_owned_timeline(tmp_path: P
 def test_timeline_validator_rejects_missing_owner(tmp_path: Path) -> None:
     """Validator rejects rows that do not provide a valid ownership shape."""
     log_root = tmp_path / "logs"
-    timeline = log_root / "filtered_timeline.jsonl"
+    timeline = log_root / "collector" / "filtered" / "filtered_timeline.jsonl"
     timeline.parent.mkdir(parents=True, exist_ok=True)
     timeline.write_text(
         json.dumps(
@@ -76,14 +77,15 @@ def test_timeline_validator_rejects_missing_job_root_sid(tmp_path: Path) -> None
     """Validator rejects job-owned rows when job metadata lacks integer root_sid."""
     log_root = tmp_path / "logs"
     _write(
-        log_root / "jobs" / "job_1" / "input.json",
+        log_root / "harness" / "jobs" / "job_1" / "input.json",
         {"job_id": "job_1", "root_pid": 100},
     )
     _write(
-        log_root / "jobs" / "job_1" / "status.json",
+        log_root / "harness" / "jobs" / "job_1" / "status.json",
         {"job_id": "job_1", "root_pid": 100},
     )
-    timeline = log_root / "filtered_timeline.jsonl"
+    timeline = log_root / "collector" / "filtered" / "filtered_timeline.jsonl"
+    timeline.parent.mkdir(parents=True, exist_ok=True)
     timeline.write_text(
         json.dumps(
             {

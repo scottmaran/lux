@@ -28,6 +28,22 @@ lasso tui --codex
 
 To view more info about user configs, see `docs/guide/config.md`.
 
+## Run-scoped logs
+Each `lasso up` creates a new run directory under `paths.log_root`, for example:
+
+```text
+~/lasso-logs/
+  lasso__2026_02_12_12_23_54/
+    collector/raw/
+    collector/filtered/
+    harness/sessions/
+    harness/jobs/
+    harness/labels/
+```
+
+`lasso logs tail` and `lasso jobs ...` default to the active run. If no run is
+active, use `--run-id <id>` or `--latest`.
+
 ## Docs
 Start with the user guide in `docs/guide/`.
 Developers/contributors: see `docs/README.md` for the full documentation map.

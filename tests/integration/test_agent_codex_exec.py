@@ -59,4 +59,4 @@ def test_codex_exec_run_returns_prompt_related_output_and_live_artifacts(
     )
     codex_stack.wait_for_job_timeline_rows(job_id, timeout_sec=120)
 
-    timeline_validator(log_root=codex_stack.log_root)
+    timeline_validator(log_root=codex_stack.run_root)

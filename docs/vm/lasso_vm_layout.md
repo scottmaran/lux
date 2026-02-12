@@ -32,6 +32,7 @@ Host OS
 - Log sink (storage)
   - Host directory outside the VM.
   - Writable by harness/collector; read-only to the agent.
+  - Runtime artifacts are grouped by run under `/logs/lasso__YYYY_MM_DD_HH_MM_SS/...`.
 
 ## Mounts and permissions (exact model)
 Host directories
@@ -89,7 +90,9 @@ services:
       - /vm/logs:/logs:rw
       - harness_keys:/harness/keys:rw
     environment:
-      - HARNESS_LOG_DIR=/logs
+      - LASSO_RUN_ID=lasso__2026_02_12_12_23_54
+      - HARNESS_LOG_DIR=/logs/${LASSO_RUN_ID}/harness
+      - HARNESS_TIMELINE_PATH=/logs/${LASSO_RUN_ID}/collector/filtered/filtered_timeline.jsonl
       - HARNESS_AGENT_WORKDIR=/work
     ports:
       - 127.0.0.1:8081:8081
@@ -108,8 +111,9 @@ services:
       - /sys/kernel/tracing:/sys/kernel/tracing:rw
       - /sys/kernel/debug:/sys/kernel/debug:rw
     environment:
-      - COLLECTOR_AUDIT_LOG=/logs/audit.log
-      - COLLECTOR_EBPF_OUTPUT=/logs/ebpf.jsonl
+      - LASSO_RUN_ID=lasso__2026_02_12_12_23_54
+      - COLLECTOR_AUDIT_LOG=/logs/${LASSO_RUN_ID}/collector/raw/audit.log
+      - COLLECTOR_EBPF_OUTPUT=/logs/${LASSO_RUN_ID}/collector/raw/ebpf.jsonl
 
 volumes:
   harness_keys:

@@ -17,7 +17,14 @@ cleanup() {
 trap cleanup EXIT
 
 lasso config apply
-lasso up
+up_json=$(lasso --json up)
+run_id=$(echo "$up_json" | json_field result.run_id)
+if [ -z "$run_id" ]; then
+  echo "ERROR: run_id not found in up output" >&2
+  echo "$up_json" >&2
+  exit 1
+fi
+run_root="$LOG_ROOT/$run_id"
 
 status_json=""
 count=0
@@ -35,11 +42,11 @@ if [ "$count" -eq 0 ]; then
   exit 1
 fi
 
-if [ ! -f "$LOG_ROOT/audit.log" ]; then
+if [ ! -f "$run_root/collector/raw/audit.log" ]; then
   echo "ERROR: audit.log missing" >&2
   exit 1
 fi
-if [ ! -f "$LOG_ROOT/ebpf.jsonl" ]; then
+if [ ! -f "$run_root/collector/raw/ebpf.jsonl" ]; then
   echo "ERROR: ebpf.jsonl missing" >&2
   exit 1
 fi
@@ -52,7 +59,7 @@ if [ -z "$job_id" ]; then
   exit 1
 fi
 
-job_dir="$LOG_ROOT/jobs/$job_id"
+job_dir="$run_root/harness/jobs/$job_id"
 for _ in $(seq 1 30); do
   if [ -s "$job_dir/input.json" ] && [ -s "$job_dir/status.json" ] && [ -f "$job_dir/stderr.log" ]; then
     break
@@ -95,12 +102,12 @@ if [ ! -f "$job_dir/stdout.log" ]; then
 fi
 
 for _ in $(seq 1 20); do
-  if [ -s "$LOG_ROOT/ebpf.jsonl" ]; then
+  if [ -s "$run_root/collector/raw/ebpf.jsonl" ]; then
     break
   fi
   sleep 1
 done
-if [ ! -s "$LOG_ROOT/ebpf.jsonl" ]; then
+if [ ! -s "$run_root/collector/raw/ebpf.jsonl" ]; then
   echo "ERROR: ebpf.jsonl still empty after network activity" >&2
   exit 1
 fi
@@ -125,7 +132,7 @@ script -q /dev/null "$LASSO_BIN" --config "$CONFIG_PATH" tui || {
   echo "ERROR: tui command failed" >&2
   exit 1
 }
-latest_session=$(ls -td "$LOG_ROOT"/sessions/session_* 2>/dev/null | head -n 1 || true)
+latest_session=$(ls -td "$run_root"/harness/sessions/session_* 2>/dev/null | head -n 1 || true)
 if [ -z "$latest_session" ]; then
   echo "ERROR: no session directory created" >&2
   exit 1

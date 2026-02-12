@@ -147,18 +147,38 @@ enum ConfigCommand {
 
 #[derive(Subcommand, Debug)]
 enum JobsCommand {
-    List,
-    Get { id: String },
+    List {
+        #[arg(long, conflicts_with = "latest")]
+        run_id: Option<String>,
+        #[arg(long)]
+        latest: bool,
+    },
+    Get {
+        id: String,
+        #[arg(long, conflicts_with = "latest")]
+        run_id: Option<String>,
+        #[arg(long)]
+        latest: bool,
+    },
 }
 
 #[derive(Subcommand, Debug)]
 enum LogsCommand {
-    Stats,
+    Stats {
+        #[arg(long, conflicts_with = "latest")]
+        run_id: Option<String>,
+        #[arg(long)]
+        latest: bool,
+    },
     Tail {
         #[arg(long, default_value_t = 50)]
         lines: usize,
         #[arg(long)]
         file: Option<String>,
+        #[arg(long, conflicts_with = "latest")]
+        run_id: Option<String>,
+        #[arg(long)]
+        latest: bool,
     },
 }
 
@@ -278,6 +298,12 @@ struct Context {
     json: bool,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct ActiveRunState {
+    run_id: String,
+    started_at: String,
+}
+
 #[derive(Debug, Clone)]
 struct CommandOutput {
     status_code: i32,
@@ -296,6 +322,7 @@ trait DockerRunner {
         &self,
         args: &[String],
         cwd: &Path,
+        env_overrides: &BTreeMap<String, String>,
         capture_output: bool,
     ) -> Result<CommandOutput, io::Error>;
 }
@@ -307,10 +334,14 @@ impl DockerRunner for RealDockerRunner {
         &self,
         args: &[String],
         cwd: &Path,
+        env_overrides: &BTreeMap<String, String>,
         capture_output: bool,
     ) -> Result<CommandOutput, io::Error> {
         let mut cmd = Command::new("docker");
         cmd.args(args).current_dir(cwd);
+        for (key, value) in env_overrides {
+            cmd.env(key, value);
+        }
         if capture_output {
             let output = cmd.output()?;
             let status_code =
@@ -1023,15 +1054,152 @@ fn compose_base_args(ctx: &Context, codex: bool, ui: bool) -> Result<Vec<String>
     Ok(args)
 }
 
+fn run_id_from_now() -> String {
+    format!("lasso__{}", Utc::now().format("%Y_%m_%d_%H_%M_%S"))
+}
+
+fn active_run_state_path(log_root: &Path) -> PathBuf {
+    log_root.join(".active_run.json")
+}
+
+fn load_active_run_state(log_root: &Path) -> Result<Option<ActiveRunState>, LassoError> {
+    let state_path = active_run_state_path(log_root);
+    if !state_path.exists() {
+        return Ok(None);
+    }
+    let content = fs::read_to_string(&state_path)?;
+    let parsed: ActiveRunState = serde_json::from_str(&content)?;
+    Ok(Some(parsed))
+}
+
+fn write_active_run_state(log_root: &Path, run_id: &str) -> Result<(), LassoError> {
+    fs::create_dir_all(log_root)?;
+    let state = ActiveRunState {
+        run_id: run_id.to_string(),
+        started_at: Utc::now().to_rfc3339(),
+    };
+    let path = active_run_state_path(log_root);
+    let tmp_path = path.with_extension("json.tmp");
+    let body = serde_json::to_string_pretty(&state)?;
+    fs::write(&tmp_path, format!("{body}\n"))?;
+    fs::rename(&tmp_path, &path)?;
+    Ok(())
+}
+
+fn clear_active_run_state(log_root: &Path) -> Result<(), LassoError> {
+    let path = active_run_state_path(log_root);
+    if path.exists() {
+        fs::remove_file(path)?;
+    }
+    Ok(())
+}
+
+fn run_root(log_root: &Path, run_id: &str) -> PathBuf {
+    log_root.join(run_id)
+}
+
+fn list_run_ids(log_root: &Path) -> Result<Vec<String>, LassoError> {
+    let mut run_ids: Vec<String> = Vec::new();
+    if !log_root.exists() {
+        return Ok(run_ids);
+    }
+    for entry in fs::read_dir(log_root)? {
+        let entry = entry?;
+        if !entry.file_type()?.is_dir() {
+            continue;
+        }
+        let name = entry.file_name().to_string_lossy().to_string();
+        if name.starts_with("lasso__") {
+            run_ids.push(name);
+        }
+    }
+    run_ids.sort();
+    Ok(run_ids)
+}
+
+fn resolve_latest_run_id(log_root: &Path) -> Result<Option<String>, LassoError> {
+    let runs = list_run_ids(log_root)?;
+    Ok(runs.last().cloned())
+}
+
+fn compose_env_for_run(run_id: Option<&str>) -> BTreeMap<String, String> {
+    let mut envs = BTreeMap::new();
+    if let Some(run_id) = run_id {
+        envs.insert("LASSO_RUN_ID".to_string(), run_id.to_string());
+    }
+    envs
+}
+
+fn resolve_default_run_id(log_root: &Path) -> Result<String, LassoError> {
+    match load_active_run_state(log_root)? {
+        Some(state) => {
+            if run_root(log_root, &state.run_id).exists() {
+                Ok(state.run_id)
+            } else {
+                clear_active_run_state(log_root)?;
+                Err(LassoError::Process(
+                    "no active run found; use --run-id or --latest".to_string(),
+                ))
+            }
+        }
+        None => Err(LassoError::Process(
+            "no active run found; use --run-id or --latest".to_string(),
+        )),
+    }
+}
+
+fn resolve_run_id_from_selector(
+    log_root: &Path,
+    run_id: Option<&str>,
+    latest: bool,
+) -> Result<String, LassoError> {
+    if let Some(run_id) = run_id {
+        if !run_root(log_root, run_id).exists() {
+            return Err(LassoError::Process(format!("run not found: {run_id}")));
+        }
+        return Ok(run_id.to_string());
+    }
+    if latest {
+        return resolve_latest_run_id(log_root)?.ok_or_else(|| {
+            LassoError::Process("no run directories found under log root".to_string())
+        });
+    }
+    resolve_default_run_id(log_root)
+}
+
+fn stack_has_running_services<R: DockerRunner>(
+    ctx: &Context,
+    runner: &R,
+    codex: bool,
+    ui: bool,
+) -> Result<bool, LassoError> {
+    let mut args = compose_base_args(ctx, codex, ui)?;
+    args.push("ps".to_string());
+    args.push("--status".to_string());
+    args.push("running".to_string());
+    args.push("--services".to_string());
+    let output = execute_docker(
+        ctx,
+        runner,
+        &args,
+        &BTreeMap::new(),
+        true,
+        false,
+    )?;
+    let text = String::from_utf8_lossy(&output.stdout);
+    Ok(text.lines().any(|line| !line.trim().is_empty()))
+}
+
 fn execute_docker<R: DockerRunner>(
     ctx: &Context,
     runner: &R,
     args: &[String],
+    env_overrides: &BTreeMap<String, String>,
     capture_output: bool,
     passthrough_stdout: bool,
 ) -> Result<CommandOutput, LassoError> {
     let cmd_output = runner
-        .run(args, &ctx.bundle_dir, capture_output)
+        .run(args, &ctx.bundle_dir, env_overrides, capture_output)
         .map_err(|err| LassoError::Process(format!("failed to run command: {err}")))?;
     if !cmd_output.success() {
         let stderr = String::from_utf8_lossy(&cmd_output.stderr)
@@ -1063,10 +1231,11 @@ fn run_docker_command<R: DockerRunner>(
     ctx: &Context,
     runner: &R,
     args: &[String],
+    env_overrides: &BTreeMap<String, String>,
     json_payload: serde_json::Value,
     capture_output: bool,
 ) -> Result<(), LassoError> {
-    let _ = execute_docker(ctx, runner, args, capture_output, true)?;
+    let _ = execute_docker(ctx, runner, args, env_overrides, capture_output, true)?;
     output(ctx, json_payload)
 }
 
@@ -1084,6 +1253,17 @@ fn handle_up<R: DockerRunner>(
             "--timeout-sec requires --wait".to_string(),
         ));
     }
+    if stack_has_running_services(ctx, runner, codex, ui)? {
+        return Err(LassoError::Process(
+            "already up: stack is already running".to_string(),
+        ));
+    }
+    let cfg = read_config(&ctx.config_path)?;
+    let log_root = PathBuf::from(expand_path(&cfg.paths.log_root));
+    let run_id = run_id_from_now();
+    fs::create_dir_all(run_root(&log_root, &run_id))?;
+    write_active_run_state(&log_root, &run_id)?;
+
     let mut args = compose_base_args(ctx, codex, ui)?;
     args.push("up".to_string());
     args.push("-d".to_string());
@@ -1098,7 +1278,19 @@ fn handle_up<R: DockerRunner>(
             args.push(timeout_sec.to_string());
         }
     }
-    run_docker_command(ctx, runner, &args, json!({"action": "up"}), true)
+    let env_overrides = compose_env_for_run(Some(&run_id));
+    let result = run_docker_command(
+        ctx,
+        runner,
+        &args,
+        &env_overrides,
+        json!({"action": "up", "run_id": run_id}),
+        true,
+    );
+    if result.is_err() {
+        let _ = clear_active_run_state(&log_root);
+    }
+    result
 }
 
 fn handle_down<R: DockerRunner>(
@@ -1109,6 +1301,9 @@ fn handle_down<R: DockerRunner>(
     remove_orphans: bool,
     runner: &R,
 ) -> Result<(), LassoError> {
+    let cfg = read_config(&ctx.config_path)?;
+    let log_root = PathBuf::from(expand_path(&cfg.paths.log_root));
+    let run_id = load_active_run_state(&log_root)?.map(|state| state.run_id);
     let mut args = compose_base_args(ctx, codex, ui)?;
     args.push("down".to_string());
     if volumes {
@@ -1117,13 +1312,19 @@ fn handle_down<R: DockerRunner>(
     if remove_orphans {
         args.push("--remove-orphans".to_string());
     }
-    run_docker_command(
+    let env_overrides = compose_env_for_run(run_id.as_deref());
+    let result = run_docker_command(
         ctx,
         runner,
         &args,
-        json!({"action": "down", "volumes": volumes, "remove_orphans": remove_orphans}),
+        &env_overrides,
+        json!({"action": "down", "volumes": volumes, "remove_orphans": remove_orphans, "run_id": run_id}),
         true,
-    )
+    );
+    if result.is_ok() {
+        clear_active_run_state(&log_root)?;
+    }
+    result
 }
 
 fn handle_status<R: DockerRunner>(
@@ -1132,11 +1333,15 @@ fn handle_status<R: DockerRunner>(
     ui: bool,
     runner: &R,
 ) -> Result<(), LassoError> {
+    let cfg = read_config(&ctx.config_path)?;
+    let log_root = PathBuf::from(expand_path(&cfg.paths.log_root));
+    let run_id = load_active_run_state(&log_root)?.map(|state| state.run_id);
     let mut args = compose_base_args(ctx, codex, ui)?;
     args.push("ps".to_string());
     args.push("--format".to_string());
     args.push("json".to_string());
-    let cmd_output = execute_docker(ctx, runner, &args, true, false)?;
+    let env_overrides = compose_env_for_run(run_id.as_deref());
+    let cmd_output = execute_docker(ctx, runner, &args, &env_overrides, true, false)?;
     let text = String::from_utf8_lossy(&cmd_output.stdout);
     let rows: serde_json::Value = match serde_json::from_str(&text) {
         Ok(value) => value,
@@ -1228,21 +1433,33 @@ fn handle_run(
 }
 
 fn handle_tui<R: DockerRunner>(ctx: &Context, codex: bool, runner: &R) -> Result<(), LassoError> {
+    let cfg = read_config(&ctx.config_path)?;
+    let log_root = PathBuf::from(expand_path(&cfg.paths.log_root));
+    let run_id = resolve_default_run_id(&log_root)?;
     let mut args = compose_base_args(ctx, codex, false)?;
     args.push("run".to_string());
     args.push("--rm".to_string());
     args.push("-e".to_string());
     args.push("HARNESS_MODE=tui".to_string());
     args.push("harness".to_string());
-    run_docker_command(ctx, runner, &args, json!({"action": "tui"}), false)
+    let env_overrides = compose_env_for_run(Some(&run_id));
+    run_docker_command(
+        ctx,
+        runner,
+        &args,
+        &env_overrides,
+        json!({"action": "tui", "run_id": run_id}),
+        false,
+    )
 }
 
 fn handle_jobs(ctx: &Context, command: JobsCommand) -> Result<(), LassoError> {
     let cfg = read_config(&ctx.config_path)?;
     let log_root = PathBuf::from(expand_path(&cfg.paths.log_root));
-    let jobs_dir = log_root.join("jobs");
     match command {
-        JobsCommand::List => {
+        JobsCommand::List { run_id, latest } => {
+            let run_id = resolve_run_id_from_selector(&log_root, run_id.as_deref(), latest)?;
+            let jobs_dir = run_root(&log_root, &run_id).join("harness").join("jobs");
             let mut jobs = Vec::new();
             if jobs_dir.exists() {
                 for entry in fs::read_dir(jobs_dir)? {
@@ -1253,9 +1470,11 @@ fn handle_jobs(ctx: &Context, command: JobsCommand) -> Result<(), LassoError> {
                 }
             }
             jobs.sort();
-            output(ctx, json!({"jobs": jobs}))
+            output(ctx, json!({"run_id": run_id, "jobs": jobs}))
         }
-        JobsCommand::Get { id } => {
+        JobsCommand::Get { id, run_id, latest } => {
+            let run_id = resolve_run_id_from_selector(&log_root, run_id.as_deref(), latest)?;
+            let jobs_dir = run_root(&log_root, &run_id).join("harness").join("jobs");
             let status_path = jobs_dir.join(&id).join("status.json");
             if !status_path.exists() {
                 return Err(LassoError::Process(format!("job not found: {id}")));
@@ -1263,7 +1482,7 @@ fn handle_jobs(ctx: &Context, command: JobsCommand) -> Result<(), LassoError> {
             let content = fs::read_to_string(status_path)?;
             let data: serde_json::Value =
                 serde_json::from_str(&content).unwrap_or(json!({"raw": content}));
-            output(ctx, data)
+            output(ctx, json!({"run_id": run_id, "job": data}))
         }
     }
 }
@@ -1632,7 +1851,14 @@ fn handle_uninstall<R: DockerRunner>(
         down_args.push("down".to_string());
         down_args.push("--volumes".to_string());
         down_args.push("--remove-orphans".to_string());
-        if let Err(err) = execute_docker(ctx, runner, &down_args, true, false) {
+        if let Err(err) = execute_docker(
+            ctx,
+            runner,
+            &down_args,
+            &BTreeMap::new(),
+            true,
+            false,
+        ) {
             return Err(LassoError::Process(format!(
                 "failed to stop stack before uninstall: {}. Re-run with --force to skip stack shutdown",
                 err
@@ -1707,15 +1933,26 @@ fn handle_uninstall<R: DockerRunner>(
 
 fn handle_logs(ctx: &Context, command: LogsCommand) -> Result<(), LassoError> {
     match command {
-        LogsCommand::Stats => logs_stats(ctx),
-        LogsCommand::Tail { lines, file } => logs_tail(ctx, lines, file),
+        LogsCommand::Stats { run_id, latest } => logs_stats(ctx, run_id, latest),
+        LogsCommand::Tail {
+            lines,
+            file,
+            run_id,
+            latest,
+        } => logs_tail(ctx, lines, file, run_id, latest),
     }
 }
 
-fn logs_stats(ctx: &Context) -> Result<(), LassoError> {
+fn logs_stats(
+    ctx: &Context,
+    run_id: Option<String>,
+    latest: bool,
+) -> Result<(), LassoError> {
     let cfg = read_config(&ctx.config_path)?;
     let log_root = PathBuf::from(expand_path(&cfg.paths.log_root));
-    let sessions_dir = log_root.join("sessions");
+    let run_id = resolve_run_id_from_selector(&log_root, run_id.as_deref(), latest)?;
+    let run_root = run_root(&log_root, &run_id);
+    let sessions_dir = run_root.join("harness").join("sessions");
     let mut total_bytes: u64 = 0;
     let mut total_hours: f64 = 0.0;
     let mut session_count = 0u64;
@@ -1761,6 +1998,7 @@ fn logs_stats(ctx: &Context) -> Result<(), LassoError> {
     };
 
     let payload = json!({
+        "run_id": run_id,
         "sessions": session_count,
         "total_bytes": total_bytes,
         "avg_mb_per_hour": avg_mb_per_hour,
@@ -1768,14 +2006,25 @@ fn logs_stats(ctx: &Context) -> Result<(), LassoError> {
     output(ctx, payload)
 }
 
-fn logs_tail(ctx: &Context, lines: usize, file: Option<String>) -> Result<(), LassoError> {
+fn logs_tail(
+    ctx: &Context,
+    lines: usize,
+    file: Option<String>,
+    run_id: Option<String>,
+    latest: bool,
+) -> Result<(), LassoError> {
     let cfg = read_config(&ctx.config_path)?;
     let log_root = PathBuf::from(expand_path(&cfg.paths.log_root));
+    let run_id = resolve_run_id_from_selector(&log_root, run_id.as_deref(), latest)?;
+    let run_root = run_root(&log_root, &run_id);
     let target = match file.as_deref() {
-        Some("audit") => log_root.join("audit.log"),
-        Some("ebpf") => log_root.join("ebpf.jsonl"),
-        Some("timeline") | None => log_root.join("filtered_timeline.jsonl"),
-        Some(name) => log_root.join(name),
+        Some("audit") => run_root.join("collector").join("raw").join("audit.log"),
+        Some("ebpf") => run_root.join("collector").join("raw").join("ebpf.jsonl"),
+        Some("timeline") | None => run_root
+            .join("collector")
+            .join("filtered")
+            .join("filtered_timeline.jsonl"),
+        Some(name) => run_root.join(name),
     };
     if !target.exists() {
         return Err(LassoError::Process(format!(
@@ -1786,7 +2035,7 @@ fn logs_tail(ctx: &Context, lines: usize, file: Option<String>) -> Result<(), La
     if ctx.json {
         let payload = JsonResult {
             ok: true,
-            result: Some(json!({"path": target})),
+            result: Some(json!({"run_id": run_id, "path": target})),
             error: None,
         };
         print_json(&payload)?;
@@ -1863,6 +2112,7 @@ mod tests {
     #[derive(Debug, Clone)]
     struct RecordedCall {
         args: Vec<String>,
+        env_overrides: BTreeMap<String, String>,
         capture_output: bool,
     }
 
@@ -1887,10 +2137,12 @@ mod tests {
             &self,
             args: &[String],
             _cwd: &Path,
+            env_overrides: &BTreeMap<String, String>,
             capture_output: bool,
         ) -> Result<CommandOutput, io::Error> {
             self.calls.borrow_mut().push(RecordedCall {
                 args: args.to_vec(),
+                env_overrides: env_overrides.clone(),
                 capture_output,
             });
             let mut queued = self.outputs.borrow_mut();
@@ -1906,7 +2158,15 @@ mod tests {
     }
 
     fn write_minimal_config(path: &Path) {
-        fs::write(path, "version: 1\n").unwrap();
+        let base = path.parent().unwrap_or_else(|| Path::new("."));
+        let log_root = base.join("logs");
+        let workspace_root = base.join("workspace");
+        let content = format!(
+            "version: 1\npaths:\n  log_root: {}\n  workspace_root: {}\n",
+            log_root.display(),
+            workspace_root.display()
+        );
+        fs::write(path, content).unwrap();
     }
 
     fn write_default_compose_files(dir: &Path) {
@@ -1977,12 +2237,19 @@ paths:
         handle_up(&ctx, false, false, None, true, Some(45), &runner).unwrap();
 
         let calls = runner.calls();
-        assert_eq!(calls.len(), 1);
-        let args = &calls[0].args;
-        assert!(calls[0].capture_output);
+        assert_eq!(calls.len(), 2);
+
+        let ps_args = &calls[0].args;
+        assert!(ps_args.iter().any(|x| x == "ps"));
+        assert!(calls[0].env_overrides.is_empty());
+
+        let args = &calls[1].args;
+        assert!(calls[1].capture_output);
+        assert!(args.iter().any(|x| x == "up"));
         assert!(args.iter().any(|x| x == "--wait"));
         let idx = args.iter().position(|x| x == "--wait-timeout").unwrap();
         assert_eq!(args[idx + 1], "45");
+        assert!(calls[1].env_overrides.contains_key("LASSO_RUN_ID"));
     }
 
     #[test]
@@ -1996,6 +2263,25 @@ paths:
         let err = handle_up(&ctx, false, false, None, false, Some(10), &runner)
             .expect_err("timeout without wait should fail");
         assert!(err.to_string().contains("--timeout-sec requires --wait"));
+    }
+
+    #[test]
+    fn up_fails_when_stack_already_running() {
+        let dir = tempdir().unwrap();
+        write_minimal_config(&dir.path().join("config.yaml"));
+        write_default_compose_files(dir.path());
+        let ctx = make_context(dir.path());
+        let runner = MockDockerRunner::default();
+        runner.push_output(CommandOutput {
+            status_code: 0,
+            stdout: b"collector\n".to_vec(),
+            stderr: Vec::new(),
+        });
+
+        let err = handle_up(&ctx, false, false, None, false, None, &runner)
+            .expect_err("already-running stack should fail");
+        assert!(err.to_string().contains("already up"));
+        assert_eq!(runner.calls().len(), 1);
     }
 
     #[test]

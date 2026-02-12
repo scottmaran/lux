@@ -213,6 +213,140 @@ fn run_requires_token() {
 }
 
 #[test]
+fn logs_tail_without_active_run_fails_with_actionable_error() {
+    let dir = tempdir().unwrap();
+    let config_path = dir.path().join("config.yaml");
+    let log_root = dir.path().join("logs");
+    let work_root = dir.path().join("work");
+    fs::create_dir_all(&log_root).unwrap();
+    fs::create_dir_all(&work_root).unwrap();
+    fs::write(
+        &config_path,
+        format!(
+            "version: 1\npaths:\n  log_root: {}\n  workspace_root: {}\n",
+            log_root.display(),
+            work_root.display()
+        ),
+    )
+    .unwrap();
+
+    let output = bin()
+        .arg("--json")
+        .arg("--config")
+        .arg(&config_path)
+        .arg("logs")
+        .arg("tail")
+        .assert()
+        .failure()
+        .get_output()
+        .stdout
+        .clone();
+    let value = parse_json(&output);
+    let error = value["error"].as_str().unwrap_or_default();
+    assert!(error.contains("no active run found"));
+}
+
+#[test]
+fn logs_tail_latest_resolves_most_recent_run_directory() {
+    let dir = tempdir().unwrap();
+    let config_path = dir.path().join("config.yaml");
+    let log_root = dir.path().join("logs");
+    let work_root = dir.path().join("work");
+    fs::create_dir_all(&log_root).unwrap();
+    fs::create_dir_all(&work_root).unwrap();
+    fs::write(
+        &config_path,
+        format!(
+            "version: 1\npaths:\n  log_root: {}\n  workspace_root: {}\n",
+            log_root.display(),
+            work_root.display()
+        ),
+    )
+    .unwrap();
+
+    let run_1 = "lasso__2026_02_11_12_00_00";
+    let run_2 = "lasso__2026_02_12_12_00_00";
+    let t1 = log_root
+        .join(run_1)
+        .join("collector")
+        .join("filtered")
+        .join("filtered_timeline.jsonl");
+    let t2 = log_root
+        .join(run_2)
+        .join("collector")
+        .join("filtered")
+        .join("filtered_timeline.jsonl");
+    fs::create_dir_all(t1.parent().unwrap()).unwrap();
+    fs::create_dir_all(t2.parent().unwrap()).unwrap();
+    fs::write(&t1, "{\"ts\":\"2026-02-11T12:00:00Z\"}\n").unwrap();
+    fs::write(&t2, "{\"ts\":\"2026-02-12T12:00:00Z\"}\n").unwrap();
+
+    let output = bin()
+        .arg("--json")
+        .arg("--config")
+        .arg(&config_path)
+        .arg("logs")
+        .arg("tail")
+        .arg("--latest")
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    let value = parse_json(&output);
+    assert_eq!(value["result"]["run_id"], run_2);
+    let path = value["result"]["path"].as_str().unwrap_or_default();
+    assert!(path.contains(run_2));
+}
+
+#[test]
+fn jobs_list_with_run_id_uses_run_scoped_jobs_directory() {
+    let dir = tempdir().unwrap();
+    let config_path = dir.path().join("config.yaml");
+    let log_root = dir.path().join("logs");
+    let work_root = dir.path().join("work");
+    fs::create_dir_all(&log_root).unwrap();
+    fs::create_dir_all(&work_root).unwrap();
+    fs::write(
+        &config_path,
+        format!(
+            "version: 1\npaths:\n  log_root: {}\n  workspace_root: {}\n",
+            log_root.display(),
+            work_root.display()
+        ),
+    )
+    .unwrap();
+
+    let run_id = "lasso__2026_02_12_12_00_00";
+    let jobs_dir = log_root.join(run_id).join("harness").join("jobs");
+    fs::create_dir_all(jobs_dir.join("job_1")).unwrap();
+    fs::create_dir_all(jobs_dir.join("job_2")).unwrap();
+
+    let output = bin()
+        .arg("--json")
+        .arg("--config")
+        .arg(&config_path)
+        .arg("jobs")
+        .arg("list")
+        .arg("--run-id")
+        .arg(run_id)
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    let value = parse_json(&output);
+    assert_eq!(value["result"]["run_id"], run_id);
+    let jobs = value["result"]["jobs"].as_array().expect("jobs array");
+    let rendered: Vec<String> = jobs
+        .iter()
+        .filter_map(|v| v.as_str().map(ToString::to_string))
+        .collect();
+    assert!(rendered.contains(&"job_1".to_string()));
+    assert!(rendered.contains(&"job_2".to_string()));
+}
+
+#[test]
 fn paths_reports_resolved_values() {
     let dir = tempdir().unwrap();
     let config_path = dir.path().join("config.yaml");

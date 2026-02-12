@@ -272,6 +272,19 @@ host-side logs.
 - Kept `lasso tui` strict to CLI-defined behavior (no ambient `HARNESS_TUI_CMD` passthrough), and moved deterministic TUI stubbing into the dedicated test-only compose override.
 
 ## Block 7:
+- Implemented run-scoped logging directories and active-run CLI semantics.
+- Added per-session and per-job filtered timeline copies in harness artifacts.
+
+### Details
+- Updated `compose.yml` to route collector/harness outputs through `LASSO_RUN_ID` into `/logs/<run_id>/...`.
+- Restored agent immutability controls in compose (`cap_drop: SYS_ADMIN`, `security_opt: no-new-privileges:true`).
+- Updated `lasso/src/main.rs` to create/track active run state, fail `up` when already running, and add `--run-id/--latest` selection for `logs` and `jobs`.
+- Updated `harness/harness.py` to write artifacts under run-scoped paths and materialize `filtered_timeline.jsonl` per session/job.
+- Updated `collector/entrypoint.sh` + merge/summary scripts to respect run-scoped output env overrides.
+- Updated `ui/server.py` to resolve run-scoped data, default to active run, and support `run_id` query selection.
+- Added regression/integration coverage for run layout invariants and timeline copy materialization in `tests/integration/test_run_scoped_log_layout.py`.
+
+## Block 8:
 - Added SID-based run markers and attribution fallback to harden concurrent startup ownership.
 - Expanded validation/tests to require and exercise `root_sid` metadata end-to-end.
 

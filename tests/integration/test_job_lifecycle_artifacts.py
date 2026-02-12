@@ -16,7 +16,7 @@ def test_completed_job_persists_artifacts_and_root_markers(integration_stack) ->
     job_id, status = integration_stack.submit_and_wait(prompt)
     assert status["status"] == "complete"
 
-    job_dir = integration_stack.log_root / "jobs" / job_id
+    job_dir = integration_stack.job_dir(job_id)
     input_json = job_dir / "input.json"
     status_json = job_dir / "status.json"
     stdout_log = job_dir / "stdout.log"

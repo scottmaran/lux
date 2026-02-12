@@ -56,4 +56,4 @@ def test_regression_dcf5673_concurrent_runs_do_not_leak_event_ownership(
     assert not wrong_one, f"cross-attributed rows for path_one: {wrong_one}"
     assert not wrong_two, f"cross-attributed rows for path_two: {wrong_two}"
 
-    timeline_validator(log_root=regression_stack.log_root)
+    timeline_validator(log_root=regression_stack.run_root)

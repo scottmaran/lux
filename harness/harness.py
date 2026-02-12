@@ -24,6 +24,9 @@ SESSION_DIR = os.path.join(LOG_DIR, "sessions")
 LABELS_DIR = os.path.join(LOG_DIR, "labels")
 SESSION_LABEL_DIR = os.path.join(LABELS_DIR, "sessions")
 JOB_LABEL_DIR = os.path.join(LABELS_DIR, "jobs")
+TIMELINE_PATH = os.getenv("HARNESS_TIMELINE_PATH", "/logs/filtered_timeline.jsonl")
+TIMELINE_RECONCILE_PASSES = int(os.getenv("HARNESS_TIMELINE_RECONCILE_PASSES", "5"))
+TIMELINE_RECONCILE_INTERVAL_SEC = float(os.getenv("HARNESS_TIMELINE_RECONCILE_INTERVAL_SEC", "1.0"))
 
 AGENT_HOST = os.getenv("HARNESS_AGENT_HOST", "agent")
 AGENT_PORT = int(os.getenv("HARNESS_AGENT_PORT", "22"))
@@ -44,6 +47,7 @@ ROOT_PID_POLL_SEC = float(os.getenv("HARNESS_ROOT_PID_POLL_SEC", "0.2"))
 
 JOBS = {}
 JOBS_LOCK = threading.Lock()
+TIMELINE_COPY_LOCK = threading.Lock()
 
 
 def now_iso() -> str:
@@ -287,6 +291,62 @@ def write_json(path: str, payload: dict) -> None:
         json.dump(payload, handle, indent=2, sort_keys=True)
 
 
+def _line_matches_owner(line: str, owner_type: str, owner_id: str) -> bool:
+    try:
+        event = json.loads(line)
+    except json.JSONDecodeError:
+        return False
+    if not isinstance(event, dict):
+        return False
+    if owner_type == "session":
+        return event.get("session_id") == owner_id
+    return event.get("job_id") == owner_id
+
+
+def materialize_filtered_timeline_copy(owner_type: str, owner_id: str, output_path: str) -> int:
+    ensure_dir(os.path.dirname(output_path))
+    tmp_path = f"{output_path}.tmp"
+    matched = 0
+    with TIMELINE_COPY_LOCK:
+        with open(tmp_path, "w", encoding="utf-8") as writer:
+            if os.path.isfile(TIMELINE_PATH):
+                with open(TIMELINE_PATH, "r", encoding="utf-8", errors="replace") as reader:
+                    for raw in reader:
+                        line = raw.strip()
+                        if not line:
+                            continue
+                        if not _line_matches_owner(line, owner_type, owner_id):
+                            continue
+                        writer.write(line + "\n")
+                        matched += 1
+        os.replace(tmp_path, output_path)
+    return matched
+
+
+def reconcile_filtered_timeline_copy(owner_type: str, owner_id: str, output_path: str) -> None:
+    last_count = -1
+    stable_count = 0
+    passes = max(1, TIMELINE_RECONCILE_PASSES)
+    for _ in range(passes):
+        count = materialize_filtered_timeline_copy(owner_type, owner_id, output_path)
+        if count == last_count:
+            stable_count += 1
+            if stable_count >= 2:
+                break
+        else:
+            stable_count = 0
+        last_count = count
+        time.sleep(max(0.1, TIMELINE_RECONCILE_INTERVAL_SEC))
+
+
+def schedule_filtered_timeline_reconcile(owner_type: str, owner_id: str, output_path: str) -> None:
+    threading.Thread(
+        target=reconcile_filtered_timeline_copy,
+        args=(owner_type, owner_id, output_path),
+        daemon=True,
+    ).start()
+
+
 def normalize_label_name(value: str | None) -> tuple[str | None, str | None]:
     if value is None:
         return None, None
@@ -311,6 +371,7 @@ def run_job(job_id: str, prompt: str, logged_prompt: str, cwd: str, env: dict, t
     stdout_path = os.path.join(job_path, "stdout.log")
     stderr_path = os.path.join(job_path, "stderr.log")
     status_path = os.path.join(job_path, "status.json")
+    filtered_timeline_path = os.path.join(job_path, "filtered_timeline.jsonl")
 
     started_at = now_iso()
     with JOBS_LOCK:
@@ -318,6 +379,7 @@ def run_job(job_id: str, prompt: str, logged_prompt: str, cwd: str, env: dict, t
         JOBS[job_id]["started_at"] = started_at
         JOBS[job_id]["output_path"] = stdout_path
         JOBS[job_id]["error_path"] = stderr_path
+        JOBS[job_id]["filtered_timeline_path"] = filtered_timeline_path
 
     meta = {
         "job_id": job_id,
@@ -337,6 +399,7 @@ def run_job(job_id: str, prompt: str, logged_prompt: str, cwd: str, env: dict, t
             JOBS[job_id]["exit_code"] = 255
             JOBS[job_id]["error"] = "agent_unreachable"
         write_json(status_path, JOBS[job_id])
+        schedule_filtered_timeline_reconcile("job", job_id, filtered_timeline_path)
         return
 
     pid_path = root_pid_path(job_id)
@@ -388,6 +451,7 @@ def run_job(job_id: str, prompt: str, logged_prompt: str, cwd: str, env: dict, t
         JOBS[job_id]["error_path"] = stderr_path
 
     write_json(status_path, JOBS[job_id])
+    schedule_filtered_timeline_reconcile("job", job_id, filtered_timeline_path)
 
 
 def handle_run(payload: dict) -> tuple[dict, int]:
@@ -420,6 +484,7 @@ def handle_run(payload: dict) -> tuple[dict, int]:
             "error": None,
             "output_path": None,
             "error_path": None,
+            "filtered_timeline_path": None,
             "root_pid": None,
             "root_sid": None,
         }
@@ -500,7 +565,10 @@ def run_server() -> None:
         print("HARNESS_API_TOKEN is required for server mode.", file=sys.stderr)
         raise SystemExit(2)
     ensure_dir(LOG_DIR)
+    ensure_dir(SESSION_DIR)
     ensure_dir(JOB_DIR)
+    ensure_dir(SESSION_LABEL_DIR)
+    ensure_dir(JOB_LABEL_DIR)
     server = ThreadingHTTPServer((HTTP_BIND, HTTP_PORT), HarnessHandler)
     print(f"Harness HTTP server listening on {HTTP_BIND}:{HTTP_PORT}")
     server.serve_forever()
@@ -541,6 +609,7 @@ def run_tui(tui_name: str | None) -> int:
     stdin_path = os.path.join(session_path, "stdin.log")
     stdout_path = os.path.join(session_path, "stdout.log")
     meta_path = os.path.join(session_path, "meta.json")
+    filtered_timeline_path = os.path.join(session_path, "filtered_timeline.jsonl")
 
     meta = {
         "session_id": session_id,
@@ -631,8 +700,10 @@ def run_tui(tui_name: str | None) -> int:
             "exit_code": exit_code,
             "stdin_path": stdin_path,
             "stdout_path": stdout_path,
+            "filtered_timeline_path": filtered_timeline_path,
         },
     )
+    reconcile_filtered_timeline_copy("session", session_id, filtered_timeline_path)
     return exit_code
 
 

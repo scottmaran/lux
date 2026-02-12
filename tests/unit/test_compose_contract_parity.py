@@ -106,16 +106,34 @@ def test_compose_base_runtime_contract() -> None:
     assert agent_volumes.get("/logs") == "ro"
     assert agent_volumes.get("/work") == "rw"
     assert agent_volumes.get("/config") == "ro"
+    agent = _service(payload, "agent")
+    cap_drop = agent.get("cap_drop")
+    assert isinstance(cap_drop, list), "agent cap_drop must be configured"
+    assert "SYS_ADMIN" in cap_drop
+    security_opt = agent.get("security_opt")
+    assert isinstance(security_opt, list), "agent security_opt must be configured"
+    assert "no-new-privileges:true" in security_opt
 
     harness_volumes = _volume_modes(harness)
     assert harness_volumes.get("/logs") == "rw"
     assert harness_volumes.get("/work") == "rw"
     assert harness_volumes.get("/harness/keys") == "rw"
 
-    assert {"COLLECTOR_AUDIT_LOG", "COLLECTOR_EBPF_OUTPUT"}.issubset(
+    assert {
+        "LASSO_RUN_ID",
+        "COLLECTOR_AUDIT_LOG",
+        "COLLECTOR_EBPF_OUTPUT",
+        "COLLECTOR_FILTER_OUTPUT",
+        "COLLECTOR_EBPF_FILTER_OUTPUT",
+        "COLLECTOR_EBPF_SUMMARY_OUTPUT",
+        "COLLECTOR_MERGE_FILTER_OUTPUT",
+        "COLLECTOR_SESSIONS_DIR",
+        "COLLECTOR_JOBS_DIR",
+    }.issubset(
         _env_keys(collector)
     )
     assert {
+        "LASSO_RUN_ID",
         "HARNESS_AGENT_HOST",
         "HARNESS_AGENT_PORT",
         "HARNESS_AGENT_USER",
@@ -123,6 +141,8 @@ def test_compose_base_runtime_contract() -> None:
         "HARNESS_HTTP_PORT",
         "HARNESS_API_TOKEN",
         "HARNESS_AGENT_WORKDIR",
+        "HARNESS_LOG_DIR",
+        "HARNESS_TIMELINE_PATH",
         "HARNESS_RUN_CMD_TEMPLATE",
     }.issubset(_env_keys(harness))
 

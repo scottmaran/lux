@@ -105,7 +105,25 @@ A key refinement in this phase was clarifying that interactive agent behavior mu
 Finally, compose drift risk in tests was reduced by anchoring docker-backed tests to shipping `compose.yml`, layering only a minimal test override, and adding parity contract checks for service/env/volume invariants. Legacy integration/bash test scripts and duplicate testing docs were removed once equivalent Python coverage existed, and documentation was updated to make `scripts/all_tests.py` + `uv run pytest ...` the authoritative test interface.
 Subsequent hardening also folded the remaining `scripts/cli_scripts` coverage into pytest integration execution so the PR lane includes CLI behavior checks alongside stack lifecycle and attribution tests. This was split into two explicit tracks: deterministic CLI lifecycle smoke (via test-only compose overrides) and full Codex interactive TUI behavior through `lasso tui --codex` in local agent-codex coverage, while keeping `lasso tui` behavior strict to declared CLI inputs.
 
-**Phase 21: SID marker fallback for startup attribution races (Feb 12, 2026)**
+**Phase 21: Run-scoped logging layout + timeline copies (Feb 12, 2026)**
+Logging moved from flat `/logs/*` paths to run-first directories created at
+`lasso up` time (`lasso__YYYY_MM_DD_HH_MM_SS`). Collector outputs now live under
+`collector/raw` and `collector/filtered`, harness artifacts under
+`harness/sessions` and `harness/jobs`, and labels under `harness/labels`.
+
+This phase also added one filtered timeline copy per completed session/job so
+raw scoped evidence can be inspected directly without the UI.
+
+CLI behavior was updated so:
+- `lasso up` fails fast if already running,
+- `logs`/`jobs` default to active run,
+- historical inspection is supported via `--run-id` and `--latest`.
+
+Agent immutability hardening was restored in compose (`cap_drop: SYS_ADMIN`,
+`security_opt: no-new-privileges:true`), and integration coverage now asserts
+run-scoped layout invariants and no flat-root writes.
+
+**Phase 22: SID marker fallback for startup attribution races (Feb 12, 2026)**
 Concurrent startup revealed a remaining attribution gap: some early rows could be marked owned before root-PID run indexing had converged, yielding transient `unknown` ownership in live timelines. This phase adds a second run marker, `root_sid`, captured by harness at launch and persisted alongside `root_pid` for jobs and TUI sessions.
 
 Collector audit/eBPF attribution now remains PID-lineage first, but falls back to SID matching when PID lineage is temporarily unavailable. This preserves existing behavior while tightening concurrent startup attribution without introducing new emission-deferral semantics. Test coverage was extended with marker-unit tests and a focused startup-race regression scenario.

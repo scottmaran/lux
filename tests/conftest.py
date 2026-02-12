@@ -78,7 +78,9 @@ def read_jsonl(path: Path) -> list[dict[str, Any]]:
 
 
 def load_sessions(log_root: Path) -> dict[str, dict[str, Any]]:
-    sessions_dir = log_root / "sessions"
+    sessions_dir = log_root / "harness" / "sessions"
+    if not sessions_dir.exists():
+        sessions_dir = log_root / "sessions"
     session_map: dict[str, dict[str, Any]] = {}
     if not sessions_dir.exists():
         return session_map
@@ -94,7 +96,9 @@ def load_sessions(log_root: Path) -> dict[str, dict[str, Any]]:
 
 
 def load_jobs(log_root: Path) -> dict[str, dict[str, Any]]:
-    jobs_dir = log_root / "jobs"
+    jobs_dir = log_root / "harness" / "jobs"
+    if not jobs_dir.exists():
+        jobs_dir = log_root / "jobs"
     job_map: dict[str, dict[str, Any]] = {}
     if not jobs_dir.exists():
         return job_map
@@ -129,7 +133,12 @@ def validate_timeline_outputs(
     - event-specific required details are present (`fs_*`, `exec`, `net_summary`),
     - every referenced session/job includes integer root markers (`root_pid`, `root_sid`) metadata.
     """
-    timeline = timeline_path or (log_root / "filtered_timeline.jsonl")
+    if timeline_path is not None:
+        timeline = timeline_path
+    else:
+        timeline = log_root / "collector" / "filtered" / "filtered_timeline.jsonl"
+        if not timeline.exists():
+            timeline = log_root / "filtered_timeline.jsonl"
     rows = read_jsonl(timeline)
     if require_rows and not rows:
         raise AssertionError(f"Timeline is empty: {timeline}")

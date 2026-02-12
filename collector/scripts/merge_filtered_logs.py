@@ -92,15 +92,23 @@ def main() -> int:
     schema_version = cfg.get("schema_version", "timeline.filtered.v1")
 
     inputs = cfg.get("inputs", [])
-    output_path = cfg.get("output", {}).get("jsonl", "/logs/filtered_timeline.jsonl")
+    audit_input_override = os.getenv("COLLECTOR_FILTER_OUTPUT")
+    ebpf_input_override = os.getenv("COLLECTOR_EBPF_SUMMARY_OUTPUT")
+    output_path = os.getenv("COLLECTOR_MERGE_FILTER_OUTPUT") or cfg.get("output", {}).get(
+        "jsonl", "/logs/filtered_timeline.jsonl"
+    )
     sort_strategy = cfg.get("sorting", {}).get("strategy", "ts_source_pid")
 
     rows = []
     for source_cfg in inputs:
         path = source_cfg.get("path")
+        source_default = source_cfg.get("source") or ""
+        if source_default == "audit" and audit_input_override:
+            path = audit_input_override
+        elif source_default == "ebpf" and ebpf_input_override:
+            path = ebpf_input_override
         if not path or not os.path.exists(path):
             continue
-        source_default = source_cfg.get("source") or ""
         with open(path, "r", encoding="utf-8", errors="replace") as handle:
             for line in handle:
                 line = line.strip()
