@@ -67,6 +67,10 @@ TUI runs keep the native SSH PTY launch path and capture the corresponding PTY s
 - `HARNESS_LOG_DIR` (default: `/logs`)
 - `HARNESS_TIMELINE_PATH` (default: `/logs/filtered_timeline.jsonl`)
 
+For run-scoped deployments, set:
+- `HARNESS_LOG_DIR=/logs/${LASSO_RUN_ID}/harness`
+- `HARNESS_TIMELINE_PATH=/logs/${LASSO_RUN_ID}/collector/filtered/filtered_timeline.jsonl`
+
 ## Security posture
 - No Docker socket required; SSH is used for control-plane access.
 - Keys are internal to the harness/agent volume and not dependent on host files.

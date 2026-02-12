@@ -38,3 +38,5 @@ Notes:
 - `lasso logs ...` and `lasso jobs ...` default to the active run.
 - For historical inspection, use `--run-id <id>` or `--latest`.
 - `lasso down` clears active-run state; historical run directories remain on disk.
+- In manual `docker compose` workflows, export one shared `LASSO_RUN_ID` for collector/harness commands so artifacts stay in the same run directory.
+- For UI defaults in manual workflows, write `<log_root>/.active_run.json` or pass explicit `run_id` selectors.

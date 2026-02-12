@@ -8,6 +8,9 @@ the local-only UI.
 - Same origin as the UI (e.g., `http://localhost:8090`).
 - All responses are JSON.
 - Error responses use `{ "error": "message" }` with appropriate status codes.
+- Default run selection uses `<log_root>/.active_run.json`.
+- `lasso up` manages active-run state automatically.
+- In manual `docker compose` workflows, keep a shared `LASSO_RUN_ID` across collector/harness runs and write `.active_run.json`, or pass `?run_id=<id>` explicitly in API calls.
 
 ## GET /api/timeline
 Returns filtered timeline rows from
