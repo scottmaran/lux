@@ -63,4 +63,4 @@ def test_regression_startup_attribution_race_concurrent_timeout_jobs(
     assert not wrong_one, f"job_one startup rows misattributed: {wrong_one}"
     assert not wrong_two, f"job_two startup rows misattributed: {wrong_two}"
 
-    timeline_validator(log_root=regression_stack.log_root)
+    timeline_validator(log_root=regression_stack.run_root)
