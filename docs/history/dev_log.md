@@ -256,3 +256,29 @@ host-side logs.
 ### Details
 - Updated canonical testing references in root/component docs.
 - Removed duplicate/legacy test docs and legacy script references where they were no longer authoritative.
+
+## Block 6:
+- Integrated the remaining shell-based CLI suite into canonical pytest integration coverage.
+- Made PR lane behavior include CLI compatibility checks via existing `tests/integration` execution.
+
+### Details
+- Added `tests/integration/test_cli_script_suite.py` to execute `scripts/cli_scripts/*.sh` as ordered pytest cases.
+- Added test setup that builds `lasso` from source (`cargo build --bin lasso`) and injects `LASSO_BIN` into script runs.
+- For docker-backed CLI script cases, used compose override wiring (`compose.yml` + `tests/integration/compose.test.override.yml`) so tests validate local branch images instead of relying on GHCR pulls.
+- Added `tests/integration/compose.cli.tui.override.yml` so deterministic CLI lifecycle smoke can keep TUI assertions stable without changing `lasso tui` command semantics.
+- Kept `12_missing_ghcr_auth.sh` as required coverage while treating explicit `SKIP` output as pass in environments already authenticated to GHCR.
+- Kept `script(1)` as a hard requirement for TUI smoke coverage in the CLI suite.
+- Added `tests/integration/test_agent_codex_cli_tui.py` to validate a real Codex interactive TUI flow through `lasso tui --codex` with default harness TUI command behavior.
+- Kept `lasso tui` strict to CLI-defined behavior (no ambient `HARNESS_TUI_CMD` passthrough), and moved deterministic TUI stubbing into the dedicated test-only compose override.
+
+## Block 7:
+- Added SID-based run markers and attribution fallback to harden concurrent startup ownership.
+- Expanded validation/tests to require and exercise `root_sid` metadata end-to-end.
+
+### Details
+- Updated `harness/harness.py` launch paths to persist both `root_pid` and `root_sid` for jobs and TUI sessions, with `setsid`-based run startup so each run has a stable SID marker.
+- Updated collector filters (`collector/scripts/filter_audit_logs.py`, `collector/scripts/filter_ebpf_logs.py`) to ingest `root_sid` from run metadata and apply SID fallback after PID-lineage lookup.
+- Updated timeline validation in `tests/conftest.py` to require integer `root_sid` alongside `root_pid` for referenced session/job owners.
+- Added marker-focused unit coverage in `tests/unit/test_harness_markers.py`.
+- Added SID fallback unit coverage in `collector/tests/test_filter.py` and `collector/tests/test_ebpf_filter.py`.
+- Added focused startup race regression coverage in `tests/regression/test_startup_attribution_race.py` and updated integration assertions to check `root_sid` presence in run metadata.

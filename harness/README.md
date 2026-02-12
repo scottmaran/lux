@@ -25,6 +25,7 @@ You can override with `HARNESS_MODE=tui` or `HARNESS_MODE=server`.
 Launches Codex via `ssh -tt agent@agent` and proxies stdin/stdout through a PTY, logging both streams:
 - `logs/sessions/<session_id>/stdin.log`
 - `logs/sessions/<session_id>/stdout.log`
+- `logs/sessions/<session_id>/meta.json` (includes `root_pid` + `root_sid` run markers)
 
 By default the TUI uses `/work` as the working root and disables Codex sandboxing (`codex -C /work -s danger-full-access`).
 You can override the command with `HARNESS_TUI_CMD`.
@@ -41,6 +42,13 @@ Requests must include `X-Harness-Token` matching `HARNESS_API_TOKEN`.
 The run command is controlled by `HARNESS_RUN_CMD_TEMPLATE` (default: `codex -C /work -s danger-full-access exec {prompt}`).
 The `{prompt}` placeholder is replaced with a shell-quoted prompt; omit the placeholder to ignore the prompt.
 You can optionally include a `name` field in the `/run` payload to create a display label for the job.
+
+Both TUI sessions and `/run` jobs persist root run markers:
+- `root_pid`: namespaced PID for the run root process.
+- `root_sid`: namespaced Linux session ID (`SID`) for the run root process.
+
+Non-interactive `/run` launch paths use `setsid` so concurrent jobs get a stable per-run SID marker.
+TUI runs keep the native SSH PTY launch path and capture the corresponding PTY session SID.
 
 ## Environment
 - `HARNESS_AGENT_HOST` (default: `agent`)

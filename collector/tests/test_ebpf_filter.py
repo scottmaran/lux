@@ -255,6 +255,7 @@ class EbpfFilterTests(unittest.TestCase):
                 "ended_at": (base + timedelta(seconds=5)).isoformat(),
                 "mode": "tui",
                 "root_pid": 100,
+                "root_sid": 100,
             }
         ]
 
@@ -346,6 +347,7 @@ class EbpfFilterTests(unittest.TestCase):
                 "ended_at": (base + timedelta(seconds=5)).isoformat(),
                 "mode": "tui",
                 "root_pid": 500,
+                "root_sid": 500,
             }
         ]
         jobs = [
@@ -354,16 +356,90 @@ class EbpfFilterTests(unittest.TestCase):
                 "submitted_at": base.isoformat(),
                 "started_at": base.isoformat(),
                 "root_pid": 600,
+                "root_sid": 600,
                 "status": {
                     "job_id": job_id,
                     "started_at": base.isoformat(),
                     "ended_at": (base + timedelta(seconds=5)).isoformat(),
                     "root_pid": 600,
+                    "root_sid": 600,
                 },
             }
         ]
 
         events = self.run_filter(audit_lines, ebpf_events, self.base_config(), sessions=sessions, jobs=jobs)
+        self.assertEqual(events[0]["session_id"], session_id)
+        self.assertNotIn("job_id", events[0])
+
+    def test_session_mapping_falls_back_to_root_sid_when_root_pid_missing(self) -> None:
+        base = datetime(2026, 1, 22, 0, 0, 4, tzinfo=timezone.utc)
+        ts_sec = f"{int(base.timestamp())}.501"
+        ebpf_ts = "2026-01-22T00:00:04.501000000Z"
+        session_id = "session_test_sid_fallback"
+
+        audit_lines = [
+            make_syscall(ts_sec, 1, 7001, 1, 1001, 1001, "codex", "/usr/bin/codex", "exec"),
+            make_execve(ts_sec, 1, ["codex"]),
+        ]
+        ebpf_events = [make_net_event(ebpf_ts, 7001, 1, "codex", "93.184.216.34", 443)]
+        sessions = [
+            {
+                "session_id": session_id,
+                "started_at": base.isoformat(),
+                "ended_at": (base + timedelta(seconds=5)).isoformat(),
+                "mode": "tui",
+                "root_pid": 9001,
+                "root_sid": 7001,
+            }
+        ]
+
+        events = self.run_filter(audit_lines, ebpf_events, self.base_config(), sessions=sessions)
+        self.assertEqual(len(events), 1)
+        self.assertEqual(events[0]["session_id"], session_id)
+        self.assertNotIn("job_id", events[0])
+
+    def test_session_sid_mapping_takes_precedence_over_job_sid_mapping(self) -> None:
+        base = datetime(2026, 1, 22, 0, 0, 4, tzinfo=timezone.utc)
+        ts_sec = f"{int(base.timestamp())}.502"
+        ebpf_ts = "2026-01-22T00:00:04.502000000Z"
+        session_id = "session_test_sid_precedence"
+        job_id = "job_test_sid_precedence"
+        shared_sid = 7002
+
+        audit_lines = [
+            make_syscall(ts_sec, 1, shared_sid, 1, 1001, 1001, "codex", "/usr/bin/codex", "exec"),
+            make_execve(ts_sec, 1, ["codex"]),
+        ]
+        ebpf_events = [make_net_event(ebpf_ts, shared_sid, 1, "codex", "93.184.216.34", 443)]
+        sessions = [
+            {
+                "session_id": session_id,
+                "started_at": base.isoformat(),
+                "ended_at": (base + timedelta(seconds=5)).isoformat(),
+                "mode": "tui",
+                "root_pid": 9002,
+                "root_sid": shared_sid,
+            }
+        ]
+        jobs = [
+            {
+                "job_id": job_id,
+                "submitted_at": base.isoformat(),
+                "started_at": base.isoformat(),
+                "root_pid": 9003,
+                "root_sid": shared_sid,
+                "status": {
+                    "job_id": job_id,
+                    "started_at": base.isoformat(),
+                    "ended_at": (base + timedelta(seconds=5)).isoformat(),
+                    "root_pid": 9003,
+                    "root_sid": shared_sid,
+                },
+            }
+        ]
+
+        events = self.run_filter(audit_lines, ebpf_events, self.base_config(), sessions=sessions, jobs=jobs)
+        self.assertEqual(len(events), 1)
         self.assertEqual(events[0]["session_id"], session_id)
         self.assertNotIn("job_id", events[0])
 
