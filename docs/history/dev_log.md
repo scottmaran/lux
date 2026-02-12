@@ -256,3 +256,17 @@ host-side logs.
 ### Details
 - Updated canonical testing references in root/component docs.
 - Removed duplicate/legacy test docs and legacy script references where they were no longer authoritative.
+
+## Block 6:
+- Integrated the remaining shell-based CLI suite into canonical pytest integration coverage.
+- Made PR lane behavior include CLI compatibility checks via existing `tests/integration` execution.
+
+### Details
+- Added `tests/integration/test_cli_script_suite.py` to execute `scripts/cli_scripts/*.sh` as ordered pytest cases.
+- Added test setup that builds `lasso` from source (`cargo build --bin lasso`) and injects `LASSO_BIN` into script runs.
+- For docker-backed CLI script cases, used compose override wiring (`compose.yml` + `tests/integration/compose.test.override.yml`) so tests validate local branch images instead of relying on GHCR pulls.
+- Added `tests/integration/compose.cli.tui.override.yml` so deterministic CLI lifecycle smoke can keep TUI assertions stable without changing `lasso tui` command semantics.
+- Kept `12_missing_ghcr_auth.sh` as required coverage while treating explicit `SKIP` output as pass in environments already authenticated to GHCR.
+- Kept `script(1)` as a hard requirement for TUI smoke coverage in the CLI suite.
+- Added `tests/integration/test_agent_codex_cli_tui.py` to validate a real Codex interactive TUI flow through `lasso tui --codex` with default harness TUI command behavior.
+- Kept `lasso tui` strict to CLI-defined behavior (no ambient `HARNESS_TUI_CMD` passthrough), and moved deterministic TUI stubbing into the dedicated test-only compose override.

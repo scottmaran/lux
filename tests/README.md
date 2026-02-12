@@ -39,7 +39,7 @@ Out of scope:
 |---|---|---|---|---|
 | `unit` | Pure logic correctness | Parsing, mapping, ownership logic, validation helpers | Docker, real stack orchestration | Seconds |
 | `fixture` | Deterministic contract checks | Golden cases (`input` + `config` -> `expected`) | Ad-hoc assertions without canonical expected output | Seconds |
-| `integration` | Real stack behavior | Docker compose scenarios, real artifact validation, live filtered output assertions | Offline synthetic replay as acceptance evidence | Minutes |
+| `integration` | Real stack behavior | Docker compose scenarios, real artifact validation, live filtered output assertions, CLI script compatibility coverage | Offline synthetic replay as acceptance evidence | Minutes |
 | `stress` | Concurrency and race robustness | Repeated trials, overlap/race/PID reuse scenarios | New feature coverage without deterministic baseline tests | Minutes to longer |
 | `regression` | Bug non-recurrence | Repro of known bug condition + assertion of fixed behavior | Generic tests not tied to a concrete bug history | Varies |
 
@@ -68,6 +68,8 @@ tests/
     config/                    <- test-only collector filter config overrides for compose
                                 (keeps CI-safe bash attribution without changing prod defaults)
     test_*.py                  <- real Docker stack tests
+                                includes `test_cli_script_suite.py` which executes
+                                `scripts/cli_scripts/*.sh` inside pytest
   stress/                      <- race/concurrency repetition tests
   regression/                  <- bug-specific tests
 ```
@@ -139,6 +141,12 @@ uv run pytest tests/regression -q
 # Full gate
 uv run pytest -q
 ```
+
+Integration gate note:
+- `tests/integration/test_cli_script_suite.py` runs the shell CLI suite under
+  pytest and requires `script(1)` for TUI smoke coverage.
+- Local Codex coverage includes `tests/integration/test_agent_codex_cli_tui.py`,
+  which validates interactive Codex behavior through `lasso tui --codex`.
 
 Marker-based selection:
 
