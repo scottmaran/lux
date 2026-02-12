@@ -9,7 +9,12 @@ setup_env
 write_config "$LOG_ROOT" "$WORK_ROOT"
 
 export HARNESS_RUN_CMD_TEMPLATE='curl -s https://example.com >/dev/null 2>&1 || true; echo stub-ok'
-export HARNESS_TUI_CMD='bash -lc "echo stub-ok"'
+
+cleanup() {
+  lasso down >/dev/null 2>&1 || true
+  rm -rf "${TMP_DIR:-}" >/dev/null 2>&1 || true
+}
+trap cleanup EXIT
 
 lasso config apply
 lasso up
@@ -49,11 +54,24 @@ fi
 
 job_dir="$LOG_ROOT/jobs/$job_id"
 for _ in $(seq 1 30); do
-  if [ -f "$job_dir/status.json" ]; then
+  if [ -s "$job_dir/input.json" ] && [ -s "$job_dir/status.json" ] && [ -f "$job_dir/stderr.log" ]; then
     break
   fi
   sleep 1
-  done
+done
+
+status_state=""
+status_exit_code=""
+for _ in $(seq 1 30); do
+  if [ -s "$job_dir/status.json" ]; then
+    status_state=$(cat "$job_dir/status.json" | json_field status)
+    status_exit_code=$(cat "$job_dir/status.json" | json_field exit_code)
+    if [ "$status_state" = "complete" ] || [ "$status_state" = "failed" ]; then
+      break
+    fi
+  fi
+  sleep 1
+done
 
 if [ ! -s "$job_dir/input.json" ]; then
   echo "ERROR: job input.json missing" >&2
@@ -63,7 +81,15 @@ if [ ! -s "$job_dir/status.json" ]; then
   echo "ERROR: job status.json missing" >&2
   exit 1
 fi
-if [ ! -s "$job_dir/stdout.log" ]; then
+if [ "$status_state" != "complete" ]; then
+  echo "ERROR: expected complete job status, got: ${status_state:-<empty>}" >&2
+  exit 1
+fi
+if [ "$status_exit_code" != "0" ]; then
+  echo "ERROR: expected exit_code=0, got: ${status_exit_code:-<empty>}" >&2
+  exit 1
+fi
+if [ ! -f "$job_dir/stdout.log" ]; then
   echo "ERROR: job stdout.log missing" >&2
   exit 1
 fi

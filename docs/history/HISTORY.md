@@ -103,6 +103,7 @@ The project moved from mixed ad-hoc script testing to a strict, layered pytest a
 A key refinement in this phase was clarifying that interactive agent behavior must be validated as actual TUI interaction evidence (stdin/stdout/session metadata/timeline exec rows), not just harness PTY plumbing. Codex coverage now explicitly includes both non-interactive `exec` and interactive TUI paths, including concurrent TUI behavior checks.
 
 Finally, compose drift risk in tests was reduced by anchoring docker-backed tests to shipping `compose.yml`, layering only a minimal test override, and adding parity contract checks for service/env/volume invariants. Legacy integration/bash test scripts and duplicate testing docs were removed once equivalent Python coverage existed, and documentation was updated to make `scripts/all_tests.py` + `uv run pytest ...` the authoritative test interface.
+Subsequent hardening also folded the remaining `scripts/cli_scripts` coverage into pytest integration execution so the PR lane includes CLI behavior checks alongside stack lifecycle and attribution tests. This was split into two explicit tracks: deterministic CLI lifecycle smoke (via test-only compose overrides) and full Codex interactive TUI behavior through `lasso tui --codex` in local agent-codex coverage, while keeping `lasso tui` behavior strict to declared CLI inputs.
 
 **Open questions and deliberate TODOs**
 Some choices were intentionally deferred and still appear as TODOs in the docs:
