@@ -3,6 +3,12 @@
 ## Overview summary
 This document is a fully self-contained, procedural example of what the Lasso stack should do end to end. It shows two distinct scenarios (TUI and server-mode job), the user prompts, the underlying commands, the expected workspace changes, the log rows across all log files, and the final UI output derived from filtered logs. All timestamps are UTC.
 
+Run-layout note (Feb 2026): runtime paths are now run-scoped under
+`logs/lasso__YYYY_MM_DD_HH_MM_SS/...`. In this document, older shorthand
+examples like `logs/sessions/...` map to
+`logs/<run_id>/harness/sessions/...`, and `logs/filtered_timeline.jsonl` maps
+to `logs/<run_id>/collector/filtered/filtered_timeline.jsonl`.
+
 ## Setup and entry commands
 1) Reset logs before each scenario so counts are deterministic.
 ```bash

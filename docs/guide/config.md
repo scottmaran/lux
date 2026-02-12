@@ -54,6 +54,8 @@ harness:
 - **Meaning:** host directory where logs are written and mounted into containers.
 - **Notes:** `lasso config apply` creates this directory if missing. A leading
   `~/` is expanded to your home directory.
+  - Runtime writes are run-scoped under `lasso__YYYY_MM_DD_HH_MM_SS/` directories
+    (created by `lasso up`).
 
 ### paths.workspace_root
 - **Type:** string (path)

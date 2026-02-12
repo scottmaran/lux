@@ -94,8 +94,14 @@ def main() -> int:
     cfg = load_config(args.config)
 
     schema_version = cfg.get("schema_version", "ebpf.summary.v1")
-    input_path = Path(cfg.get("input", {}).get("jsonl", "/logs/filtered_ebpf.jsonl"))
-    output_path = Path(cfg.get("output", {}).get("jsonl", "/logs/filtered_ebpf_summary.jsonl"))
+    input_path = Path(
+        os.getenv("COLLECTOR_EBPF_FILTER_OUTPUT")
+        or cfg.get("input", {}).get("jsonl", "/logs/filtered_ebpf.jsonl")
+    )
+    output_path = Path(
+        os.getenv("COLLECTOR_EBPF_SUMMARY_OUTPUT")
+        or cfg.get("output", {}).get("jsonl", "/logs/filtered_ebpf_summary.jsonl")
+    )
     burst_gap_sec = float(cfg.get("burst_gap_sec", 5))
     dns_lookback_sec = float(cfg.get("dns_lookback_sec", 2))
     min_send_count = int(cfg.get("min_send_count", 0))

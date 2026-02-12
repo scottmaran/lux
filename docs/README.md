@@ -5,7 +5,8 @@ docs/README.md (you are here)
 ├─ guide/
 │  ├─ install.md — installer + manual install steps
 │  ├─ cli.md — CLI commands and behavior
-│  └─ config.md — config.yaml reference and defaults
+│  ├─ config.md — config.yaml reference and defaults
+│  └─ log_layout.md — run-scoped log directory structure
 ├─ orientation/
 │  ├─ overview.md — system summary and goals
 │  ├─ platform.md — platform assumptions and constraints

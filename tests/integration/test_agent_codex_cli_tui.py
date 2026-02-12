@@ -90,7 +90,7 @@ def _write_cli_config(
 
 
 def _session_dirs(log_root: Path) -> set[str]:
-    sessions_dir = log_root / "sessions"
+    sessions_dir = log_root
     if not sessions_dir.exists():
         return set()
     return {entry.name for entry in sessions_dir.iterdir() if entry.is_dir()}
@@ -106,6 +106,24 @@ def _read_jsonl(path: Path) -> list[dict[str, Any]]:
             continue
         rows.append(json.loads(line))
     return rows
+
+
+def _extract_run_id_from_up(result: subprocess.CompletedProcess[str]) -> str:
+    payload = result.stdout or ""
+    if not payload.strip():
+        raise AssertionError("lasso up did not return payload with run_id")
+    for raw_line in reversed(payload.splitlines()):
+        line = raw_line.strip()
+        if not line:
+            continue
+        try:
+            parsed = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        run_id = parsed.get("run_id")
+        if isinstance(run_id, str) and run_id:
+            return run_id
+    raise AssertionError(f"lasso up payload missing run_id: {payload}")
 
 
 def _drain_pty(master_fd: int, chunks: list[str]) -> None:
@@ -189,14 +207,16 @@ def test_codex_tui_via_lasso_cli_produces_prompt_driven_session_evidence(
         timeout=120,
     )
 
-    before_sessions = _session_dirs(log_root)
     master_fd: int | None = None
     slave_fd: int | None = None
     proc: subprocess.Popen[bytes] | None = None
     pty_chunks: list[str] = []
     created_session: str | None = None
+    run_id: str | None = None
+    run_root: Path | None = None
+    sessions_root: Path | None = None
     try:
-        _run_lasso(
+        up_result = _run_lasso(
             lasso_cli_binary_for_codex,
             config_path=config_path,
             compose_files=compose_files,
@@ -204,6 +224,10 @@ def test_codex_tui_via_lasso_cli_produces_prompt_driven_session_evidence(
             env=env,
             timeout=600,
         )
+        run_id = _extract_run_id_from_up(up_result)
+        run_root = log_root / run_id
+        sessions_root = run_root / "harness" / "sessions"
+        before_sessions = _session_dirs(sessions_root)
 
         master_fd, slave_fd = pty.openpty()
         cmd: list[str] = [str(lasso_cli_binary_for_codex), "--config", str(config_path)]
@@ -232,7 +256,8 @@ def test_codex_tui_via_lasso_cli_produces_prompt_driven_session_evidence(
         while time.time() < deadline:
             _drain_pty(master_fd, pty_chunks)
 
-            after_sessions = _session_dirs(log_root)
+            assert sessions_root is not None
+            after_sessions = _session_dirs(sessions_root)
             created = sorted(after_sessions - before_sessions)
             if len(created) == 1:
                 created_session = created[0]
@@ -244,7 +269,8 @@ def test_codex_tui_via_lasso_cli_produces_prompt_driven_session_evidence(
                 )
 
             if created_session:
-                session_stdout = log_root / "sessions" / created_session / "stdout.log"
+                assert run_root is not None
+                session_stdout = run_root / "harness" / "sessions" / created_session / "stdout.log"
                 if session_stdout.exists():
                     stdout_text = session_stdout.read_text(encoding="utf-8", errors="replace")
                     saw_codex_ui = ("OpenAI Codex" in stdout_text) or ("context left" in stdout_text.lower())
@@ -304,8 +330,9 @@ def test_codex_tui_via_lasso_cli_produces_prompt_driven_session_evidence(
         )
 
     assert created_session, f"Expected exactly one created session.\npty_tail:\n{_read_tail(pty_chunks)}"
+    assert run_root is not None, "Expected run root from lasso up output."
 
-    session_dir = log_root / "sessions" / created_session
+    session_dir = run_root / "harness" / "sessions" / created_session
     meta_path = session_dir / "meta.json"
     stdin_path = session_dir / "stdin.log"
     stdout_path = session_dir / "stdout.log"
@@ -331,7 +358,7 @@ def test_codex_tui_via_lasso_cli_produces_prompt_driven_session_evidence(
         f"stdout_tail={stdout_text[-2000:]}\npty_tail={_read_tail(pty_chunks)}"
     )
 
-    timeline_path = log_root / "filtered_timeline.jsonl"
+    timeline_path = run_root / "collector" / "filtered" / "filtered_timeline.jsonl"
     deadline = time.time() + 180.0
     found_session_rows = False
     while time.time() < deadline:

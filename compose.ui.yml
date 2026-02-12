@@ -3,6 +3,9 @@ services:
     image: ghcr.io/scottmaran/lasso-ui:${LASSO_VERSION}
     volumes:
       - ${LASSO_LOG_ROOT:-./logs}:/logs:ro
-      - ${LASSO_LOG_ROOT:-./logs}/labels:/logs/labels:rw
+      - ${LASSO_LOG_ROOT:-./logs}:/logs_rw:rw
+    environment:
+      - UI_LOG_ROOT=/logs
+      - UI_LOG_ROOT_RW=/logs_rw
     ports:
       - "127.0.0.1:8090:8090"

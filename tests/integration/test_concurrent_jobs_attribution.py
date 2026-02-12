@@ -53,4 +53,4 @@ def test_live_concurrent_jobs_do_not_cross_attribute_events(
     assert not wrong_one, f"path_one cross-attributed rows: {wrong_one}"
     assert not wrong_two, f"path_two cross-attributed rows: {wrong_two}"
 
-    timeline_validator(log_root=integration_stack.log_root)
+    timeline_validator(log_root=integration_stack.run_root)

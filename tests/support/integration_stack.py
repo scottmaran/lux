@@ -172,6 +172,10 @@ class ComposeStack:
         self.workspace_root = temp_root / "workspace"
         self.log_root.mkdir(parents=True, exist_ok=True)
         self.workspace_root.mkdir(parents=True, exist_ok=True)
+        self.run_id = (
+            f"lasso__{datetime.now(timezone.utc).strftime('%Y_%m_%d_%H_%M_%S')}_"
+            f"{uuid.uuid4().hex[:6]}"
+        )
 
         self.compose_files = compose_files
         self.project_name = f"lasso-test-{test_slug}-{uuid.uuid4().hex[:8]}"
@@ -186,6 +190,7 @@ class ComposeStack:
                 "HARNESS_RUN_CMD_TEMPLATE": DEFAULT_HARNESS_CMD_TEMPLATE,
                 "LASSO_LOG_ROOT": str(self.log_root),
                 "LASSO_WORKSPACE_ROOT": str(self.workspace_root),
+                "LASSO_RUN_ID": self.run_id,
                 "LASSO_VERSION": "local",
                 "HARNESS_HOST_PORT": str(self.harness_port),
             }
@@ -202,19 +207,41 @@ class ComposeStack:
 
     @property
     def filtered_audit_path(self) -> Path:
-        return self.log_root / "filtered_audit.jsonl"
+        return self.run_root / "collector" / "filtered" / "filtered_audit.jsonl"
 
     @property
     def filtered_ebpf_path(self) -> Path:
-        return self.log_root / "filtered_ebpf.jsonl"
+        return self.run_root / "collector" / "filtered" / "filtered_ebpf.jsonl"
 
     @property
     def filtered_ebpf_summary_path(self) -> Path:
-        return self.log_root / "filtered_ebpf_summary.jsonl"
+        return self.run_root / "collector" / "filtered" / "filtered_ebpf_summary.jsonl"
 
     @property
     def timeline_path(self) -> Path:
-        return self.log_root / "filtered_timeline.jsonl"
+        return self.run_root / "collector" / "filtered" / "filtered_timeline.jsonl"
+
+    @property
+    def run_root(self) -> Path:
+        return self.log_root / self.run_id
+
+    @property
+    def sessions_dir(self) -> Path:
+        return self.run_root / "harness" / "sessions"
+
+    @property
+    def jobs_dir(self) -> Path:
+        return self.run_root / "harness" / "jobs"
+
+    @property
+    def session_labels_dir(self) -> Path:
+        return self.run_root / "harness" / "labels" / "sessions"
+
+    def session_dir(self, session_id: str) -> Path:
+        return self.sessions_dir / session_id
+
+    def job_dir(self, job_id: str) -> Path:
+        return self.jobs_dir / job_id
 
     def _compose_command(self, *args: str) -> list[str]:
         cmd: list[str] = ["docker", "compose", "-f", str(self.compose_files.base)]
@@ -513,10 +540,15 @@ class ComposeStack:
         return str(body["job_id"])
 
     def get_job(self, job_id: str) -> dict[str, Any]:
-        status, body = self.request_json("GET", f"/jobs/{job_id}")
-        if status != 200 or not isinstance(body, dict):
+        for _ in range(5):
+            status, body = self.request_json("GET", f"/jobs/{job_id}")
+            if status == 200 and isinstance(body, dict):
+                return body
+            if status == 0:
+                time.sleep(0.5)
+                continue
             raise AssertionError(f"Failed to read job {job_id}: {status} {body}")
-        return body
+        raise AssertionError(f"Failed to read job {job_id}: harness API unavailable")
 
     def wait_for_job(self, job_id: str, *, timeout_sec: float = 300.0) -> dict[str, Any]:
         deadline = time.time() + timeout_sec
@@ -612,7 +644,7 @@ class ComposeStack:
         )
 
     def session_stdout_path(self, session_id: str) -> Path:
-        return self.log_root / "sessions" / session_id / "stdout.log"
+        return self.session_dir(session_id) / "stdout.log"
 
     def _session_activity_snapshot(self, session_id: str) -> dict[str, Any]:
         stdout_path = self.session_stdout_path(session_id)
@@ -797,7 +829,7 @@ class ComposeStack:
         timeout_sec: float = 60.0,
         interval_sec: float = 0.5,
     ) -> str:
-        labels_dir = self.log_root / "labels" / "sessions"
+        labels_dir = self.session_labels_dir
         deadline = time.time() + timeout_sec
         last_matches: list[str] = []
         while time.time() < deadline:

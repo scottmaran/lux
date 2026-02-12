@@ -27,12 +27,9 @@ def detect_log_root() -> Path:
 
 
 LOG_ROOT = detect_log_root()
-TIMELINE_PATH = LOG_ROOT / "filtered_timeline.jsonl"
-SESSIONS_DIR = LOG_ROOT / "sessions"
-JOBS_DIR = LOG_ROOT / "jobs"
-LABELS_DIR = LOG_ROOT / "labels"
-SESSION_LABELS_DIR = LABELS_DIR / "sessions"
-JOB_LABELS_DIR = LABELS_DIR / "jobs"
+LOG_ROOT_RW = Path(os.getenv("UI_LOG_ROOT_RW", str(LOG_ROOT)))
+RUN_PREFIX = "lasso__"
+ACTIVE_RUN_STATE_PATH = LOG_ROOT / ".active_run.json"
 RUN_ID_RE = re.compile(r"^[A-Za-z0-9._-]+$")
 
 
@@ -49,6 +46,76 @@ def now_iso() -> str:
 
 def is_valid_run_id(value: str) -> bool:
     return bool(RUN_ID_RE.fullmatch(value))
+
+
+def list_run_ids() -> list[str]:
+    if not LOG_ROOT.exists():
+        return []
+    run_ids: list[str] = []
+    for entry in LOG_ROOT.iterdir():
+        if not entry.is_dir():
+            continue
+        name = entry.name
+        if name.startswith(RUN_PREFIX):
+            run_ids.append(name)
+    run_ids.sort()
+    return run_ids
+
+
+def run_root(run_id: str) -> Path:
+    return LOG_ROOT / run_id
+
+
+def run_root_rw(run_id: str) -> Path:
+    return LOG_ROOT_RW / run_id
+
+
+def timeline_path_for_run(run_id: str) -> Path:
+    return run_root(run_id) / "collector" / "filtered" / "filtered_timeline.jsonl"
+
+
+def sessions_dir_for_run(run_id: str) -> Path:
+    return run_root(run_id) / "harness" / "sessions"
+
+
+def jobs_dir_for_run(run_id: str) -> Path:
+    return run_root(run_id) / "harness" / "jobs"
+
+
+def session_labels_dir_for_run(run_id: str) -> Path:
+    return run_root_rw(run_id) / "harness" / "labels" / "sessions"
+
+
+def job_labels_dir_for_run(run_id: str) -> Path:
+    return run_root_rw(run_id) / "harness" / "labels" / "jobs"
+
+
+def load_active_run_id() -> str | None:
+    payload = read_json(ACTIVE_RUN_STATE_PATH)
+    if not isinstance(payload, dict):
+        return None
+    run_id = payload.get("run_id")
+    if not isinstance(run_id, str):
+        return None
+    if not is_valid_run_id(run_id):
+        return None
+    if not run_root(run_id).exists():
+        return None
+    return run_id
+
+
+def resolve_run_id(filters: dict) -> str | None:
+    requested = filters.get("run_id", [None])[0]
+    if isinstance(requested, str):
+        requested = requested.strip()
+    if requested:
+        if not is_valid_run_id(requested):
+            return None
+        return requested if run_root(requested).exists() else None
+    active = load_active_run_id()
+    if active:
+        return active
+    return None
 
 
 def load_label(path: Path) -> dict | None:
@@ -94,11 +161,13 @@ def parse_csv(values: list[str]) -> set[str]:
     return {part.strip() for part in parts if part.strip()}
 
 
-def load_sessions() -> list[dict]:
-    if not SESSIONS_DIR.exists():
+def load_sessions(run_id: str) -> list[dict]:
+    sessions_dir = sessions_dir_for_run(run_id)
+    labels_dir = session_labels_dir_for_run(run_id)
+    if not sessions_dir.exists():
         return []
     sessions = []
-    for entry in SESSIONS_DIR.iterdir():
+    for entry in sessions_dir.iterdir():
         if not entry.is_dir():
             continue
         meta_path = entry / "meta.json"
@@ -107,7 +176,7 @@ def load_sessions() -> list[dict]:
             continue
         session_id = meta.get("session_id") or entry.name
         meta["session_id"] = session_id
-        label = load_label(SESSION_LABELS_DIR / f"{session_id}.json")
+        label = load_label(labels_dir / f"{session_id}.json")
         if label:
             meta["name"] = label["name"]
         sessions.append(meta)
@@ -115,11 +184,13 @@ def load_sessions() -> list[dict]:
     return sessions
 
 
-def load_jobs() -> list[dict]:
-    if not JOBS_DIR.exists():
+def load_jobs(run_id: str) -> list[dict]:
+    jobs_dir = jobs_dir_for_run(run_id)
+    labels_dir = job_labels_dir_for_run(run_id)
+    if not jobs_dir.exists():
         return []
     jobs = []
-    for entry in JOBS_DIR.iterdir():
+    for entry in jobs_dir.iterdir():
         if not entry.is_dir():
             continue
         input_path = entry / "input.json"
@@ -129,7 +200,7 @@ def load_jobs() -> list[dict]:
         job_id = input_data.get("job_id") or status_data.get("job_id") or entry.name
         payload = {**input_data, **status_data}
         payload["job_id"] = job_id
-        label = load_label(JOB_LABELS_DIR / f"{job_id}.json")
+        label = load_label(labels_dir / f"{job_id}.json")
         if label:
             payload["name"] = label["name"]
         jobs.append(payload)
@@ -137,7 +208,8 @@ def load_jobs() -> list[dict]:
     return jobs
 
 
-def iter_timeline_rows(filters: dict) -> tuple[list[dict], dict]:
+def iter_timeline_rows(filters: dict) -> tuple[list[dict], dict, str | None]:
+    run_id = resolve_run_id(filters)
     start = normalize_ts(filters.get("start", [None])[0])
     end = normalize_ts(filters.get("end", [None])[0])
     limit_raw = filters.get("limit", [None])[0]
@@ -150,10 +222,14 @@ def iter_timeline_rows(filters: dict) -> tuple[list[dict], dict]:
     rows = []
     counts: dict[str, int] = {}
 
-    if not TIMELINE_PATH.exists():
-        return rows, counts
+    if run_id is None:
+        return rows, counts, None
 
-    with TIMELINE_PATH.open("r", encoding="utf-8", errors="replace") as handle:
+    timeline_path = timeline_path_for_run(run_id)
+    if not timeline_path.exists():
+        return rows, counts, run_id
+
+    with timeline_path.open("r", encoding="utf-8", errors="replace") as handle:
         for line in handle:
             line = line.strip()
             if not line:
@@ -180,7 +256,20 @@ def iter_timeline_rows(filters: dict) -> tuple[list[dict], dict]:
             counts[event_type] = counts.get(event_type, 0) + 1
             if limit and len(rows) > limit:
                 rows.pop(0)
-    return rows, counts
+    return rows, counts, run_id
+
+
+def resolve_run_id_with_error(filters: dict) -> tuple[str | None, str | None]:
+    requested = filters.get("run_id", [None])[0]
+    if isinstance(requested, str):
+        requested = requested.strip()
+    if requested:
+        if not is_valid_run_id(requested):
+            return None, "invalid run_id"
+        if not run_root(requested).exists():
+            return None, "run not found"
+        return requested, None
+    return load_active_run_id(), None
 
 
 class UIHandler(BaseHTTPRequestHandler):
@@ -234,28 +323,63 @@ class UIHandler(BaseHTTPRequestHandler):
         return self.handle_api_patch(parsed)
 
     def handle_api(self, parsed) -> None:
+        filters = parse_qs(parsed.query)
         if parsed.path == "/api/sessions":
-            return self._json({"sessions": load_sessions()})
+            run_id, run_err = resolve_run_id_with_error(filters)
+            if run_err:
+                return self._json({"error": run_err}, 400 if run_err == "invalid run_id" else 404)
+            sessions = load_sessions(run_id) if run_id else []
+            return self._json({"run_id": run_id, "sessions": sessions})
         if parsed.path == "/api/jobs":
-            return self._json({"jobs": load_jobs()})
+            run_id, run_err = resolve_run_id_with_error(filters)
+            if run_err:
+                return self._json({"error": run_err}, 400 if run_err == "invalid run_id" else 404)
+            jobs = load_jobs(run_id) if run_id else []
+            return self._json({"run_id": run_id, "jobs": jobs})
+        if parsed.path == "/api/runs":
+            return self._json({"runs": list_run_ids(), "active_run_id": load_active_run_id()})
         if parsed.path == "/api/timeline":
-            filters = parse_qs(parsed.query)
-            rows, _ = iter_timeline_rows(filters)
-            return self._json({"rows": rows, "count": len(rows)})
+            run_id, run_err = resolve_run_id_with_error(filters)
+            if run_err:
+                return self._json({"error": run_err}, 400 if run_err == "invalid run_id" else 404)
+            if run_id and not filters.get("run_id"):
+                filters["run_id"] = [run_id]
+            rows, _, resolved_run_id = iter_timeline_rows(filters)
+            return self._json({"run_id": resolved_run_id, "rows": rows, "count": len(rows)})
         if parsed.path == "/api/summary":
-            filters = parse_qs(parsed.query)
-            _, counts = iter_timeline_rows(filters)
+            run_id, run_err = resolve_run_id_with_error(filters)
+            if run_err:
+                return self._json({"error": run_err}, 400 if run_err == "invalid run_id" else 404)
+            if run_id and not filters.get("run_id"):
+                filters["run_id"] = [run_id]
+            _, counts, resolved_run_id = iter_timeline_rows(filters)
             total = sum(counts.values())
-            return self._json({"counts": counts, "total": total})
+            return self._json({"run_id": resolved_run_id, "counts": counts, "total": total})
         return self._json({"error": "not found"}, 404)
 
     def handle_api_patch(self, parsed) -> None:
+        filters = parse_qs(parsed.query)
+        run_id, run_err = resolve_run_id_with_error(filters)
+        if run_err:
+            return self._json({"error": run_err}, 400 if run_err == "invalid run_id" else 404)
+        if run_id is None:
+            return self._json({"error": "no active run"}, 404)
         if parsed.path.startswith("/api/sessions/"):
-            run_id = parsed.path[len("/api/sessions/") :]
-            return self._handle_rename(run_id, SESSION_LABELS_DIR, SESSIONS_DIR)
+            session_id = parsed.path[len("/api/sessions/") :]
+            return self._handle_rename(
+                entity_id=session_id,
+                label_dir=session_labels_dir_for_run(run_id),
+                entity_dir=sessions_dir_for_run(run_id),
+                run_id=run_id,
+            )
         if parsed.path.startswith("/api/jobs/"):
-            run_id = parsed.path[len("/api/jobs/") :]
-            return self._handle_rename(run_id, JOB_LABELS_DIR, JOBS_DIR)
+            job_id = parsed.path[len("/api/jobs/") :]
+            return self._handle_rename(
+                entity_id=job_id,
+                label_dir=job_labels_dir_for_run(run_id),
+                entity_dir=jobs_dir_for_run(run_id),
+                run_id=run_id,
+            )
         return self._json({"error": "not found"}, 404)
 
     def _read_json_body(self) -> tuple[dict | None, str | None]:
@@ -274,10 +398,10 @@ class UIHandler(BaseHTTPRequestHandler):
             return None, "invalid json"
         return payload, None
 
-    def _handle_rename(self, run_id: str, label_dir: Path, run_dir: Path) -> None:
-        if not run_id or not is_valid_run_id(run_id):
+    def _handle_rename(self, entity_id: str, label_dir: Path, entity_dir: Path, run_id: str) -> None:
+        if not entity_id or not is_valid_run_id(entity_id):
             return self._json({"error": "invalid id"}, 400)
-        if not (run_dir / run_id).exists():
+        if not (entity_dir / entity_id).exists():
             return self._json({"error": "not found"}, 404)
 
         payload, err = self._read_json_body()
@@ -291,8 +415,15 @@ class UIHandler(BaseHTTPRequestHandler):
         if not name:
             return self._json({"error": "name is required"}, 400)
 
-        label = write_label(label_dir, run_id, name)
-        return self._json({"id": run_id, "name": label["name"], "updated_at": label["updated_at"]})
+        label = write_label(label_dir, entity_id, name)
+        return self._json(
+            {
+                "run_id": run_id,
+                "id": entity_id,
+                "name": label["name"],
+                "updated_at": label["updated_at"],
+            }
+        )
 
     def log_message(self, format: str, *args) -> None:
         return

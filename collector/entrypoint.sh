@@ -21,7 +21,15 @@ MERGE_FILTER_LOG=${COLLECTOR_MERGE_FILTER_OUTPUT:-/logs/filtered_timeline.jsonl}
 MERGE_FILTER_BIN=${COLLECTOR_MERGE_FILTER_BIN:-/usr/local/bin/collector-merge-filtered}
 MERGE_FILTER_INTERVAL=${COLLECTOR_MERGE_FILTER_INTERVAL:-2}
 
-mkdir -p /logs /sys/kernel/tracing /sys/kernel/debug /sys/fs/bpf
+mkdir -p /sys/kernel/tracing /sys/kernel/debug /sys/fs/bpf
+
+ensure_log_file() {
+  target="$1"
+  mkdir -p "$(dirname "${target}")"
+  touch "${target}" 2>/dev/null || true
+  chown root:adm "${target}" 2>/dev/null || chown root:root "${target}" 2>/dev/null || true
+  chmod 0640 "${target}" 2>/dev/null || true
+}
 
 if command -v mountpoint >/dev/null 2>&1; then
   if ! mountpoint -q /sys/kernel/tracing; then
@@ -36,29 +44,12 @@ if [ -f /etc/audit/auditd.conf ]; then
   sed -i "s#^log_file = .*#log_file = ${AUDIT_LOG}#" /etc/audit/auditd.conf
 fi
 
-touch "${AUDIT_LOG}" 2>/dev/null || true
-chown root:adm "${AUDIT_LOG}" 2>/dev/null || chown root:root "${AUDIT_LOG}" 2>/dev/null || true
-chmod 0640 "${AUDIT_LOG}" 2>/dev/null || true
-
-touch "${EBPF_LOG}" 2>/dev/null || true
-chown root:adm "${EBPF_LOG}" 2>/dev/null || chown root:root "${EBPF_LOG}" 2>/dev/null || true
-chmod 0640 "${EBPF_LOG}" 2>/dev/null || true
-
-touch "${FILTER_LOG}" 2>/dev/null || true
-chown root:adm "${FILTER_LOG}" 2>/dev/null || chown root:root "${FILTER_LOG}" 2>/dev/null || true
-chmod 0640 "${FILTER_LOG}" 2>/dev/null || true
-
-touch "${EBPF_FILTER_LOG}" 2>/dev/null || true
-chown root:adm "${EBPF_FILTER_LOG}" 2>/dev/null || chown root:root "${EBPF_FILTER_LOG}" 2>/dev/null || true
-chmod 0640 "${EBPF_FILTER_LOG}" 2>/dev/null || true
-
-touch "${EBPF_SUMMARY_LOG}" 2>/dev/null || true
-chown root:adm "${EBPF_SUMMARY_LOG}" 2>/dev/null || chown root:root "${EBPF_SUMMARY_LOG}" 2>/dev/null || true
-chmod 0640 "${EBPF_SUMMARY_LOG}" 2>/dev/null || true
-
-touch "${MERGE_FILTER_LOG}" 2>/dev/null || true
-chown root:adm "${MERGE_FILTER_LOG}" 2>/dev/null || chown root:root "${MERGE_FILTER_LOG}" 2>/dev/null || true
-chmod 0640 "${MERGE_FILTER_LOG}" 2>/dev/null || true
+ensure_log_file "${AUDIT_LOG}"
+ensure_log_file "${EBPF_LOG}"
+ensure_log_file "${FILTER_LOG}"
+ensure_log_file "${EBPF_FILTER_LOG}"
+ensure_log_file "${EBPF_SUMMARY_LOG}"
+ensure_log_file "${MERGE_FILTER_LOG}"
 
 auditd
 AUDITD_PID=$(pidof auditd 2>/dev/null || cat /var/run/auditd.pid 2>/dev/null || true)

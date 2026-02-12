@@ -3,7 +3,6 @@ from __future__ import annotations
 import json
 import shlex
 import uuid
-from pathlib import Path
 
 import pytest
 
@@ -25,8 +24,8 @@ def _contains_error_signature(text: str) -> bool:
     return any(sig in lowered for sig in signatures)
 
 
-def _session_dirs(log_root: Path) -> set[str]:
-    sessions_dir = log_root / "sessions"
+def _session_dirs(stack) -> set[str]:
+    sessions_dir = stack.sessions_dir
     if not sessions_dir.exists():
         return set()
     return {entry.name for entry in sessions_dir.iterdir() if entry.is_dir()}
@@ -39,7 +38,7 @@ def test_codex_tui_path_runs_and_persists_session_artifacts(
     """Harness TUI path runs Codex command, captures artifacts, and emits live timeline rows."""
     token = f"LASSO_TUI_PASS_{uuid.uuid4().hex[:10]}"
     tui_name = f"tui-{uuid.uuid4().hex[:8]}"
-    before = _session_dirs(codex_stack.log_root)
+    before = _session_dirs(codex_stack)
 
     result = codex_stack.run_harness_tui(
         tui_cmd=f"codex exec --skip-git-repo-check 'Reply with exactly this token: {token}'",
@@ -48,11 +47,11 @@ def test_codex_tui_path_runs_and_persists_session_artifacts(
     )
     assert result.returncode == 0, f"TUI path exited non-zero. stdout={result.stdout}\nstderr={result.stderr}"
 
-    after = _session_dirs(codex_stack.log_root)
+    after = _session_dirs(codex_stack)
     created = sorted(after - before)
     assert len(created) == 1, f"Expected exactly one new session directory; got {created}"
     session_id = created[0]
-    session_dir = codex_stack.log_root / "sessions" / session_id
+    session_dir = codex_stack.session_dir(session_id)
 
     codex_stack.wait_for_session_quiescence(
         session_id,
@@ -80,7 +79,7 @@ def test_codex_tui_path_runs_and_persists_session_artifacts(
         message=f"Missing live timeline rows for session_id={session_id}",
     )
 
-    timeline_validator(log_root=codex_stack.log_root)
+    timeline_validator(log_root=codex_stack.run_root)
 
 
 def test_codex_tui_prompt_pwd_emits_session_exec_row(
@@ -91,7 +90,7 @@ def test_codex_tui_prompt_pwd_emits_session_exec_row(
     This is a smoke test for TUI startup + prompt execution behavior.
     """
     tui_name = f"tui-pwd-{uuid.uuid4().hex[:8]}"
-    before = _session_dirs(codex_stack.log_root)
+    before = _session_dirs(codex_stack)
     prompt = (
         "Run the shell command `pwd` in the workspace, then reply with only the command output. "
         "Do not ask follow-up questions."
@@ -122,11 +121,11 @@ def test_codex_tui_prompt_pwd_emits_session_exec_row(
     finally:
         stop_result = codex_stack.stop_harness_tui_interactive(handle, wait_timeout_sec=30)
 
-    after = _session_dirs(codex_stack.log_root)
+    after = _session_dirs(codex_stack)
     created = sorted(after - before)
     assert len(created) == 1, f"Expected exactly one new session directory; got {created}"
     session_id = created[0]
-    session_dir = codex_stack.log_root / "sessions" / session_id
+    session_dir = codex_stack.session_dir(session_id)
     assert stop_result is not None
     assert stop_result.returncode in (0, 130), (
         "Interactive harness TUI exited unexpectedly for pwd prompt.\n"
