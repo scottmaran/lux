@@ -80,6 +80,30 @@ jobs:
       - name: Run integration suite
         run: uv run pytest tests/integration -m "integration and not agent_codex" -q
 
+  installer_verification:
+    # TEMP: disabled while Linux host permission model work is in progress.
+    # Intended future PR gate: deterministic installer + update + uninstall coverage.
+    if: ${{ false }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup uv
+        uses: astral-sh/setup-uv@v5
+
+      - name: Sync dependencies
+        run: uv sync --frozen
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Run installer/update/uninstall tests
+        run: |
+          uv run pytest tests/integration/test_cli_installer.py -q
+          uv run pytest tests/integration/test_cli_update.py -q
+          uv run pytest tests/integration/test_cli_paths_uninstall.py -q
+
   stress_smoke:
     # TEMP: disabled while Linux host permission model work is in progress.
     if: ${{ false }}

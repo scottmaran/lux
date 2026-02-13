@@ -16,6 +16,19 @@ Run the versioned installer:
 curl -fsSL https://raw.githubusercontent.com/scottmaran/lasso/v0.1.4/install_lasso.sh | bash -s -- --version v0.1.4
 ```
 
+If the repo (or release assets) are private, unauthenticated `curl` downloads
+may return 404. In that case, download the release bundle with GitHub CLI and
+install from the local tarball:
+
+```bash
+VERSION=v0.1.4
+gh auth login
+gh release download "$VERSION" -R scottmaran/lasso -p "lasso_${VERSION#v}_darwin_arm64.tar.gz*" -D .
+bash install_lasso.sh --version "$VERSION" \
+  --bundle "lasso_${VERSION#v}_darwin_arm64.tar.gz" \
+  --checksum "lasso_${VERSION#v}_darwin_arm64.tar.gz.sha256"
+```
+
 If you prefer to inspect the script first:
 
 ```bash
@@ -32,26 +45,30 @@ This:
 **Note:** The installer does **not** create log/workspace directories. You
 choose those in the config.
 
+If `lasso` is "command not found" after install, ensure `~/.local/bin` is in
+your `PATH`.
+
 ## Manual Install (No Script)
 
 1) Download the correct bundle for your OS/arch:
 
 ```bash
-curl -fsSL https://github.com/scottmaran/lasso/releases/download/v0.1.4/lasso_0.1.4_darwin_arm64.tar.gz -o lasso.tar.gz
+BUNDLE=lasso_0.1.4_darwin_arm64.tar.gz
+curl -fsSL "https://github.com/scottmaran/lasso/releases/download/v0.1.4/${BUNDLE}" -o "${BUNDLE}"
 ```
 
 2) (Optional) Verify checksum:
 
 ```bash
-curl -fsSL https://github.com/scottmaran/lasso/releases/download/v0.1.4/lasso_0.1.4_darwin_arm64.tar.gz.sha256 -o lasso.tar.gz.sha256
-shasum -a 256 -c lasso.tar.gz.sha256
+curl -fsSL "https://github.com/scottmaran/lasso/releases/download/v0.1.4/${BUNDLE}.sha256" -o "${BUNDLE}.sha256"
+shasum -a 256 -c "${BUNDLE}.sha256"
 ```
 
 3) Extract to a versioned install dir:
 
 ```bash
 mkdir -p ~/.lasso/versions/0.1.4
-tar -xzf lasso.tar.gz -C ~/.lasso/versions/0.1.4
+tar -xzf "${BUNDLE}" --strip-components=1 -C ~/.lasso/versions/0.1.4
 ```
 
 4) Create symlinks:

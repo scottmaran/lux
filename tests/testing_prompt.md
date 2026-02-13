@@ -56,7 +56,7 @@ Read these files before editing:
 18. `tests/unit/test_compose_contract_parity.py`
 19. `scripts/all_tests.py`
 20. `scripts/verify_test_delta.py`
-21. `scripts/cli_scripts/*`
+21. `install_lasso.sh` and `tests/integration/test_cli_*.py` (installer/update/uninstall and CLI lifecycle coverage)
 22. `example_logs/audit.log`
 23. `example_logs/ebpf.jsonl`
 24. `.github/workflows/release.yml`

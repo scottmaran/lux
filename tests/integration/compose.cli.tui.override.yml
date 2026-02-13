@@ -1,4 +1,0 @@
-services:
-  harness:
-    environment:
-      HARNESS_TUI_CMD: 'bash -lc "echo stub-ok"'

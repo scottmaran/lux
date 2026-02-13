@@ -96,8 +96,6 @@ enum Commands {
         #[arg(long)]
         remove_config: bool,
         #[arg(long)]
-        remove_data: bool,
-        #[arg(long)]
         all_versions: bool,
         #[arg(long)]
         yes: bool,
@@ -403,7 +401,6 @@ fn main() -> Result<(), LassoError> {
         Commands::Update { command } => handle_update(&ctx, command),
         Commands::Uninstall {
             remove_config,
-            remove_data,
             all_versions,
             yes,
             dry_run,
@@ -411,7 +408,6 @@ fn main() -> Result<(), LassoError> {
         } => handle_uninstall(
             &ctx,
             remove_config,
-            remove_data,
             all_versions,
             yes,
             dry_run,
@@ -668,18 +664,12 @@ fn handle_config(ctx: &Context, command: ConfigCommand) -> Result<(), LassoError
 }
 
 fn default_install_dir() -> PathBuf {
-    if let Ok(path) = env::var("LASSO_INSTALL_DIR") {
-        return PathBuf::from(path);
-    }
     let mut base = home_dir().unwrap_or_else(|| PathBuf::from("."));
     base.push(".lasso");
     base
 }
 
 fn default_bin_dir() -> PathBuf {
-    if let Ok(path) = env::var("LASSO_BIN_DIR") {
-        return PathBuf::from(path);
-    }
     let mut base = home_dir().unwrap_or_else(|| PathBuf::from("."));
     base.push(".local");
     base.push("bin");
@@ -782,13 +772,18 @@ fn release_platform() -> Result<(String, String), LassoError> {
     Ok((os.to_string(), arch.to_string()))
 }
 
+fn release_base_url_root() -> String {
+    let raw = env::var("LASSO_RELEASE_BASE_URL")
+        .unwrap_or_else(|_| "https://github.com/scottmaran/lasso/releases/download".to_string());
+    raw.trim_end_matches('/').to_string()
+}
+
 fn build_update_plan(paths: &RuntimePaths, target_version: &str) -> Result<UpdatePlan, LassoError> {
     let target_version_tag = target_version.trim_start_matches('v').to_string();
     let (os, arch) = release_platform()?;
     let bundle_name = format!("lasso_{}_{}_{}.tar.gz", target_version_tag, os, arch);
     let checksum_name = format!("{bundle_name}.sha256");
-    let base_url =
-        format!("https://github.com/scottmaran/lasso/releases/download/{target_version}");
+    let base_url = format!("{}/{target_version}", release_base_url_root());
     Ok(UpdatePlan {
         target_version: target_version.to_string(),
         target_version_tag: target_version_tag.clone(),
@@ -952,13 +947,92 @@ fn verify_bundle_checksum(bundle_path: &Path, checksum_path: &Path) -> Result<()
     Ok(())
 }
 
+fn normalize_tar_entry_path(raw: &str) -> Option<String> {
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+    let stripped = trimmed
+        .trim_start_matches("./")
+        .trim_start_matches('/')
+        .trim_end_matches('/');
+    if stripped.is_empty() {
+        return None;
+    }
+    Some(stripped.to_string())
+}
+
+fn tar_list_entries(bundle_path: &Path) -> Result<Vec<String>, LassoError> {
+    let output = Command::new("tar")
+        .arg("-tzf")
+        .arg(bundle_path)
+        .output()
+        .map_err(|err| LassoError::Process(format!("failed to run tar: {err}")))?;
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        return Err(LassoError::Process(format!(
+            "tar listing failed with status {}: {}",
+            output.status,
+            stderr.trim()
+        )));
+    }
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    Ok(stdout
+        .lines()
+        .filter_map(normalize_tar_entry_path)
+        .collect())
+}
+
+fn tar_has_single_top_level_dir(entries: &[String]) -> bool {
+    let mut top: Option<&str> = None;
+    let mut saw_nested = false;
+    for entry in entries {
+        let mut parts = entry.splitn(2, '/');
+        let first = parts.next().unwrap_or("");
+        let rest = parts.next();
+        if first.is_empty() {
+            continue;
+        }
+        match rest {
+            Some(_) => {
+                saw_nested = true;
+                match top {
+                    None => top = Some(first),
+                    Some(existing) => {
+                        if existing != first {
+                            return false;
+                        }
+                    }
+                }
+            }
+            None => {
+                // Allow only top-level directory marker entries (e.g. "lasso_0.1.0_darwin_arm64").
+                if let Some(existing) = top {
+                    if existing != first {
+                        return false;
+                    }
+                } else {
+                    top = Some(first);
+                }
+            }
+        }
+    }
+    saw_nested && top.is_some()
+}
+
 fn extract_bundle(bundle_path: &Path, destination_dir: &Path) -> Result<(), LassoError> {
     fs::create_dir_all(destination_dir)?;
-    let status = Command::new("tar")
-        .arg("-xzf")
+    let entries = tar_list_entries(bundle_path)?;
+    let strip_components = tar_has_single_top_level_dir(&entries);
+    let mut cmd = Command::new("tar");
+    cmd.arg("-xzf")
         .arg(bundle_path)
         .arg("-C")
-        .arg(destination_dir)
+        .arg(destination_dir);
+    if strip_components {
+        cmd.arg("--strip-components").arg("1");
+    }
+    let status = cmd
         .status()
         .map_err(|err| LassoError::Process(format!("failed to run tar: {err}")))?;
     if !status.success() {
@@ -1830,7 +1904,6 @@ fn prune_empty_dir(path: &Path) {
 fn handle_uninstall<R: DockerRunner>(
     ctx: &Context,
     remove_config: bool,
-    remove_data: bool,
     all_versions: bool,
     yes: bool,
     dry_run: bool,
@@ -1842,47 +1915,97 @@ fn handle_uninstall<R: DockerRunner>(
             "uninstall requires --yes (or use --dry-run to preview)".to_string(),
         ));
     }
-    let (paths, _config_exists) = resolve_runtime_paths(ctx)?;
+    let config_dir = ctx
+        .config_path
+        .parent()
+        .map_or_else(default_config_dir, PathBuf::from);
+    let install_dir = default_install_dir();
+    let versions_dir = install_dir.join("versions");
+    let current_link = install_dir.join("current");
+    let bin_dir = default_bin_dir();
+    let bin_path = bin_dir.join("lasso");
+
+    let mut warnings: Vec<String> = Vec::new();
     let mut down_attempted = false;
     let down_skipped = force || dry_run;
     if !force && !dry_run {
-        down_attempted = true;
-        let mut down_args = compose_base_args(ctx, false, false)?;
-        down_args.push("down".to_string());
-        down_args.push("--volumes".to_string());
-        down_args.push("--remove-orphans".to_string());
-        if let Err(err) = execute_docker(
-            ctx,
-            runner,
-            &down_args,
-            &BTreeMap::new(),
-            true,
-            false,
-        ) {
-            return Err(LassoError::Process(format!(
-                "failed to stop stack before uninstall: {}. Re-run with --force to skip stack shutdown",
-                err
-            )));
+        if !ctx.env_file.exists() {
+            warnings.push(format!(
+                "skipping stack shutdown: env file missing at {}",
+                ctx.env_file.display()
+            ));
+        } else {
+            let compose_files = match compose_files(ctx, false, false) {
+                Ok(files) => files,
+                Err(err) => {
+                    warnings.push(format!(
+                        "skipping stack shutdown: compose files unavailable ({})",
+                        err
+                    ));
+                    Vec::new()
+                }
+            };
+
+            if !compose_files.is_empty() {
+                down_attempted = true;
+                let project_name = match read_config(&ctx.config_path) {
+                    Ok(cfg) => cfg.docker.project_name,
+                    Err(err) => {
+                        warnings.push(format!(
+                            "unable to read config for compose project name; proceeding without -p ({})",
+                            err
+                        ));
+                        String::new()
+                    }
+                };
+
+                let mut down_args = vec![
+                    "compose".to_string(),
+                    "--env-file".to_string(),
+                    ctx.env_file.to_string_lossy().to_string(),
+                ];
+                if !project_name.trim().is_empty() {
+                    down_args.push("-p".to_string());
+                    down_args.push(project_name);
+                }
+                for file in compose_files {
+                    down_args.push("-f".to_string());
+                    down_args.push(file.to_string_lossy().to_string());
+                }
+                down_args.push("down".to_string());
+                down_args.push("--volumes".to_string());
+                down_args.push("--remove-orphans".to_string());
+
+                if let Err(err) = execute_docker(
+                    ctx,
+                    runner,
+                    &down_args,
+                    &BTreeMap::new(),
+                    true,
+                    false,
+                ) {
+                    warnings.push(format!(
+                        "failed to stop stack before uninstall (containers may still be running): {}",
+                        err
+                    ));
+                }
+            }
         }
     }
 
     let mut targets: Vec<PathBuf> = Vec::new();
     if all_versions {
-        targets.push(paths.versions_dir.clone());
+        targets.push(versions_dir.clone());
     } else if let Some(current_target) =
-        safe_current_target(&paths.current_link, &paths.versions_dir)
+        safe_current_target(&current_link, &versions_dir)
     {
         targets.push(current_target);
     }
-    targets.push(paths.current_link.clone());
-    targets.push(paths.bin_path.clone());
+    targets.push(current_link.clone());
+    targets.push(bin_path.clone());
     if remove_config {
-        targets.push(paths.env_file.clone());
-        targets.push(paths.config_path.clone());
-    }
-    if remove_data {
-        targets.push(paths.log_root.clone());
-        targets.push(paths.workspace_root.clone());
+        targets.push(ctx.env_file.clone());
+        targets.push(ctx.config_path.clone());
     }
 
     let mut dedup: BTreeMap<String, PathBuf> = BTreeMap::new();
@@ -1908,10 +2031,10 @@ fn handle_uninstall<R: DockerRunner>(
 
     if !dry_run {
         if remove_config {
-            prune_empty_dir(&paths.config_dir);
+            prune_empty_dir(&config_dir);
         }
-        prune_empty_dir(&paths.bin_dir);
-        prune_empty_dir(&paths.install_dir);
+        prune_empty_dir(&bin_dir);
+        prune_empty_dir(&install_dir);
     }
 
     output(
@@ -1920,13 +2043,13 @@ fn handle_uninstall<R: DockerRunner>(
             "action": "uninstall",
             "dry_run": dry_run,
             "remove_config": remove_config,
-            "remove_data": remove_data,
             "all_versions": all_versions,
             "down_attempted": down_attempted,
             "down_skipped": down_skipped,
             "planned": planned,
             "removed": removed,
             "missing": missing,
+            "warnings": warnings,
         }),
     )
 }

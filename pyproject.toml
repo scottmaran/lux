@@ -16,6 +16,7 @@ markers = [
     "fixture: deterministic fixture/golden tests",
     "integration: docker-backed stack integration tests",
     "agent_codex: local-only codex agent end-to-end tests",
+    "external_install: manual GitHub release install smoke tests (opt-in)",
     "stress: repeated race/concurrency tests",
     "regression: bug-specific regression tests",
 ]
