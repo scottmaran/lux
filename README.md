@@ -18,6 +18,7 @@ curl -fsSL https://raw.githubusercontent.com/scottmaran/lasso/v0.1.4/install_las
 Private repo note: if the repo or release assets are private, unauthenticated
 `curl` downloads may return 404. In that case, download the release bundle with
 `gh release download` and run `install_lasso.sh` with `--bundle/--checksum`.
+If `lasso` is "command not found" after install, ensure `~/.local/bin` is in your `PATH`.
 This installs the CLI bundle but does **not** create log/workspace directories. Run `lasso config init` to create the default configurations, then edit `~/.config/lasso/config.yaml` to modify configs. You can customize `paths.log_root` and `paths.workspace_root`.
 You must run `lasso config apply` to validate config values, write `~/.config/lasso/compose.env`, and create the configured log/workspace directories.
 

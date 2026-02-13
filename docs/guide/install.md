@@ -45,6 +45,9 @@ This:
 **Note:** The installer does **not** create log/workspace directories. You
 choose those in the config.
 
+If `lasso` is "command not found" after install, ensure `~/.local/bin` is in
+your `PATH`.
+
 ## Manual Install (No Script)
 
 1) Download the correct bundle for your OS/arch:

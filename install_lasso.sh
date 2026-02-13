@@ -169,6 +169,21 @@ if [ ! -f "${CONFIG_DIR}/config.yaml" ]; then
   cp "${INSTALL_DIR}/current/config/default.yaml" "${CONFIG_DIR}/config.yaml"
 fi
 
+case ":${PATH:-}:" in
+  *":${BIN_DIR}:"*)
+    ;;
+  *)
+    cat <<EOFMSG
+NOTE: ${BIN_DIR} is not on your PATH, so `lasso` may be "command not found".
+
+Add this to your shell profile (zsh: ~/.zprofile or ~/.zshrc):
+  export PATH="${BIN_DIR}:\$PATH"
+
+Then restart your terminal (or `source ~/.zprofile`).
+EOFMSG
+    ;;
+esac
+
 cat <<EOFMSG
 ✅ Lasso installed.
 

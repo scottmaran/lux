@@ -64,12 +64,13 @@ def test_installer_uses_fixed_layout_and_does_not_create_data_dirs(
         env["HOME"] = str(home)
         env["LASSO_RELEASE_BASE_URL"] = base_url
 
-        _run(
+        installer = _run(
             ["bash", str(ROOT_DIR / "install_lasso.sh"), "--version", "v0.1.0"],
             cwd=ROOT_DIR,
             env=env,
             timeout=300,
         )
+        assert "not on your PATH" in installer.stdout
 
         install_dir = home / ".lasso"
         version_dir = install_dir / "versions" / "0.1.0"
@@ -118,7 +119,7 @@ def test_installer_supports_local_bundle_and_checksum(
     env = os.environ.copy()
     env["HOME"] = str(home)
 
-    _run(
+    installer = _run(
         [
             "bash",
             str(ROOT_DIR / "install_lasso.sh"),
@@ -133,6 +134,7 @@ def test_installer_supports_local_bundle_and_checksum(
         env=env,
         timeout=300,
     )
+    assert "not on your PATH" in installer.stdout
 
     bin_link = home / ".local" / "bin" / "lasso"
     assert bin_link.exists()
