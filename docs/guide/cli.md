@@ -126,11 +126,13 @@ Default behavior:
 
 Options:
 - `--remove-config`: remove `config.yaml` and `compose.env`.
-- `--remove-data`: remove resolved log/workspace roots.
 - `--all-versions`: remove all installed versions under install dir.
 - `--yes`: confirm destructive actions.
 - `--dry-run`: preview removals without mutating filesystem.
-- `--force`: skip the pre-uninstall `down` attempt.
+- `--force`: skip the best-effort pre-uninstall stack shutdown attempt.
+
+Note:
+- `uninstall` never deletes your log/workspace roots. Remove those manually if desired.
 
 ### update
 Manage release updates for the installed CLI bundle.

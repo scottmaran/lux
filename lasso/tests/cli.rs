@@ -349,12 +349,13 @@ fn jobs_list_with_run_id_uses_run_scoped_jobs_directory() {
 #[test]
 fn paths_reports_resolved_values() {
     let dir = tempdir().unwrap();
+    let home = dir.path();
     let config_path = dir.path().join("config.yaml");
     let env_file = dir.path().join("compose.env");
     let log_root = dir.path().join("logs");
     let work_root = dir.path().join("work");
-    let install_dir = dir.path().join("install");
-    let bin_dir = dir.path().join("bin");
+    let install_dir = home.join(".lasso");
+    let bin_dir = home.join(".local").join("bin");
     fs::create_dir_all(&log_root).unwrap();
     fs::create_dir_all(&work_root).unwrap();
     fs::write(&env_file, "LASSO_VERSION=v0.1.0\n").unwrap();
@@ -372,9 +373,8 @@ fn paths_reports_resolved_values() {
         .arg("--json")
         .arg("--config")
         .arg(&config_path)
+        .env("HOME", home)
         .env("LASSO_ENV_FILE", &env_file)
-        .env("LASSO_INSTALL_DIR", &install_dir)
-        .env("LASSO_BIN_DIR", &bin_dir)
         .arg("paths")
         .assert()
         .success()
@@ -429,14 +429,15 @@ fn uninstall_requires_yes_without_dry_run() {
 #[test]
 fn uninstall_dry_run_preserves_files() {
     let dir = tempdir().unwrap();
+    let home = dir.path();
     let config_path = dir.path().join("config.yaml");
     let env_file = dir.path().join("compose.env");
     let log_root = dir.path().join("logs");
     let work_root = dir.path().join("work");
-    let install_dir = dir.path().join("install");
+    let install_dir = home.join(".lasso");
     let versions_dir = install_dir.join("versions").join("0.1.0");
     let current_link = install_dir.join("current");
-    let bin_dir = dir.path().join("bin");
+    let bin_dir = home.join(".local").join("bin");
     let bin_link = bin_dir.join("lasso");
     fs::create_dir_all(&versions_dir).unwrap();
     fs::create_dir_all(&bin_dir).unwrap();
@@ -460,13 +461,11 @@ fn uninstall_dry_run_preserves_files() {
         .arg("--json")
         .arg("--config")
         .arg(&config_path)
+        .env("HOME", home)
         .env("LASSO_ENV_FILE", &env_file)
-        .env("LASSO_INSTALL_DIR", &install_dir)
-        .env("LASSO_BIN_DIR", &bin_dir)
         .arg("uninstall")
         .arg("--dry-run")
         .arg("--remove-config")
-        .arg("--remove-data")
         .arg("--all-versions")
         .arg("--force")
         .assert()
@@ -490,14 +489,15 @@ fn uninstall_dry_run_preserves_files() {
 #[test]
 fn uninstall_exec_removes_requested_targets() {
     let dir = tempdir().unwrap();
+    let home = dir.path();
     let config_path = dir.path().join("config.yaml");
     let env_file = dir.path().join("compose.env");
     let log_root = dir.path().join("logs");
     let work_root = dir.path().join("work");
-    let install_dir = dir.path().join("install");
+    let install_dir = home.join(".lasso");
     let versions_dir = install_dir.join("versions").join("0.1.0");
     let current_link = install_dir.join("current");
-    let bin_dir = dir.path().join("bin");
+    let bin_dir = home.join(".local").join("bin");
     let bin_link = bin_dir.join("lasso");
     fs::create_dir_all(&versions_dir).unwrap();
     fs::create_dir_all(&bin_dir).unwrap();
@@ -521,13 +521,11 @@ fn uninstall_exec_removes_requested_targets() {
         .arg("--json")
         .arg("--config")
         .arg(&config_path)
+        .env("HOME", home)
         .env("LASSO_ENV_FILE", &env_file)
-        .env("LASSO_INSTALL_DIR", &install_dir)
-        .env("LASSO_BIN_DIR", &bin_dir)
         .arg("uninstall")
         .arg("--yes")
         .arg("--remove-config")
-        .arg("--remove-data")
         .arg("--all-versions")
         .arg("--force")
         .assert()
@@ -543,8 +541,8 @@ fn uninstall_exec_removes_requested_targets() {
     assert!(!install_dir.join("versions").exists());
     assert!(!config_path.exists());
     assert!(!env_file.exists());
-    assert!(!log_root.exists());
-    assert!(!work_root.exists());
+    assert!(log_root.exists());
+    assert!(work_root.exists());
 }
 
 #[test]
@@ -575,17 +573,15 @@ fn update_apply_requires_yes_without_dry_run() {
 #[test]
 fn update_apply_dry_run_reports_target() {
     let dir = tempdir().unwrap();
+    let home = dir.path();
     let config_path = dir.path().join("config.yaml");
-    let install_dir = dir.path().join("install");
-    let bin_dir = dir.path().join("bin");
     fs::write(&config_path, "version: 1\n").unwrap();
 
     let output = bin()
         .arg("--json")
         .arg("--config")
         .arg(&config_path)
-        .env("LASSO_INSTALL_DIR", &install_dir)
-        .env("LASSO_BIN_DIR", &bin_dir)
+        .env("HOME", home)
         .arg("update")
         .arg("apply")
         .arg("--to")
@@ -607,8 +603,9 @@ fn update_apply_dry_run_reports_target() {
 #[test]
 fn update_rollback_dry_run_previous_selects_prior_version() {
     let dir = tempdir().unwrap();
+    let home = dir.path();
     let config_path = dir.path().join("config.yaml");
-    let install_dir = dir.path().join("install");
+    let install_dir = home.join(".lasso");
     let versions_dir = install_dir.join("versions");
     let v1 = versions_dir.join("0.1.0");
     let v2 = versions_dir.join("0.2.0");
@@ -623,7 +620,7 @@ fn update_rollback_dry_run_previous_selects_prior_version() {
         .arg("--json")
         .arg("--config")
         .arg(&config_path)
-        .env("LASSO_INSTALL_DIR", &install_dir)
+        .env("HOME", home)
         .arg("update")
         .arg("rollback")
         .arg("--dry-run")

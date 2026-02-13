@@ -37,21 +37,22 @@ choose those in the config.
 1) Download the correct bundle for your OS/arch:
 
 ```bash
-curl -fsSL https://github.com/scottmaran/lasso/releases/download/v0.1.4/lasso_0.1.4_darwin_arm64.tar.gz -o lasso.tar.gz
+BUNDLE=lasso_0.1.4_darwin_arm64.tar.gz
+curl -fsSL "https://github.com/scottmaran/lasso/releases/download/v0.1.4/${BUNDLE}" -o "${BUNDLE}"
 ```
 
 2) (Optional) Verify checksum:
 
 ```bash
-curl -fsSL https://github.com/scottmaran/lasso/releases/download/v0.1.4/lasso_0.1.4_darwin_arm64.tar.gz.sha256 -o lasso.tar.gz.sha256
-shasum -a 256 -c lasso.tar.gz.sha256
+curl -fsSL "https://github.com/scottmaran/lasso/releases/download/v0.1.4/${BUNDLE}.sha256" -o "${BUNDLE}.sha256"
+shasum -a 256 -c "${BUNDLE}.sha256"
 ```
 
 3) Extract to a versioned install dir:
 
 ```bash
 mkdir -p ~/.lasso/versions/0.1.4
-tar -xzf lasso.tar.gz -C ~/.lasso/versions/0.1.4
+tar -xzf "${BUNDLE}" --strip-components=1 -C ~/.lasso/versions/0.1.4
 ```
 
 4) Create symlinks:

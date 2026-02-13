@@ -68,8 +68,8 @@ tests/
     config/                    <- test-only collector filter config overrides for compose
                                 (keeps CI-safe bash attribution without changing prod defaults)
     test_*.py                  <- real Docker stack tests
-                                includes `test_cli_script_suite.py` which executes
-                                `scripts/cli_scripts/*.sh` inside pytest
+                                includes pytest-native CLI coverage for config/doctor/lifecycle
+                                and installer/update/uninstall flows (no bash suite)
   stress/                      <- race/concurrency repetition tests
   regression/                  <- bug-specific tests
 ```
@@ -146,8 +146,15 @@ uv run pytest -q
 ```
 
 Integration gate note:
-- `tests/integration/test_cli_script_suite.py` runs the shell CLI suite under
-  pytest and requires `script(1)` for TUI smoke coverage.
+- CLI integration coverage is pytest-native (no bash suite). See:
+  - `tests/integration/test_cli_config_and_doctor.py`
+  - `tests/integration/test_cli_lifecycle.py`
+  - `tests/integration/test_cli_installer.py`
+  - `tests/integration/test_cli_update.py`
+  - `tests/integration/test_cli_paths_uninstall.py`
+- Installer/update/uninstall tests run with an isolated temporary `HOME` and
+  use a local release server hook (`LASSO_RELEASE_BASE_URL`) so they do not
+  touch a developer machine’s real `~/.lasso`, `~/.local/bin`, or `~/.config/lasso`.
 - Local Codex coverage includes `tests/integration/test_agent_codex_cli_tui.py`,
   which validates interactive Codex behavior through `lasso tui --codex`.
 

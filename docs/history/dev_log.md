@@ -295,3 +295,20 @@ host-side logs.
 - Added marker-focused unit coverage in `tests/unit/test_harness_markers.py`.
 - Added SID fallback unit coverage in `collector/tests/test_filter.py` and `collector/tests/test_ebpf_filter.py`.
 - Added focused startup race regression coverage in `tests/regression/test_startup_attribution_race.py` and updated integration assertions to check `root_sid` presence in run metadata.
+
+## Block 9:
+- Replaced the shell-based CLI suite with pytest-native CLI coverage and hardened installer/update/uninstall behavior for beta readiness.
+
+### Details
+- Removed `scripts/cli_scripts/` and `tests/integration/test_cli_script_suite.py`.
+- Added pytest-native CLI coverage:
+  - `tests/integration/test_cli_config_and_doctor.py`
+  - `tests/integration/test_cli_lifecycle.py`
+  - `tests/integration/test_cli_installer.py`
+  - `tests/integration/test_cli_update.py`
+  - `tests/integration/test_cli_paths_uninstall.py`
+- Removed the destructive `lasso uninstall --remove-data` flag and updated docs accordingly.
+- Removed custom install directory support (fixed install layout under `$HOME`).
+- Fixed installer/update extraction to support release tarballs that include a top-level directory (matching `.github/workflows/release.yml`).
+- Added a deterministic local-release test hook (`LASSO_RELEASE_BASE_URL`) and a fake release artifact generator (`tests/support/fake_release.py`) so installer/update tests run without external network or GitHub release dependencies.
+- Made `lasso uninstall` resilient to invalid/missing config by avoiding config parsing for uninstall target computation (and skipping stack shutdown when required inputs are missing).

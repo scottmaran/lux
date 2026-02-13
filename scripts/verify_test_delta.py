@@ -27,7 +27,7 @@ STAGES = ["audit_filter", "ebpf_filter", "summary", "merge", "pipeline"]
 
 RUNTIME_PREFIXES = [
     "lasso/src/",
-    "scripts/cli_scripts/",
+    "install_lasso.sh",
     "collector/scripts/",
     "collector/config/",
     "collector/ebpf/",

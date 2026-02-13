@@ -128,6 +128,14 @@ Concurrent startup revealed a remaining attribution gap: some early rows could b
 
 Collector audit/eBPF attribution now remains PID-lineage first, but falls back to SID matching when PID lineage is temporarily unavailable. This preserves existing behavior while tightening concurrent startup attribution without introducing new emission-deferral semantics. Test coverage was extended with marker-unit tests and a focused startup-race regression scenario.
 
+**Phase 23: Installer/update/uninstall hardening + pytest-native CLI suite (Feb 13, 2026)**
+As beta approached, install/update/uninstall paths were hardened and made deterministic under test:
+- Fixed installer/update bundle extraction to match release tarballs that include a single top-level directory.
+- Removed custom install directory support (fixed install layout under `$HOME`: `~/.lasso`, `~/.local/bin`, `~/.config/lasso`).
+- Removed the destructive `lasso uninstall --remove-data` option.
+- Made uninstall resilient when config is missing or invalid (uninstall still removes the CLI footprint).
+- Removed the bash-based CLI suite (`scripts/cli_scripts`) and replaced it with pytest-native CLI coverage, including deterministic installer/update/uninstall tests that run against a local release server hook (`LASSO_RELEASE_BASE_URL`) to avoid external network and GitHub release dependencies.
+
 **Open questions and deliberate TODOs**
 Some choices were intentionally deferred and still appear as TODOs in the docs:
 - Kernel feature requirements and minimum versions for audit sources.

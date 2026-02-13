@@ -2,7 +2,6 @@
 
 Date: 2026-02-12
 Owner: codex subagent
-Status: Draft for review
 
 ## 1. Why This Work
 
