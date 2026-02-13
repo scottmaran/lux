@@ -95,3 +95,48 @@ def test_installer_uses_fixed_layout_and_does_not_create_data_dirs(
         assert payload["ok"] is True
         assert payload["result"]["install_dir"] == str(install_dir)
         assert payload["result"]["bin_dir"] == str(home / ".local" / "bin")
+
+
+def test_installer_supports_local_bundle_and_checksum(
+    tmp_path: Path,
+    lasso_cli_binary: Path,
+) -> None:
+    home = tmp_path / "home"
+    home.mkdir(parents=True, exist_ok=True)
+    server_root = tmp_path / "server"
+    server_root.mkdir(parents=True, exist_ok=True)
+
+    artifacts = build_fake_release_bundle(
+        server_root=server_root,
+        repo_root=ROOT_DIR,
+        version="v0.1.0",
+        lasso_binary=lasso_cli_binary,
+    )
+    bundle_path = Path(artifacts["bundle_path"])
+    checksum_path = Path(artifacts["checksum_path"])
+
+    env = os.environ.copy()
+    env["HOME"] = str(home)
+
+    _run(
+        [
+            "bash",
+            str(ROOT_DIR / "install_lasso.sh"),
+            "--version",
+            "v0.1.0",
+            "--bundle",
+            str(bundle_path),
+            "--checksum",
+            str(checksum_path),
+        ],
+        cwd=ROOT_DIR,
+        env=env,
+        timeout=300,
+    )
+
+    bin_link = home / ".local" / "bin" / "lasso"
+    assert bin_link.exists()
+
+    result = _run([str(bin_link), "--json", "paths"], cwd=ROOT_DIR, env=env, timeout=60)
+    payload = json.loads(result.stdout)
+    assert payload["ok"] is True

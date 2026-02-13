@@ -16,6 +16,19 @@ Run the versioned installer:
 curl -fsSL https://raw.githubusercontent.com/scottmaran/lasso/v0.1.4/install_lasso.sh | bash -s -- --version v0.1.4
 ```
 
+If the repo (or release assets) are private, unauthenticated `curl` downloads
+may return 404. In that case, download the release bundle with GitHub CLI and
+install from the local tarball:
+
+```bash
+VERSION=v0.1.4
+gh auth login
+gh release download "$VERSION" -R scottmaran/lasso -p "lasso_${VERSION#v}_darwin_arm64.tar.gz*" -D .
+bash install_lasso.sh --version "$VERSION" \
+  --bundle "lasso_${VERSION#v}_darwin_arm64.tar.gz" \
+  --checksum "lasso_${VERSION#v}_darwin_arm64.tar.gz.sha256"
+```
+
 If you prefer to inspect the script first:
 
 ```bash

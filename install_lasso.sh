@@ -2,15 +2,23 @@
 set -euo pipefail
 
 VERSION=""
+BUNDLE_PATH=""
+CHECKSUM_PATH=""
 
 usage() {
   cat <<USAGE
-Usage: install_lasso.sh --version vX.Y.Z
+Usage: install_lasso.sh --version vX.Y.Z [--bundle <path>] [--checksum <path>]
 
 Installs the Lasso CLI bundle without creating log/workspace directories.
 
 Required:
   --version vX.Y.Z
+
+Optional (offline / private repo flow):
+  --bundle <path>    Local path to the release bundle tarball
+                     (must be named like lasso_<ver>_<os>_<arch>.tar.gz)
+  --checksum <path>  Local path to the checksum file for the tarball
+                     (must be named like lasso_<ver>_<os>_<arch>.tar.gz.sha256)
 
 Environment:
   LASSO_RELEASE_BASE_URL  Base URL for release downloads
@@ -22,6 +30,10 @@ while [ $# -gt 0 ]; do
   case "$1" in
     --version)
       VERSION="$2"; shift 2 ;;
+    --bundle)
+      BUNDLE_PATH="$2"; shift 2 ;;
+    --checksum)
+      CHECKSUM_PATH="$2"; shift 2 ;;
     -h|--help)
       usage; exit 0 ;;
     *)
@@ -33,6 +45,12 @@ done
 
 if [ -z "$VERSION" ]; then
   echo "ERROR: --version is required" >&2
+  usage
+  exit 1
+fi
+
+if [ -n "$CHECKSUM_PATH" ] && [ -z "$BUNDLE_PATH" ]; then
+  echo "ERROR: --checksum requires --bundle" >&2
   usage
   exit 1
 fi
@@ -58,15 +76,60 @@ cleanup() {
 }
 trap cleanup EXIT
 
-curl -fsSL "${BASE_URL}/${BUNDLE}" -o "${TMP_DIR}/${BUNDLE}"
-curl -fsSL "${BASE_URL}/${CHECKSUM}" -o "${TMP_DIR}/${CHECKSUM}"
+download() {
+  local url="$1"
+  local dest="$2"
+  if ! curl -fsSL "$url" -o "$dest"; then
+    echo "ERROR: download failed: $url" >&2
+    echo "" >&2
+    echo "If this repo (or its release assets) is private, GitHub may return 404 for unauthenticated downloads." >&2
+    echo "Options:" >&2
+    echo "  1) Use GitHub CLI to download assets, then re-run with --bundle/--checksum" >&2
+    echo "  2) Host release artifacts elsewhere and set LASSO_RELEASE_BASE_URL" >&2
+    exit 1
+  fi
+}
 
-if command -v shasum >/dev/null 2>&1; then
-  ( cd "$TMP_DIR" && shasum -a 256 -c "${CHECKSUM}" )
-elif command -v sha256sum >/dev/null 2>&1; then
-  ( cd "$TMP_DIR" && sha256sum -c "${CHECKSUM}" )
+if [ -n "$BUNDLE_PATH" ]; then
+  if [ ! -f "$BUNDLE_PATH" ]; then
+    echo "ERROR: bundle not found: $BUNDLE_PATH" >&2
+    exit 1
+  fi
+  if [ "$(basename "$BUNDLE_PATH")" != "$BUNDLE" ]; then
+    echo "ERROR: bundle filename mismatch for this platform/version." >&2
+    echo "  expected: $BUNDLE" >&2
+    echo "  got:      $(basename "$BUNDLE_PATH")" >&2
+    exit 1
+  fi
+  cp "$BUNDLE_PATH" "${TMP_DIR}/${BUNDLE}"
+  if [ -n "$CHECKSUM_PATH" ]; then
+    if [ ! -f "$CHECKSUM_PATH" ]; then
+      echo "ERROR: checksum not found: $CHECKSUM_PATH" >&2
+      exit 1
+    fi
+    if [ "$(basename "$CHECKSUM_PATH")" != "$CHECKSUM" ]; then
+      echo "ERROR: checksum filename mismatch for this platform/version." >&2
+      echo "  expected: $CHECKSUM" >&2
+      echo "  got:      $(basename "$CHECKSUM_PATH")" >&2
+      exit 1
+    fi
+    cp "$CHECKSUM_PATH" "${TMP_DIR}/${CHECKSUM}"
+  fi
 else
-  echo "WARNING: no sha256 verifier found; skipping checksum verification." >&2
+  download "${BASE_URL}/${BUNDLE}" "${TMP_DIR}/${BUNDLE}"
+  download "${BASE_URL}/${CHECKSUM}" "${TMP_DIR}/${CHECKSUM}"
+fi
+
+if [ -f "${TMP_DIR}/${CHECKSUM}" ]; then
+  if command -v shasum >/dev/null 2>&1; then
+    ( cd "$TMP_DIR" && shasum -a 256 -c "${CHECKSUM}" )
+  elif command -v sha256sum >/dev/null 2>&1; then
+    ( cd "$TMP_DIR" && sha256sum -c "${CHECKSUM}" )
+  else
+    echo "WARNING: no sha256 verifier found; skipping checksum verification." >&2
+  fi
+else
+  echo "WARNING: checksum file not provided; skipping checksum verification." >&2
 fi
 
 INSTALL_DIR="${HOME}/.lasso"

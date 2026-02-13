@@ -145,6 +145,18 @@ uv run pytest tests/regression -q
 uv run pytest -q
 ```
 
+Manual external install smoke (not part of CI):
+
+```bash
+LASSO_RUN_EXTERNAL_INSTALL=1 \
+LASSO_EXTERNAL_INSTALL_VERSION=v0.1.6 \
+uv run pytest -m external_install -q
+```
+
+Notes:
+- Requires `gh` installed and authenticated for the repo under test.
+- Runs installer into an isolated temporary `HOME` so it cannot affect a developer machine.
+
 Integration gate note:
 - CLI integration coverage is pytest-native (no bash suite). See:
   - `tests/integration/test_cli_config_and_doctor.py`
