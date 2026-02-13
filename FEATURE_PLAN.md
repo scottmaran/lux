@@ -118,6 +118,10 @@ providers:
           - ~/.codex/skills
     ownership:
       root_comm:
+        - bash
+        - sh
+        - setsid
+        - timeout
         - codex
 
   claude:
@@ -137,6 +141,10 @@ providers:
           - ~/.config/claude-code/auth.json
     ownership:
       root_comm:
+        - bash
+        - sh
+        - setsid
+        - timeout
         - claude
 ```
 

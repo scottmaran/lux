@@ -16,8 +16,16 @@ grouping:
 
 agent_ownership:
   uid: 1001
-  # Process names considered a session root
+  # Process names considered a run root.
+  #
+  # Note: server-mode jobs are launched via `setsid bash -lc ...` and optionally
+  # wrap the provider command with `timeout`, so we must treat those as eligible
+  # roots to avoid dropping early exec/fs events before root markers are persisted.
   root_comm:
+    - bash
+    - sh
+    - setsid
+    - timeout
     - codex
     - claude
 
