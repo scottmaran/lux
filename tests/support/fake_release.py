@@ -84,7 +84,7 @@ def build_fake_release_bundle(
     # Ensure the copied binary is executable even if the underlying FS drops mode bits.
     os.chmod(staging_dir / "lasso", 0o755)
 
-    for compose in ("compose.yml", "compose.codex.yml", "compose.ui.yml"):
+    for compose in ("compose.yml", "compose.ui.yml"):
         shutil.copy2(repo_root / compose, staging_dir / compose)
 
     shutil.copy2(repo_root / "lasso" / "config" / "default.yaml", staging_dir / "config" / "default.yaml")

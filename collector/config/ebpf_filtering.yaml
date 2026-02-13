@@ -14,7 +14,12 @@ output:
 ownership:
   uid: 1001
   root_comm:
+    - bash
+    - sh
+    - setsid
+    - timeout
     - codex
+    - claude
   # Optional PID TTL to reduce PID reuse attribution risk (0 disables)
   pid_ttl_sec: 0
   # Raw audit exec rule keys used to build the PID tree

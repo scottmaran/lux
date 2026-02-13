@@ -34,8 +34,8 @@ RUNTIME_PREFIXES = [
     "harness/",
     "ui/server.py",
     "compose.yml",
-    "compose.codex.yml",
     "compose.ui.yml",
+    "tests/integration/compose.provider.codex.override.yml",
     "agent/Dockerfile",
     "collector/Dockerfile",
     "harness/Dockerfile",
@@ -54,9 +54,10 @@ DISALLOWED_OFFLINE_REPLAY_PATTERNS = [
     r"\bmake_net_send_event\s*\(",
 ]
 
-REQUIRED_CODEX_TEST_FILES = [
-    ROOT_DIR / "tests" / "integration" / "test_agent_codex_exec.py",
-    ROOT_DIR / "tests" / "integration" / "test_agent_codex_tui.py",
+REQUIRED_PROVIDER_TEST_FILES: list[tuple[Path, str]] = [
+    (ROOT_DIR / "tests" / "integration" / "test_agent_codex_exec.py", "agent_codex"),
+    (ROOT_DIR / "tests" / "integration" / "test_agent_codex_tui.py", "agent_codex"),
+    (ROOT_DIR / "tests" / "integration" / "test_agent_claude_lane.py", "agent_claude"),
 ]
 
 
@@ -151,16 +152,16 @@ def validate_live_stack_architecture_guards() -> list[str]:
                         f"{rel}: uses disallowed offline replay helper matching /{pattern.pattern}/"
                     )
 
-    for path in REQUIRED_CODEX_TEST_FILES:
+    for path, marker in REQUIRED_PROVIDER_TEST_FILES:
         if not path.exists():
             rel = path.relative_to(ROOT_DIR)
-            failures.append(f"Missing required Codex lane test file: {rel}")
+            failures.append(f"Missing required provider-lane test file: {rel}")
             continue
 
         text = path.read_text(encoding="utf-8", errors="replace")
         rel = path.relative_to(ROOT_DIR)
-        if "agent_codex" not in text:
-            failures.append(f"{rel}: missing pytest marker `agent_codex`.")
+        if marker not in text:
+            failures.append(f"{rel}: missing pytest marker `{marker}`.")
         if "bash -lc {prompt}" in text:
             failures.append(f"{rel}: Codex lane must not use bash run-template fallback.")
 

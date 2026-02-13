@@ -8,7 +8,7 @@ CLI and the user guide in `docs/guide/`.
 ### Prerequisites
 - Docker Desktop (or Docker Engine) running.
 - `~/.config/lasso/compose.env` present (generated via `lasso config apply`).
-- For Codex modes: `~/.codex/auth.json` and `~/.codex/skills` on the host.
+- Provider auth material present on host (Codex and/or Claude, depending on the mode you are validating).
 
 ### Local image + run setup (required for consistent run-scoped logs)
 Run once per terminal session:
@@ -44,12 +44,12 @@ Important:
 
 ```bash
 docker compose --env-file ~/.config/lasso/compose.env \
-  -f compose.yml -f compose.codex.yml -f compose.ui.yml \
+  -f compose.yml -f compose.ui.yml \
   down --remove-orphans
 
 docker compose --env-file ~/.config/lasso/compose.env \
-  -f compose.yml -f compose.codex.yml -f compose.ui.yml \
-  up -d --pull never collector agent ui
+  -f compose.yml -f compose.ui.yml \
+  up -d --pull never collector ui
 ```
 
 The UI binds to `http://127.0.0.1:8090`.
@@ -59,7 +59,11 @@ Launch one session:
 
 ```bash
 docker compose --env-file ~/.config/lasso/compose.env \
-  -f compose.yml -f compose.codex.yml \
+  -f compose.yml -f tests/integration/compose.provider.codex.override.yml \
+  up -d --pull never agent harness
+
+docker compose --env-file ~/.config/lasso/compose.env \
+  -f compose.yml -f tests/integration/compose.provider.codex.override.yml \
   run --rm -e HARNESS_MODE=tui -e HARNESS_TUI_NAME=manual_session_1 harness
 ```
 
@@ -78,7 +82,7 @@ Start harness server and submit a job:
 export HARNESS_API_TOKEN=dev-token
 
 docker compose --env-file ~/.config/lasso/compose.env \
-  -f compose.yml -f compose.codex.yml \
+  -f compose.yml -f tests/integration/compose.provider.codex.override.yml \
   up -d --pull never harness
 
 curl -s -H "X-Harness-Token: ${HARNESS_API_TOKEN}" \
@@ -103,7 +107,7 @@ docker compose --env-file ~/.config/lasso/compose.env \
 
 ```bash
 docker compose --env-file ~/.config/lasso/compose.env \
-  -f compose.yml -f compose.codex.yml -f compose.ui.yml \
+  -f compose.yml -f compose.ui.yml \
   down --remove-orphans
 ```
 
@@ -117,8 +121,9 @@ docker compose --env-file ~/.config/lasso/compose.env \
 
 ## Compose files
 - `compose.yml`: base stack (agent-agnostic).
-- `compose.codex.yml`: adds host Codex auth + skills mounts for the agent container.
 - `compose.ui.yml`: UI-only service that mounts `${LASSO_LOG_ROOT}` for read-only log reads and label writes.
+- Provider runtime overlays are generated dynamically by `lasso` at runtime (`~/.config/lasso/runtime/`).
+- `tests/integration/compose.provider.codex.override.yml` is a local test-only provider override.
 
 ## Testing and examples
 - `tests/README.md`: canonical test architecture, required gates, and commands.
@@ -129,5 +134,5 @@ docker compose --env-file ~/.config/lasso/compose.env \
 Canonical local/CI test gating is:
 
 ```bash
-uv run python scripts/all_tests.py --lane <fast|pr|full|codex|local-full>
+uv run python scripts/all_tests.py --lane <fast|pr|full|codex|claude|local-full>
 ```

@@ -52,7 +52,7 @@ Read these files before editing:
 14. `tests/support/pytest_docker.py`
 15. `compose.yml`
 16. `tests/integration/compose.test.override.yml`
-17. `compose.codex.yml`
+17. `tests/integration/compose.provider.codex.override.yml` (test-only provider overlay)
 18. `tests/unit/test_compose_contract_parity.py`
 19. `scripts/all_tests.py`
 20. `scripts/verify_test_delta.py`
@@ -107,7 +107,7 @@ Use root `pyproject.toml` as single source for pytest tool config.
 Generate and commit `uv.lock`.
 
 Requirements:
-- markers: `unit`, `fixture`, `integration`, `stress`, `regression`, `agent_codex`
+- markers: `unit`, `fixture`, `integration`, `stress`, `regression`, `agent_codex`, `agent_claude`
 - fail on unknown markers
 - sane defaults for diagnostics
 - CI and local commands run via `uv run ...`
@@ -150,7 +150,7 @@ Integration stack wiring must use:
 
 - base: `compose.yml`
 - test override: `tests/integration/compose.test.override.yml`
-- codex override (codex lanes): `compose.codex.yml`
+- codex override (codex lanes): `tests/integration/compose.provider.codex.override.yml`
 
 Requirements:
 - no standalone copied integration stack file (e.g. `compose.stack.yml` clones)
@@ -160,7 +160,7 @@ Requirements:
 - add/maintain compose parity tests that assert:
   - required runtime contracts in base compose
   - override allowlist boundaries
-  - codex override remains scoped to expected mounts only
+  - provider overrides remain scoped to provider-specific mounts/env only
 
 ### F) Integration Layer (Live End-to-End)
 Create integration tests that:

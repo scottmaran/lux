@@ -1,8 +1,8 @@
 # Harness container
 
-Purpose: run the trusted control plane that launches Codex in the agent container and captures session logs. It supports:
+Purpose: run the trusted control plane that launches provider commands in the agent container and captures session logs. It supports:
 - Interactive TUI sessions over SSH (PTY).
-- Non-interactive runs via a local HTTP API that triggers `codex exec` in the agent.
+- Non-interactive runs via a local HTTP API.
 
 ## Contract
 - `/work` is the shared workspace (bind-mount from host).
@@ -22,25 +22,25 @@ The entrypoint chooses a mode automatically:
 You can override with `HARNESS_MODE=tui` or `HARNESS_MODE=server`.
 
 ### TUI mode
-Launches Codex via `ssh -tt agent@agent` and proxies stdin/stdout through a PTY, logging both streams:
+Launches the configured provider TUI command via `ssh -tt agent@agent` and proxies stdin/stdout through a PTY, logging both streams:
 - `logs/<run_id>/harness/sessions/<session_id>/stdin.log`
 - `logs/<run_id>/harness/sessions/<session_id>/stdout.log`
 - `logs/<run_id>/harness/sessions/<session_id>/filtered_timeline.jsonl`
 - `logs/<run_id>/harness/sessions/<session_id>/meta.json` (includes `root_pid` + `root_sid` run markers)
 
-By default the TUI uses `/work` as the working root and disables Codex sandboxing (`codex -C /work -s danger-full-access`).
+By default the TUI command is `bash -l`.
 You can override the command with `HARNESS_TUI_CMD`.
 You can optionally set a human-friendly TUI name via `HARNESS_TUI_NAME` or pass `--tui-name` when invoking `harness.py` directly.
 
 ### Server mode
 Exposes a minimal HTTP API for non-interactive runs:
-- `POST /run` triggers the configured run command in the agent via SSH.
+- `POST /run` triggers the configured run command template in the agent via SSH.
 - `GET /jobs/<id>` returns job status.
 
 Use `HARNESS_HTTP_BIND` and `HARNESS_HTTP_PORT` to control the listen address.
 Requests must include `X-Harness-Token` matching `HARNESS_API_TOKEN`.
 
-The run command is controlled by `HARNESS_RUN_CMD_TEMPLATE` (default: `codex -C /work -s danger-full-access exec {prompt}`).
+The run command is controlled by `HARNESS_RUN_CMD_TEMPLATE` (default: `bash -lc {prompt}`).
 The `{prompt}` placeholder is replaced with a shell-quoted prompt; omit the placeholder to ignore the prompt.
 You can optionally include a `name` field in the `/run` payload to create a display label for the job.
 
@@ -60,9 +60,9 @@ TUI runs keep the native SSH PTY launch path and capture the corresponding PTY s
 - `HARNESS_HTTP_BIND` (default: `0.0.0.0`)
 - `HARNESS_HTTP_PORT` (default: `8081`)
 - `HARNESS_API_TOKEN` (required for server mode)
-- `HARNESS_TUI_CMD` (default: `codex -C /work -s danger-full-access`)
+- `HARNESS_TUI_CMD` (default: `bash -l`)
 - `HARNESS_TUI_NAME` (optional: display label for TUI sessions)
-- `HARNESS_RUN_CMD_TEMPLATE` (default: `codex -C /work -s danger-full-access exec {prompt}`)
+- `HARNESS_RUN_CMD_TEMPLATE` (default: `bash -lc {prompt}`)
 - `HARNESS_AGENT_WORKDIR` (default: `/work`)
 - `HARNESS_LOG_DIR` (default: `/logs`)
 - `HARNESS_TIMELINE_PATH` (default: `/logs/filtered_timeline.jsonl`)

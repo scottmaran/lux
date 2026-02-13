@@ -14,7 +14,7 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Canonical Lasso test runner.")
     parser.add_argument(
         "--lane",
-        choices=["fast", "pr", "full", "codex", "local-full"],
+        choices=["fast", "pr", "full", "codex", "claude", "local-full"],
         default="fast",
         help="Test lane to execute",
     )
@@ -60,7 +60,7 @@ def lane_steps(args: argparse.Namespace) -> list[tuple[list[str], dict[str, str]
                 "pytest",
                 "tests/integration",
                 "-m",
-                "integration and not agent_codex",
+                "integration and not agent_codex and not agent_claude",
                 "-q",
             ],
             None,
@@ -69,6 +69,10 @@ def lane_steps(args: argparse.Namespace) -> list[tuple[list[str], dict[str, str]
 
     codex_steps: list[tuple[list[str], dict[str, str] | None]] = [
         (["uv", "run", "pytest", "tests/integration", "-m", "agent_codex", "-q"], None),
+    ]
+
+    claude_steps: list[tuple[list[str], dict[str, str] | None]] = [
+        (["uv", "run", "pytest", "tests/integration", "-m", "agent_claude", "-q"], None),
     ]
 
     smoke_steps: list[tuple[list[str], dict[str, str] | None]] = [
@@ -93,7 +97,9 @@ def lane_steps(args: argparse.Namespace) -> list[tuple[list[str], dict[str, str]
         return fast_steps + integration_steps + smoke_steps + full_steps
     if args.lane == "codex":
         return codex_steps
-    return fast_steps + integration_steps + smoke_steps + full_steps + codex_steps
+    if args.lane == "claude":
+        return claude_steps
+    return fast_steps + integration_steps + smoke_steps + full_steps + codex_steps + claude_steps
 
 
 def main() -> int:

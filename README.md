@@ -26,9 +26,13 @@ Quick start (after install):
 ```bash
 lasso config init
 lasso config apply
-lasso up --codex
-lasso tui --codex
+lasso up --collector-only --wait
+lasso up --provider codex --wait
+lasso tui --provider codex
 ```
+
+Provider selection is explicit for agent-facing actions (`--provider codex|claude`).
+Collector lifecycle is separate (`--collector-only`).
 
 To view more info about user configs, see `docs/guide/config.md`.
 

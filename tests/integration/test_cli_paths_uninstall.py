@@ -166,7 +166,7 @@ def test_uninstall_succeeds_with_invalid_config_and_without_env_file(
         # Corrupt config so YAML parsing fails.
         config_dir = home / ".config" / "lasso"
         config_path = config_dir / "config.yaml"
-        config_path.write_text("version: 1\n: broken\n", encoding="utf-8")
+        config_path.write_text("version: 2\n: broken\n", encoding="utf-8")
 
         # Ensure env file is missing so uninstall skips stack shutdown without needing --force.
         env_file = config_dir / "compose.env"
