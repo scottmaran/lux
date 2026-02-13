@@ -1,29 +1,20 @@
-# Lasso config.yaml reference
+# Lasso `config.yaml` Reference
 
-The `config.yaml` file is the single source of truth for the `lasso` CLI. It
-controls where logs/workspace live, which container image tags to pull, and how
-the CLI connects to the harness API.
+`config.yaml` is the canonical runtime contract for `lasso`.
 
-## Location and overrides
+## Default Location
 
-Default path:
 - `~/.config/lasso/config.yaml`
 
 Overrides:
 - `lasso --config <path>`
-- `LASSO_CONFIG` (path to a specific config file)
+- `LASSO_CONFIG`
 - `LASSO_CONFIG_DIR` (directory containing `config.yaml` and `compose.env`)
 
-Related paths:
-- Compose env file defaults to `~/.config/lasso/compose.env` (override with
-  `LASSO_ENV_FILE` or `--env-file`)
-- When running from source, set `LASSO_BUNDLE_DIR` to the repo root so the CLI
-  can find the compose files
-
-## Default config
+## Schema (v2)
 
 ```yaml
-version: 1
+version: 2
 
 paths:
   log_root: ~/lasso-logs
@@ -39,128 +30,101 @@ harness:
   api_host: 127.0.0.1
   api_port: 8081
   api_token: ""
+
+providers:
+  codex:
+    auth_mode: api_key
+    mount_host_state_in_api_mode: false
+    commands:
+      tui: "codex -C /work -s danger-full-access"
+      run_template: "codex -C /work -s danger-full-access exec {prompt}"
+    auth:
+      api_key:
+        secrets_file: ~/.config/lasso/secrets/codex.env
+        env_key: OPENAI_API_KEY
+      host_state:
+        paths:
+          - ~/.codex/auth.json
+          - ~/.codex/skills
+    ownership:
+      root_comm:
+        - codex
+
+  claude:
+    auth_mode: host_state
+    mount_host_state_in_api_mode: false
+    commands:
+      tui: "claude"
+      run_template: "claude -p {prompt}"
+    auth:
+      api_key:
+        secrets_file: ~/.config/lasso/secrets/claude.env
+        env_key: ANTHROPIC_API_KEY
+      host_state:
+        paths:
+          - ~/.claude.json
+          - ~/.claude
+          - ~/.config/claude-code/auth.json
+    ownership:
+      root_comm:
+        - claude
 ```
 
-## Field reference
+## Migration From v1
 
-### version
-- **Type:** integer
-- **Required:** yes
-- **Meaning:** schema version. Must be `1`.
+`version: 1` configs are not supported by the current CLI.
 
-### paths.log_root
-- **Type:** string (path)
-- **Default:** `~/lasso-logs`
-- **Meaning:** host directory where logs are written and mounted into containers.
-- **Notes:** `lasso config apply` creates this directory if missing. A leading
-  `~/` is expanded to your home directory.
-  - Runtime writes are run-scoped under `lasso__YYYY_MM_DD_HH_MM_SS/` directories
-    (created by `lasso up`).
+To migrate:
+1. Update `version: 1` -> `version: 2`.
+2. Add a `providers:` block (copy from the default config and then customize).
+3. Run:
+   - `lasso config validate`
+   - `lasso config apply`
 
-### paths.workspace_root
-- **Type:** string (path)
-- **Default:** `~/lasso-workspace`
-- **Meaning:** host directory mounted into the agent/harness as `/work`.
-- **Notes:** `lasso config apply` creates this directory if missing. A leading
-  `~/` is expanded to your home directory.
+## Required Concepts
 
-### release.tag
-- **Type:** string
-- **Default:** empty
-- **Meaning:** container image tag to use for all services.
-- **Behavior:**
-  - If empty, the CLI uses its own version and prepends `v` (e.g. `v0.1.4`).
-  - If set, this exact value is used for image tags (e.g. `v0.1.4`, `latest`).
+- `version` must be `2`.
+- `providers.<name>.auth_mode` must be explicit:
+  - `api_key`
+  - `host_state`
+- `providers.<name>.mount_host_state_in_api_mode` defaults `false`.
 
-### docker.project_name
-- **Type:** string
-- **Default:** `lasso`
-- **Meaning:** Docker Compose project name (`docker compose -p`).
-- **Effect:** changes container names, networks, and volume prefixes.
+## API-Key Secrets Files
 
-### harness.api_host
-- **Type:** string (host/IP)
-- **Default:** `127.0.0.1`
-- **Meaning:** address the CLI uses to talk to the harness HTTP API.
+Provider secrets files are only used when `auth_mode=api_key`.
 
-### harness.api_port
-- **Type:** integer
-- **Default:** `8081`
-- **Meaning:** port the CLI uses to talk to the harness HTTP API.
-- **Note:** The default compose files bind the harness to `127.0.0.1:8081`.
-  If you change this value, ensure the compose port binding matches.
+Examples:
 
-### harness.api_token
-- **Type:** string
-- **Default:** empty
-- **Meaning:** token required for `lasso run` (server mode jobs).
-- **Note:** If empty, you can also provide `HARNESS_API_TOKEN` in the
-  environment (or in the compose env file) instead.
+```bash
+mkdir -p ~/.config/lasso/secrets
+chmod 700 ~/.config/lasso/secrets
 
-## HARNESS_API_TOKEN Details
+printf 'OPENAI_API_KEY=%s\n' 'YOUR_KEY' > ~/.config/lasso/secrets/codex.env
+printf 'ANTHROPIC_API_KEY=%s\n' 'YOUR_KEY' > ~/.config/lasso/secrets/claude.env
+chmod 600 ~/.config/lasso/secrets/codex.env ~/.config/lasso/secrets/claude.env
+```
 
-`HARNESS_API_TOKEN` is the shared secret that protects the harness HTTP API
-used for non-interactive runs (`lasso run`).
+## Host-State Mode and macOS Claude Caveat
 
-- **Why it exists:** The harness runs a small local web service on your computer
-  (only reachable from the same machine). It has two main endpoints:
-  - `POST /run` starts a new non‑interactive job.
-  - `GET /jobs/<id>` lets you check that job’s status and results.
-- **What the token protects:** Think of the token like a password for that local
-  service. Without it, any other program on your computer could send “start a
-  job” requests to the harness. The token makes sure only you (or the `lasso`
-  CLI you launched) can trigger runs.
-- **Where it’s used:** The harness server checks the `X-Harness-Token` request
-  header against `HARNESS_API_TOKEN`. The CLI reads `harness.api_token` from
-  `config.yaml` and includes it when calling the API.
-- **Why it’s in config:** Putting it in `config.yaml` ensures `lasso config apply`
-  writes it into `compose.env`, so the harness container and the CLI share the
-  same value.
-- **If you don’t set it:**
-  - `lasso run` fails with an error (token required).
-  - The harness refuses to start in server mode without a token.
-  - API requests without the header are rejected with `401 unauthorized`.
-- **What to set it to:** Any non-empty string works, but use a long random value
-  (e.g. 32+ chars). Example:
-  ```bash
-  openssl rand -hex 32
-  ```
+`auth_mode=host_state` mounts host auth files into the agent container and copies them into `/home/agent`.
 
-Notes:
-- This token is only for the local harness API; it is unrelated to GHCR auth or
-  SSH keys.
-- TUI/interactive sessions do not require this token.
+For Claude on macOS, this is best-effort only:
+- Claude auth can depend on macOS Keychain.
+- Linux containers cannot access macOS Keychain.
+- Even with `~/.claude*` mounts, auth may still fail in-container.
 
-## What `lasso config apply` does
+If this happens, switch the provider to `auth_mode=api_key`.
 
-`lasso config apply` validates the file and then:
-1) Writes a compose env file (default `~/.config/lasso/compose.env`).
-2) Creates `paths.log_root` and `paths.workspace_root` if missing.
+## What `lasso config apply` Does
 
-The compose env file includes:
-- `LASSO_VERSION` (from `release.tag` or CLI version)
+- Validates config schema and provider blocks.
+- Writes compose env file (default `~/.config/lasso/compose.env`).
+- Ensures `paths.log_root` and `paths.workspace_root` exist.
+
+Generated compose env values include:
+- `LASSO_VERSION`
 - `LASSO_LOG_ROOT`
 - `LASSO_WORKSPACE_ROOT`
-- `HARNESS_API_TOKEN` (if set)
-- `HARNESS_HTTP_PORT` (from `harness.api_port`)
-
-## Validation rules
-
-- Unknown fields are rejected.
-- `version` must be `1`.
-- `lasso config validate` and `lasso config apply` both enforce these rules.
-
-## Common edits
-
-### Change log/workspace locations
-```yaml
-paths:
-  log_root: /Volumes/Lasso/logs
-  workspace_root: /Volumes/Lasso/workspace
-```
-
-### Pin a specific release tag
-```yaml
-release:
-  tag: v0.1.4
-```
+- `HARNESS_HTTP_PORT`
+- `HARNESS_API_TOKEN` (if configured)
+- `COLLECTOR_ROOT_COMM` (merged from provider ownership config)

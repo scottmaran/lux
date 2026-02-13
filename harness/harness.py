@@ -39,8 +39,8 @@ HTTP_BIND = os.getenv("HARNESS_HTTP_BIND", "0.0.0.0")
 HTTP_PORT = int(os.getenv("HARNESS_HTTP_PORT", "8081"))
 API_TOKEN = os.getenv("HARNESS_API_TOKEN", "")
 
-TUI_CMD = os.getenv("HARNESS_TUI_CMD", "codex -C /work -s danger-full-access")
-RUN_CMD_TEMPLATE = os.getenv("HARNESS_RUN_CMD_TEMPLATE", "").strip() or "codex -C /work -s danger-full-access exec {prompt}"
+TUI_CMD = os.getenv("HARNESS_TUI_CMD", "").strip() or "bash -l"
+RUN_CMD_TEMPLATE = os.getenv("HARNESS_RUN_CMD_TEMPLATE", "").strip() or "bash -lc {prompt}"
 DEFAULT_CWD = os.getenv("HARNESS_AGENT_WORKDIR", "/work")
 ROOT_PID_TIMEOUT_SEC = float(os.getenv("HARNESS_ROOT_PID_TIMEOUT_SEC", "15"))
 ROOT_PID_POLL_SEC = float(os.getenv("HARNESS_ROOT_PID_POLL_SEC", "0.2"))

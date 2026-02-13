@@ -26,14 +26,14 @@ printf '{\n  "run_id": "%s",\n  "started_at": "%s"\n}\n' \
 2) Start collector + agent for TUI (Scenario A).
 ```bash
 docker compose --env-file ~/.config/lasso/compose.env \
-  -f compose.yml -f compose.codex.yml \
+  -f compose.yml -f tests/integration/compose.provider.codex.override.yml \
   up -d --pull never collector agent
 ```
 
 3) Launch the harness TUI (Scenario A).
 ```bash
 docker compose --env-file ~/.config/lasso/compose.env \
-  -f compose.yml -f compose.codex.yml \
+  -f compose.yml -f tests/integration/compose.provider.codex.override.yml \
   run --rm \
   -e HARNESS_MODE=tui \
   harness
@@ -43,7 +43,7 @@ docker compose --env-file ~/.config/lasso/compose.env \
 ```bash
 export HARNESS_API_TOKEN=dev-token
 docker compose --env-file ~/.config/lasso/compose.env \
-  -f compose.yml -f compose.codex.yml \
+  -f compose.yml -f tests/integration/compose.provider.codex.override.yml \
   up -d --pull never harness
 ```
 
@@ -71,7 +71,7 @@ sorting:
 YAML
 
 docker compose --env-file ~/.config/lasso/compose.env \
-  -f compose.yml -f compose.codex.yml \
+  -f compose.yml -f tests/integration/compose.provider.codex.override.yml \
   exec -T collector \
   collector-merge-filtered --config /logs/merge_filtering_example.yaml
 ```
@@ -82,7 +82,7 @@ rows. This example keeps raw `filtered_ebpf.jsonl` to keep the snippets small.
 7) (Optional) Tear down between scenarios.
 ```bash
 docker compose --env-file ~/.config/lasso/compose.env \
-  -f compose.yml -f compose.codex.yml \
+  -f compose.yml -f tests/integration/compose.provider.codex.override.yml \
   down --remove-orphans
 ```
 

@@ -1,5 +1,0 @@
-services:
-  agent:
-    volumes:
-      - ${HOME}/.codex/auth.json:/run/codex_auth.json:ro
-      - ${HOME}/.codex/skills:/run/codex_skills:ro

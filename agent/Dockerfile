@@ -9,6 +9,7 @@ ARG NODE_VERSION=20.11.1
 ARG NODE_SHA256_ARM64=e34ab2fc2726b4abd896bcbff0250e9b2da737cbd9d24267518a802ed0606f3b
 ARG NODE_SHA256_X64=bf3a779bef19452da90fb88358ec2c57e0d2f882839b20dc6afc297b6aafc0d7
 ARG CODEX_VERSION=0.94.0
+ARG CLAUDE_CODE_VERSION=2.1.39
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
@@ -30,11 +31,11 @@ RUN ARCH="$(dpkg --print-architecture)" \
     && tar -xzf "${NODE_TAR}" -C /usr/local --strip-components=1 \
     && rm "${NODE_TAR}"
 
-RUN npm install -g @openai/codex@${CODEX_VERSION}
+RUN npm install -g @openai/codex@${CODEX_VERSION} @anthropic-ai/claude-code@${CLAUDE_CODE_VERSION}
 
 RUN useradd -m -u 1001 -s /bin/bash agent \
     && passwd -d agent \
-    && mkdir -p /home/agent/.ssh /home/agent/.codex /work /logs /var/run/sshd /config \
+    && mkdir -p /home/agent/.ssh /home/agent/.codex /home/agent/.claude /home/agent/.config/claude-code /work /logs /var/run/sshd /config \
     && chown -R agent:agent /home/agent /work \
     && chmod 700 /home/agent/.ssh \
     && chown 1002:1002 /config \

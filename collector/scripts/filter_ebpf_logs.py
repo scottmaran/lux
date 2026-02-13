@@ -52,6 +52,17 @@ def load_config(path: str) -> dict:
         ) from exc
 
 
+def env_root_comm_override() -> set[str] | None:
+    raw = os.getenv("COLLECTOR_ROOT_COMM")
+    if raw is None:
+        return None
+    stripped = raw.strip()
+    if not stripped:
+        return None
+    values = {item.strip() for item in stripped.split(",") if item.strip()}
+    return values or None
+
+
 def parse_iso(value: str | None) -> dt.datetime | None:
     if not value:
         return None
@@ -479,6 +490,9 @@ def build_ownership(
     state = OwnershipState(cfg.get("ownership", {}).get("pid_ttl_sec", 0))
     agent_uid = cfg.get("ownership", {}).get("uid")
     root_comm = set(cfg.get("ownership", {}).get("root_comm", []))
+    env_root_comm = env_root_comm_override()
+    if env_root_comm is not None:
+        root_comm = env_root_comm
 
     current_seq = None
     current_records: list[dict] = []
@@ -625,6 +639,9 @@ def follow_audit_log(
 ) -> None:
     agent_uid = cfg.get("ownership", {}).get("uid")
     root_comm = set(cfg.get("ownership", {}).get("root_comm", []))
+    env_root_comm = env_root_comm_override()
+    if env_root_comm is not None:
+        root_comm = env_root_comm
     schema_version = cfg.get("schema_version", "ebpf.filtered.v1")
 
     current_seq = None
@@ -928,6 +945,11 @@ def main() -> int:
                                 cmd = state.last_exec_by_pid.get(ns_pid)
                 if owned:
                     session_id, job_id = state.assign_run(ns_pid, ns_ppid, ns_sid, run_index)
+                    if session_id is None and not job_id:
+                        # Root markers can arrive slightly after ownership is established; retry once
+                        # with a forced refresh to avoid emitting ownerless events into the timeline.
+                        run_index.force_refresh()
+                        session_id, job_id = state.assign_run(ns_pid, ns_ppid, ns_sid, run_index)
 
             if not owned:
                 continue

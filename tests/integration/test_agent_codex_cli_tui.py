@@ -21,7 +21,6 @@ pytestmark = [pytest.mark.integration, pytest.mark.agent_codex]
 ROOT_DIR = Path(__file__).resolve().parents[2]
 COMPOSE_BASE = ROOT_DIR / "compose.yml"
 COMPOSE_TEST_OVERRIDE = ROOT_DIR / "tests" / "integration" / "compose.test.override.yml"
-COMPOSE_CODEX = ROOT_DIR / "compose.codex.yml"
 
 
 def _run_lasso(
@@ -70,7 +69,7 @@ def _write_cli_config(
     config_path.write_text(
         "\n".join(
             [
-                "version: 1",
+                "version: 2",
                 "paths:",
                 f"  log_root: {log_root}",
                 f"  workspace_root: {workspace_root}",
@@ -82,6 +81,24 @@ def _write_cli_config(
                 "  api_host: 127.0.0.1",
                 f"  api_port: {api_port}",
                 f'  api_token: "{api_token}"',
+                "providers:",
+                "  codex:",
+                "    auth_mode: host_state",
+                "    mount_host_state_in_api_mode: false",
+                "    commands:",
+                '      tui: "codex -C /work -s danger-full-access"',
+                '      run_template: "codex -C /work -s danger-full-access exec --skip-git-repo-check {prompt}"',
+                "    auth:",
+                "      api_key:",
+                "        secrets_file: ~/.config/lasso/secrets/codex.env",
+                "        env_key: OPENAI_API_KEY",
+                "      host_state:",
+                "        paths:",
+                "          - ~/.codex/auth.json",
+                "          - ~/.codex/skills",
+                "    ownership:",
+                "      root_comm:",
+                "        - codex",
                 "",
             ]
         ),
@@ -181,7 +198,7 @@ def test_codex_tui_via_lasso_cli_produces_prompt_driven_session_evidence(
     project_name = f"lasso-cli-codex-{uuid.uuid4().hex[:8]}"
     harness_port = find_free_port()
     api_token = f"token-{uuid.uuid4().hex}"
-    compose_files = (COMPOSE_BASE, COMPOSE_TEST_OVERRIDE, COMPOSE_CODEX)
+    compose_files = (COMPOSE_BASE, COMPOSE_TEST_OVERRIDE)
     _write_cli_config(
         config_path=config_path,
         log_root=log_root,
@@ -220,7 +237,15 @@ def test_codex_tui_via_lasso_cli_produces_prompt_driven_session_evidence(
             lasso_cli_binary_for_codex,
             config_path=config_path,
             compose_files=compose_files,
-            args=["up", "--codex", "--wait", "--timeout-sec", "240"],
+            args=["up", "--collector-only", "--wait", "--timeout-sec", "240"],
+            env=env,
+            timeout=600,
+        )
+        _run_lasso(
+            lasso_cli_binary_for_codex,
+            config_path=config_path,
+            compose_files=compose_files,
+            args=["up", "--provider", "codex", "--wait", "--timeout-sec", "240"],
             env=env,
             timeout=600,
         )
@@ -233,7 +258,7 @@ def test_codex_tui_via_lasso_cli_produces_prompt_driven_session_evidence(
         cmd: list[str] = [str(lasso_cli_binary_for_codex), "--config", str(config_path)]
         for compose_file in compose_files:
             cmd.extend(["--compose-file", str(compose_file)])
-        cmd.extend(["tui", "--codex"])
+        cmd.extend(["tui", "--provider", "codex"])
         proc = subprocess.Popen(
             cmd,
             cwd=str(ROOT_DIR),
@@ -264,7 +289,7 @@ def test_codex_tui_via_lasso_cli_produces_prompt_driven_session_evidence(
 
             if proc.poll() is not None and created_session is None:
                 raise AssertionError(
-                    "lasso tui --codex exited before session creation.\n"
+                    "lasso tui --provider codex exited before session creation.\n"
                     f"returncode={proc.returncode}\npty_tail:\n{_read_tail(pty_chunks)}"
                 )
 
@@ -323,7 +348,16 @@ def test_codex_tui_via_lasso_cli_produces_prompt_driven_session_evidence(
             lasso_cli_binary_for_codex,
             config_path=config_path,
             compose_files=compose_files,
-            args=["down", "--codex", "--volumes", "--remove-orphans"],
+            args=["down", "--provider", "codex"],
+            env=env,
+            timeout=240,
+            check=False,
+        )
+        _run_lasso(
+            lasso_cli_binary_for_codex,
+            config_path=config_path,
+            compose_files=compose_files,
+            args=["down", "--collector-only"],
             env=env,
             timeout=240,
             check=False,

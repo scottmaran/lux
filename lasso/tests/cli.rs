@@ -64,7 +64,7 @@ fn config_validate_rejects_unknown_fields() {
     let config_path = dir.path().join("config.yaml");
     fs::write(
         &config_path,
-        "version: 1\nunknown_field: true\npaths:\n  log_root: /tmp/logs\n  workspace_root: /tmp/work\n",
+        "version: 2\nunknown_field: true\npaths:\n  log_root: /tmp/logs\n  workspace_root: /tmp/work\n",
     )
     .unwrap();
 
@@ -95,7 +95,7 @@ fn config_apply_writes_env_and_dirs() {
     let env_file = dir.path().join("compose.env");
 
     let yaml = format!(
-        "version: 1\npaths:\n  log_root: {}\n  workspace_root: {}\n",
+        "version: 2\npaths:\n  log_root: {}\n  workspace_root: {}\n",
         log_root.display(),
         work_root.display()
     );
@@ -123,7 +123,7 @@ fn config_apply_writes_env_and_dirs() {
 fn config_apply_invalid_config_is_actionable() {
     let dir = tempdir().unwrap();
     let config_path = dir.path().join("config.yaml");
-    fs::write(&config_path, "version: 1\nunknown: true\n").unwrap();
+    fs::write(&config_path, "version: 2\nunknown: true\n").unwrap();
 
     let output = bin()
         .arg("--json")
@@ -150,7 +150,7 @@ fn doctor_reports_missing_docker_in_json() {
     let log_root = dir.path().join("logs");
 
     let yaml = format!(
-        "version: 1\npaths:\n  log_root: {}\n  workspace_root: {}\n",
+        "version: 2\npaths:\n  log_root: {}\n  workspace_root: {}\n",
         log_root.display(),
         log_root.display()
     );
@@ -178,28 +178,31 @@ fn doctor_reports_missing_docker_in_json() {
 fn status_fails_when_docker_missing() {
     let dir = tempdir().unwrap();
     let config_path = dir.path().join("config.yaml");
-    fs::write(&config_path, "version: 1\n").unwrap();
+    fs::write(&config_path, "version: 2\n").unwrap();
 
     bin()
         .env("PATH", "")
         .arg("--config")
         .arg(&config_path)
         .arg("status")
+        .arg("--collector-only")
         .assert()
         .failure();
 }
 
 #[test]
-fn run_requires_token() {
+fn run_requires_active_provider_plane() {
     let dir = tempdir().unwrap();
     let config_path = dir.path().join("config.yaml");
-    fs::write(&config_path, "version: 1\n").unwrap();
+    fs::write(&config_path, "version: 2\n").unwrap();
 
     let output = bin()
         .arg("--json")
         .arg("--config")
         .arg(&config_path)
         .arg("run")
+        .arg("--provider")
+        .arg("codex")
         .arg("hello")
         .assert()
         .failure()
@@ -209,7 +212,7 @@ fn run_requires_token() {
 
     let value = parse_json(&output);
     let error = value["error"].as_str().unwrap_or_default();
-    assert!(error.contains("HARNESS_API_TOKEN"));
+    assert!(error.contains("active provider plane"));
 }
 
 #[test]
@@ -223,7 +226,7 @@ fn logs_tail_without_active_run_fails_with_actionable_error() {
     fs::write(
         &config_path,
         format!(
-            "version: 1\npaths:\n  log_root: {}\n  workspace_root: {}\n",
+            "version: 2\npaths:\n  log_root: {}\n  workspace_root: {}\n",
             log_root.display(),
             work_root.display()
         ),
@@ -257,7 +260,7 @@ fn logs_tail_latest_resolves_most_recent_run_directory() {
     fs::write(
         &config_path,
         format!(
-            "version: 1\npaths:\n  log_root: {}\n  workspace_root: {}\n",
+            "version: 2\npaths:\n  log_root: {}\n  workspace_root: {}\n",
             log_root.display(),
             work_root.display()
         ),
@@ -310,7 +313,7 @@ fn jobs_list_with_run_id_uses_run_scoped_jobs_directory() {
     fs::write(
         &config_path,
         format!(
-            "version: 1\npaths:\n  log_root: {}\n  workspace_root: {}\n",
+            "version: 2\npaths:\n  log_root: {}\n  workspace_root: {}\n",
             log_root.display(),
             work_root.display()
         ),
@@ -361,7 +364,7 @@ fn paths_reports_resolved_values() {
     fs::write(
         &config_path,
         format!(
-            "version: 1\npaths:\n  log_root: {}\n  workspace_root: {}\n",
+            "version: 2\npaths:\n  log_root: {}\n  workspace_root: {}\n",
             log_root.display(),
             work_root.display()
         ),
@@ -406,7 +409,7 @@ fn paths_reports_resolved_values() {
 fn uninstall_requires_yes_without_dry_run() {
     let dir = tempdir().unwrap();
     let config_path = dir.path().join("config.yaml");
-    fs::write(&config_path, "version: 1\n").unwrap();
+    fs::write(&config_path, "version: 2\n").unwrap();
 
     let output = bin()
         .arg("--json")
@@ -449,7 +452,7 @@ fn uninstall_dry_run_preserves_files() {
     fs::write(
         &config_path,
         format!(
-            "version: 1\npaths:\n  log_root: {}\n  workspace_root: {}\n",
+            "version: 2\npaths:\n  log_root: {}\n  workspace_root: {}\n",
             log_root.display(),
             work_root.display()
         ),
@@ -510,7 +513,7 @@ fn uninstall_exec_removes_requested_targets() {
     fs::write(
         &config_path,
         format!(
-            "version: 1\npaths:\n  log_root: {}\n  workspace_root: {}\n",
+            "version: 2\npaths:\n  log_root: {}\n  workspace_root: {}\n",
             log_root.display(),
             work_root.display()
         ),
@@ -551,7 +554,7 @@ fn uninstall_exec_removes_requested_targets() {
 fn update_apply_requires_yes_without_dry_run() {
     let dir = tempdir().unwrap();
     let config_path = dir.path().join("config.yaml");
-    fs::write(&config_path, "version: 1\n").unwrap();
+    fs::write(&config_path, "version: 2\n").unwrap();
 
     let output = bin()
         .arg("--json")
@@ -578,7 +581,7 @@ fn update_apply_dry_run_reports_target() {
     let config_path = dir.path().join("config.yaml");
     let install_dir = dir.path().join("install");
     let bin_dir = dir.path().join("bin");
-    fs::write(&config_path, "version: 1\n").unwrap();
+    fs::write(&config_path, "version: 2\n").unwrap();
 
     let output = bin()
         .arg("--json")
@@ -617,7 +620,7 @@ fn update_rollback_dry_run_previous_selects_prior_version() {
     fs::write(v1.join("lasso"), "v1").unwrap();
     fs::write(v2.join("lasso"), "v2").unwrap();
     symlink(&v2, install_dir.join("current")).unwrap();
-    fs::write(&config_path, "version: 1\n").unwrap();
+    fs::write(&config_path, "version: 2\n").unwrap();
 
     let output = bin()
         .arg("--json")

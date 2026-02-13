@@ -40,7 +40,7 @@ write_config() {
   local log_root="$1"
   local work_root="$2"
   cat >"$CONFIG_PATH" <<CONFIG
-version: 1
+version: 2
 paths:
   log_root: $log_root
   workspace_root: $work_root
@@ -52,6 +52,39 @@ harness:
   api_host: 127.0.0.1
   api_port: 8081
   api_token: "$HARNESS_API_TOKEN"
+providers:
+  codex:
+    auth_mode: host_state
+    mount_host_state_in_api_mode: false
+    commands:
+      tui: 'bash -lc "echo stub-ok"'
+      run_template: 'bash -lc "curl -s http://harness:8081/ >/dev/null 2>&1 || true; echo stub-ok"'
+    auth:
+      api_key:
+        secrets_file: ~/.config/lasso/secrets/codex.env
+        env_key: OPENAI_API_KEY
+      host_state:
+        paths:
+          - ~/.codex/auth.json
+    ownership:
+      root_comm:
+        - codex
+  claude:
+    auth_mode: host_state
+    mount_host_state_in_api_mode: false
+    commands:
+      tui: 'bash -lc "echo stub-ok"'
+      run_template: 'bash -lc "curl -s http://harness:8081/ >/dev/null 2>&1 || true; echo stub-ok"'
+    auth:
+      api_key:
+        secrets_file: ~/.config/lasso/secrets/claude.env
+        env_key: ANTHROPIC_API_KEY
+      host_state:
+        paths:
+          - ~/.claude.json
+    ownership:
+      root_comm:
+        - claude
 CONFIG
 }
 

@@ -109,7 +109,9 @@ def main() -> int:
     if dns_lookback_sec < 0:
         dns_lookback_sec = 0
 
-    dns_by_key: dict[tuple[str, int, str], list[tuple[dt.datetime, str]]] = defaultdict(list)
+    # Include job_id in DNS correlation so job-owned ("unknown" session) traffic does not
+    # mix across jobs.
+    dns_by_key: dict[tuple[str, str | None, int, str], list[tuple[dt.datetime, str]]] = defaultdict(list)
     sends_by_key: dict[tuple[str, str | None, int, str, int], list[SendEvent]] = defaultdict(list)
     connects_by_key: dict[tuple[str, str | None, int, str, int], list[ConnectEvent]] = defaultdict(list)
     passthrough_rows: list[tuple[dt.datetime, dict]] = []
@@ -131,9 +133,15 @@ def main() -> int:
                 if ts_dt is None:
                     continue
 
+                session_id = event.get("session_id", "unknown")
+                job_id = event.get("job_id")
+                # Drop still-unattributed eBPF rows rather than emitting ownerless timeline events.
+                # (Timeline validation expects every row to have either a session_id or a job_id owner.)
+                if session_id == "unknown" and not job_id:
+                    continue
+
                 if event_type == "dns_response":
                     pid = parse_int(event.get("pid"))
-                    session_id = event.get("session_id", "unknown")
                     dns = event.get("dns") or event.get("details", {}).get("dns")
                     if pid is None or not isinstance(dns, dict):
                         continue
@@ -142,7 +150,7 @@ def main() -> int:
                     if query_name:
                         for ip in answers:
                             if ip:
-                                dns_by_key[(session_id, pid, ip)].append((ts_dt, query_name))
+                                dns_by_key[(session_id, job_id, pid, ip)].append((ts_dt, query_name))
                     continue
 
                 if event_type == "unix_connect":
@@ -162,8 +170,6 @@ def main() -> int:
                 if dst_port == 53:
                     continue
 
-                session_id = event.get("session_id", "unknown")
-                job_id = event.get("job_id")
                 pid = parse_int(event.get("pid"))
                 if pid is None:
                     continue
@@ -190,7 +196,7 @@ def main() -> int:
         session_id, job_id, pid, dst_ip, dst_port = key
         connects = connects_by_key.get(key, [])
         connects.sort(key=lambda ev: ev.ts)
-        dns_entries = dns_by_key.get((session_id, pid, dst_ip), [])
+        dns_entries = dns_by_key.get((session_id, job_id, pid, dst_ip), [])
 
         burst_start = send_events[0].ts
         burst_end = send_events[0].ts

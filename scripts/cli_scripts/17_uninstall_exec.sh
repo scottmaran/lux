@@ -9,13 +9,18 @@ setup_env
 write_config "$LOG_ROOT" "$WORK_ROOT"
 
 cleanup() {
-  docker compose --env-file "$ENV_FILE" -p "$LASSO_PROJECT_NAME" -f "$LASSO_BUNDLE_DIR/compose.yml" down --volumes --remove-orphans >/dev/null 2>&1 || true
+  docker compose --env-file "$ENV_FILE" -p "$LASSO_PROJECT_NAME" \
+    -f "$LASSO_BUNDLE_DIR/compose.yml" \
+    -f "$LASSO_BUNDLE_DIR/tests/integration/compose.test.override.yml" \
+    -f "$LASSO_BUNDLE_DIR/tests/integration/compose.cli.tui.override.yml" \
+    down --volumes --remove-orphans >/dev/null 2>&1 || true
   rm -rf "${TMP_DIR:-}" >/dev/null 2>&1 || true
 }
 trap cleanup EXIT
 
 lasso config apply
-lasso up --wait --timeout-sec "${LASSO_WAIT_TIMEOUT_SEC:-120}"
+lasso up --collector-only --wait --timeout-sec "${LASSO_WAIT_TIMEOUT_SEC:-120}"
+lasso up --provider codex --wait --timeout-sec "${LASSO_WAIT_TIMEOUT_SEC:-120}"
 
 INSTALL_DIR="$TMP_DIR/install"
 BIN_DIR="$TMP_DIR/bin"

@@ -19,6 +19,7 @@ agent_ownership:
   # Process names considered a session root
   root_comm:
     - codex
+    - claude
 
 exec:
   # Which audit rule keys should be treated as “exec” events. 

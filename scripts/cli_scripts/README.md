@@ -67,12 +67,14 @@ scripts/cli_scripts/run_all.sh
   - Ensures `lasso doctor --json` reports unwritable log root.
 
 - `06_status_no_docker.sh`
-  - Ensures `lasso status` fails cleanly when docker is unavailable.
+  - Ensures `lasso status --collector-only` fails cleanly when docker is unavailable.
 
 - `10_stack_smoke.sh`
-  - Full stack smoke test: `up` → `status` → raw logs present → `run` job
-    artifacts → second `run` has distinct job id → `tui` session artifacts
-    (requires interactive TTY + `script`) → `down` → status is empty.
+  - Full stack smoke test:
+    `up --collector-only` → `up --provider codex` → `status --provider codex` →
+    raw logs present → `run --provider codex` artifacts → second `run` has distinct
+    job id → `tui --provider codex` session artifacts (requires interactive TTY + `script`) →
+    `down --provider codex` + `down --collector-only` → status is empty.
 
 - `11_upgrade_env.sh`
   - Ensures `lasso config apply` rewrites the compose env file when the
@@ -81,14 +83,17 @@ scripts/cli_scripts/run_all.sh
 - `12_missing_ghcr_auth.sh`
   - Validates that `lasso up` fails with an auth-related error when GHCR
     credentials are missing (skips if already logged in).
+    It starts `up --collector-only` first and then attempts `up --provider codex`.
 
 - `13_up_wait_timeout.sh`
-  - Validates `lasso up --wait --timeout-sec` reaches running state and
-    `lasso down --volumes --remove-orphans` fully tears down.
+  - Validates `lasso up --collector-only --wait --timeout-sec` reaches running state and
+    `lasso down --collector-only` stops the collector plane.
 
 - `14_down_cleanup_flags.sh`
-  - Validates `down --volumes --remove-orphans` removes project volumes and
-    leaves no running containers.
+  - Validates provider-plane down behavior:
+    `up --collector-only` + `up --provider codex` creates the project volume,
+    `down --provider codex` stops agent/harness without removing volumes,
+    then `down --collector-only` stops the collector.
 
 - `15_paths_json.sh`
   - Validates `lasso paths --json` returns resolved config/env/install/runtime

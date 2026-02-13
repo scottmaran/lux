@@ -1,186 +1,109 @@
 # Lasso CLI
 
-The `lasso` CLI is the primary entry point for running the stack. It reads a
-single config file, generates a compose env file, and shells out to `docker
-compose` for lifecycle commands. For non‑interactive runs it calls the harness
-HTTP API; for TUI runs it starts the harness in TUI mode.
+`lasso` is the primary control plane for the stack. It validates config, writes compose env state, and orchestrates collector/provider lifecycle through `docker compose`.
 
-## How it works (brief)
+## Lifecycle Model
 
-1) Read config (`~/.config/lasso/config.yaml`).
-2) `config apply` generates `compose.env` with `LASSO_VERSION`,
-   `LASSO_LOG_ROOT`, and `LASSO_WORKSPACE_ROOT`.
-3) `up/down/status/tui` shell out to `docker compose` with the bundle’s compose
-   files and the generated env file.
-4) `up` creates a run id (`lasso__YYYY_MM_DD_HH_MM_SS`) and injects
-   `LASSO_RUN_ID` into compose runtime env.
-5) `run` and `jobs` call the harness HTTP API on `127.0.0.1:8081`.
+- Collector plane: `collector` service only.
+- Provider plane: `agent` + `harness` for one explicit provider.
+- Provider is always explicit for agent-facing actions.
 
-## Examples
+## Quick Start
 
 ```bash
 lasso config init
 lasso config apply
-lasso up --codex
-lasso status
-lasso tui --codex
-lasso down --volumes --remove-orphans
-lasso paths --json
-lasso update check
-lasso update apply --yes
-lasso logs stats
+lasso up --collector-only --wait
+lasso up --provider codex --wait
+lasso tui --provider codex
 ```
 
-## Commands
+## Core Commands
 
-### config
-Manage the canonical config file.
+### `config`
 
-- `lasso config init`  
-  Create the config file if missing.
+- `lasso config init`
+- `lasso config edit`
+- `lasso config validate`
+- `lasso config apply`
 
-- `lasso config edit`  
-  Open config in `$VISUAL` or `$EDITOR`.
+### `up`
 
-- `lasso config validate`  
-  Validate config (errors on unknown fields).
+Start either collector plane or provider plane.
 
-- `lasso config apply`  
-  Generate compose env file and create log/workspace dirs.
+- Collector only:
+  - `lasso up --collector-only [--wait --timeout-sec N]`
+- Provider plane:
+  - `lasso up --provider codex|claude [--wait --timeout-sec N]`
 
-### up
-Start the stack via Docker Compose.
+Rules:
+- `--collector-only` conflicts with `--provider`.
+- `up --provider X` requires an active collector run (`up --collector-only` first).
+- Provider mismatch hard-fails (no implicit provider switching).
 
-Behavior:
-- Fails fast with `already up: stack is already running` if services are already up.
-- Creates one run-scoped log directory per successful `lasso up`.
+### `down`
 
-Options:
-- `--codex`: include `compose.codex.yml`.
-- `--ui`: include `compose.ui.yml`.
-- `--pull <always|missing|never>`: control image pulls.
-- `--wait`: wait until services are running/healthy.
-- `--timeout-sec <n>`: wait timeout in seconds (requires `--wait`).
+Stop either collector plane or provider plane.
 
-### down
-Stop the stack via Docker Compose.
+- `lasso down --collector-only`
+- `lasso down --provider codex|claude`
 
-Options:
-- `--codex`: include `compose.codex.yml`.
-- `--ui`: include `compose.ui.yml`.
-- `--volumes`: remove named volumes.
-- `--remove-orphans`: remove orphaned containers.
+### `status`
 
-### status
-Show running containers (compose `ps` output).
+Show compose status for one plane.
 
-Options:
-- `--codex`: include `compose.codex.yml`.
-- `--ui`: include `compose.ui.yml`.
+- `lasso status --collector-only`
+- `lasso status --provider codex|claude`
 
-### run
-Trigger a non‑interactive run via the harness HTTP API.
+### `tui`
 
-Usage:
-- `lasso run "prompt text"`
+Run an interactive harness TUI session for the active provider plane.
 
-Options:
-- `--capture-input <bool>`: store prompt in logs (default true).
-- `--cwd <path>`: working directory inside the agent.
-- `--timeout-sec <seconds>`: job timeout.
-- `--env KEY=VALUE` (repeatable): extra env vars for the run.
+- `lasso tui --provider codex|claude`
 
-### tui
-Run an interactive session (PTY) via the harness.
+### `run`
 
-Options:
-- `--codex`: include `compose.codex.yml`.
+Submit a non-interactive harness job.
 
-### jobs
-Inspect job records written by the harness.
+- `lasso run --provider codex|claude "prompt"`
+- Optional: `--capture-input <bool> --cwd <path> --timeout-sec <n> --env KEY=VALUE`
 
-- `lasso jobs list`  
-  List job IDs for the active run.
+Notes:
+- `run` requires active provider plane state for the selected provider.
+- `--env` values are persisted in job metadata by design.
 
-- `lasso jobs get <id>`  
-  Show job status.json for a specific job in the active run.
+### `jobs`
 
-Options:
-- `--run-id <id>`: inspect a specific historical run.
-- `--latest`: inspect the most recent run directory.
+- `lasso jobs list [--run-id <id>|--latest]`
+- `lasso jobs get <id> [--run-id <id>|--latest]`
 
-### doctor
-Check local prerequisites (Docker available, log root writable).
+### `logs`
 
-### paths
-Print resolved runtime paths (`config`, `compose.env`, bundle, log/work roots,
-install/bin layout). Useful for automation and tests.
+- `lasso logs stats [--run-id <id>|--latest]`
+- `lasso logs tail [--lines N] [--file <audit|ebpf|timeline|path>] [--run-id <id>|--latest]`
 
-### uninstall
-Remove the CLI install footprint with explicit safety controls.
+### `doctor`
 
-Default behavior:
-- Remove CLI symlink/current install only.
-- Keep config and data unless flags are provided.
-- Requires `--yes` unless using `--dry-run`.
+Checks local prerequisites (Docker availability and writable log root).
 
-Options:
-- `--remove-config`: remove `config.yaml` and `compose.env`.
-- `--remove-data`: remove resolved log/workspace roots.
-- `--all-versions`: remove all installed versions under install dir.
-- `--yes`: confirm destructive actions.
-- `--dry-run`: preview removals without mutating filesystem.
-- `--force`: skip the pre-uninstall `down` attempt.
+### `paths`
 
-### update
-Manage release updates for the installed CLI bundle.
+Prints resolved runtime paths and compose file list.
+
+### `update`
 
 - `lasso update check`
-  - Resolves latest release and reports whether the current install is up to date.
+- `lasso update apply [--to <version>|--latest] [--yes|--dry-run]`
+- `lasso update rollback [--to <version>|--previous] [--yes|--dry-run]`
 
-- `lasso update apply [--to <version>] [--latest] [--yes] [--dry-run]`
-  - Downloads release bundle + checksum, verifies SHA256, and atomically switches
-    `current` + binary symlinks.
-  - Defaults to latest release when `--to` is omitted.
-  - Requires `--yes` unless using `--dry-run`.
+### `uninstall`
 
-- `lasso update rollback [--previous|--to <version>] [--yes] [--dry-run]`
-  - Switches back to an already installed version without re-downloading.
-  - `--previous` (or no target) chooses the prior installed version.
-  - Requires `--yes` unless using `--dry-run`.
+`lasso uninstall [--remove-config] [--remove-data] [--all-versions] [--yes|--dry-run] [--force]`
 
-### logs
-Inspect logs at a high level.
+## Global Flags
 
-- `lasso logs stats`  
-  Estimate average MB/hour from sessions in the selected run.
-
-- `lasso logs tail [--lines N] [--file <name>]`  
-  Tail common logs (`audit`, `ebpf`, `timeline`) or a specific file path
-  relative to the selected run root.
-
-Run selection for both commands:
-- default: active run
-- `--run-id <id>`: explicit run
-- `--latest`: most recent run directory
-
-Log tree reference: `docs/guide/log_layout.md`.
-
-## Global Options
-
-- `--config <path>`: Use a specific config file.
-- `--json`: Emit machine‑readable JSON output.
-- `--compose-file <path>`: Override compose files (repeatable).
-- `--bundle-dir <path>`: Override bundle directory (advanced; for dev use).
-- `--env-file <path>`: Override compose env file path (advanced; for dev use).
-
-## Configuration
-
-Default config path: `~/.config/lasso/config.yaml`  
-Override with: `--config <path>` or `LASSO_CONFIG`.
-
-`lasso config apply` writes a compose env file (default
-`~/.config/lasso/compose.env`) and creates the log/workspace directories defined
-in the config.
-For `lasso run`, `harness.api_token` must be set in the config (or provided via
-`HARNESS_API_TOKEN` in the compose env file).
+- `--config <path>`
+- `--json`
+- `--compose-file <path>` (repeatable)
+- `--bundle-dir <path>` (advanced/dev)
+- `--env-file <path>` (advanced/dev)

@@ -8,16 +8,15 @@ require_cmd docker
 setup_env
 write_config "$LOG_ROOT" "$WORK_ROOT"
 
-export HARNESS_RUN_CMD_TEMPLATE='curl -s https://example.com >/dev/null 2>&1 || true; echo stub-ok'
-
 cleanup() {
-  lasso down >/dev/null 2>&1 || true
+  lasso down --provider codex >/dev/null 2>&1 || true
+  lasso down --collector-only >/dev/null 2>&1 || true
   rm -rf "${TMP_DIR:-}" >/dev/null 2>&1 || true
 }
 trap cleanup EXIT
 
 lasso config apply
-up_json=$(lasso --json up)
+up_json=$(lasso --json up --collector-only)
 run_id=$(echo "$up_json" | json_field result.run_id)
 if [ -z "$run_id" ]; then
   echo "ERROR: run_id not found in up output" >&2
@@ -26,10 +25,12 @@ if [ -z "$run_id" ]; then
 fi
 run_root="$LOG_ROOT/$run_id"
 
+lasso up --provider codex --wait --timeout-sec "${LASSO_WAIT_TIMEOUT_SEC:-120}"
+
 status_json=""
 count=0
 for _ in $(seq 1 30); do
-  status_json=$(lasso --json status)
+  status_json=$(lasso --json status --provider codex)
   count=$(echo "$status_json" | json_field result | json_len)
   if [ "$count" -gt 0 ]; then
     break
@@ -51,7 +52,7 @@ if [ ! -f "$run_root/collector/raw/ebpf.jsonl" ]; then
   exit 1
 fi
 
-run_output=$(lasso --json run "stub")
+run_output=$(lasso --json run --provider codex "stub")
 job_id=$(echo "$run_output" | json_field result.job_id)
 if [ -z "$job_id" ]; then
   echo "ERROR: job_id not found in run output" >&2
@@ -112,7 +113,7 @@ if [ ! -s "$run_root/collector/raw/ebpf.jsonl" ]; then
   exit 1
 fi
 
-run_output2=$(lasso --json run "stub")
+run_output2=$(lasso --json run --provider codex "stub")
 job_id2=$(echo "$run_output2" | json_field result.job_id)
 if [ -z "$job_id2" ] || [ "$job_id" = "$job_id2" ]; then
   echo "ERROR: expected distinct job IDs" >&2
@@ -128,7 +129,7 @@ if [ ! -t 0 ]; then
   exit 1
 fi
 
-script -q /dev/null "$LASSO_BIN" --config "$CONFIG_PATH" tui || {
+script -q /dev/null "$LASSO_BIN" --config "$CONFIG_PATH" tui --provider codex || {
   echo "ERROR: tui command failed" >&2
   exit 1
 }
@@ -146,12 +147,21 @@ if ! grep -q "stub-ok" "$latest_session/stdout.log"; then
   exit 1
 fi
 
-lasso down
+lasso down --provider codex
+lasso down --collector-only
 
-status_json=$(lasso --json status)
+status_json=$(lasso --json status --collector-only)
 count=$(echo "$status_json" | json_field result | json_len)
 if [ "$count" -ne 0 ]; then
-  echo "ERROR: expected no running containers after down" >&2
+  echo "ERROR: expected no running collector containers after down" >&2
+  echo "$status_json" >&2
+  exit 1
+fi
+
+status_json=$(lasso --json status --provider codex)
+count=$(echo "$status_json" | json_field result | json_len)
+if [ "$count" -ne 0 ]; then
+  echo "ERROR: expected no running provider containers after down" >&2
   echo "$status_json" >&2
   exit 1
 fi

@@ -13,7 +13,6 @@ pytestmark = pytest.mark.unit
 ROOT_DIR = Path(__file__).resolve().parents[2]
 COMPOSE_BASE = ROOT_DIR / "compose.yml"
 COMPOSE_TEST_OVERRIDE = ROOT_DIR / "tests" / "integration" / "compose.test.override.yml"
-COMPOSE_CODEX = ROOT_DIR / "compose.codex.yml"
 AGENT_DOCKERFILE = ROOT_DIR / "agent" / "Dockerfile"
 
 
@@ -129,6 +128,7 @@ def test_compose_base_runtime_contract() -> None:
         "COLLECTOR_MERGE_FILTER_OUTPUT",
         "COLLECTOR_SESSIONS_DIR",
         "COLLECTOR_JOBS_DIR",
+        "COLLECTOR_ROOT_COMM",
     }.issubset(
         _env_keys(collector)
     )
@@ -143,6 +143,7 @@ def test_compose_base_runtime_contract() -> None:
         "HARNESS_AGENT_WORKDIR",
         "HARNESS_LOG_DIR",
         "HARNESS_TIMELINE_PATH",
+        "HARNESS_TUI_CMD",
         "HARNESS_RUN_CMD_TEMPLATE",
     }.issubset(_env_keys(harness))
 
@@ -170,20 +171,6 @@ def test_test_override_is_minimal_and_allowlisted() -> None:
 
     assert set(_service(payload, "agent")) <= {"build", "image"}
     assert set(_service(payload, "harness")) <= {"build", "image"}
-
-
-def test_codex_override_only_adds_expected_agent_mounts() -> None:
-    payload = _load_yaml(COMPOSE_CODEX)
-    services = payload.get("services")
-    assert isinstance(services, dict), "codex override must define services mapping"
-    assert set(services) == {"agent"}
-
-    agent = _service(payload, "agent")
-    assert set(agent) == {"volumes"}
-
-    volume_modes = _volume_modes(agent)
-    assert volume_modes.get("/run/codex_auth.json") == "ro"
-    assert volume_modes.get("/run/codex_skills") == "ro"
 
 
 def test_agent_dockerfile_config_dir_owned_by_harness_uid_for_shared_keys_volume() -> None:

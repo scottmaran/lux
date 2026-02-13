@@ -9,7 +9,8 @@ setup_env
 write_config "$LOG_ROOT" "$WORK_ROOT"
 
 cleanup() {
-  "$LASSO_BIN" --config "$CONFIG_PATH" down --volumes --remove-orphans >/dev/null 2>&1 || true
+  "$LASSO_BIN" --config "$CONFIG_PATH" down --provider codex >/dev/null 2>&1 || true
+  "$LASSO_BIN" --config "$CONFIG_PATH" down --collector-only >/dev/null 2>&1 || true
   rm -rf "${TMP_DIR:-}" >/dev/null 2>&1 || true
 }
 trap cleanup EXIT
@@ -21,8 +22,12 @@ if docker pull "$image" >/dev/null 2>&1; then
 fi
 
 set +e
-output=$("$LASSO_BIN" --config "$CONFIG_PATH" up 2>&1)
+output=$("$LASSO_BIN" --config "$CONFIG_PATH" up --collector-only 2>&1)
 status=$?
+if [ $status -eq 0 ]; then
+  output=$("$LASSO_BIN" --config "$CONFIG_PATH" up --provider codex 2>&1)
+  status=$?
+fi
 set -e
 
 if [ $status -eq 0 ]; then

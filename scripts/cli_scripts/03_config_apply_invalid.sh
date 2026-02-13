@@ -5,7 +5,7 @@ source "$(dirname "$0")/_common.sh"
 
 setup_env
 cat >"$CONFIG_PATH" <<CONFIG
-version: 1
+version: 2
 unknown: true
 CONFIG
 

@@ -28,7 +28,7 @@ from tests.support.integration_stack import (
 ROOT_DIR = Path(__file__).resolve().parents[2]
 COMPOSE_BASE = ROOT_DIR / "compose.yml"
 COMPOSE_TEST_OVERRIDE = ROOT_DIR / "tests" / "integration" / "compose.test.override.yml"
-COMPOSE_CODEX = ROOT_DIR / "compose.codex.yml"
+COMPOSE_PROVIDER_CODEX = ROOT_DIR / "tests" / "integration" / "compose.provider.codex.override.yml"
 TEST_PROJECT_PREFIX = "lasso-test-"
 
 
@@ -79,7 +79,7 @@ def _cleanup_stale_test_projects() -> None:
     for project in _discover_test_projects():
         for compose_files in (
             (COMPOSE_BASE, COMPOSE_TEST_OVERRIDE),
-            (COMPOSE_BASE, COMPOSE_TEST_OVERRIDE, COMPOSE_CODEX),
+            (COMPOSE_BASE, COMPOSE_TEST_OVERRIDE, COMPOSE_PROVIDER_CODEX),
         ):
             cmd = ["docker", "compose", "-p", project]
             for compose_file in compose_files:
@@ -107,7 +107,10 @@ def compose_files() -> ComposeFiles:
 
 @pytest.fixture(scope="session")
 def compose_files_codex() -> ComposeFiles:
-    return ComposeFiles(base=COMPOSE_BASE, overrides=(COMPOSE_TEST_OVERRIDE, COMPOSE_CODEX))
+    return ComposeFiles(
+        base=COMPOSE_BASE,
+        overrides=(COMPOSE_TEST_OVERRIDE, COMPOSE_PROVIDER_CODEX),
+    )
 
 
 @pytest.fixture(scope="session", autouse=True)

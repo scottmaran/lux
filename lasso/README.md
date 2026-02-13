@@ -28,7 +28,8 @@ cargo build
 export LASSO_BUNDLE_DIR=$(cd .. && pwd)
 ./target/debug/lasso config init
 ./target/debug/lasso config apply
-./target/debug/lasso up
+./target/debug/lasso up --collector-only
+./target/debug/lasso up --provider codex
 ```
 
 ## Tests

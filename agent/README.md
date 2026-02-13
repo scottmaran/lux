@@ -1,41 +1,44 @@
-# Agent container
+# Agent Container
 
-Purpose: run the third-party agent (Codex CLI) inside an isolated container while exposing a PTY via SSH for the harness.
+Purpose: run the provider CLI inside an isolated container while exposing SSH for the harness PTY/API control plane.
 
-## Contract
-- `/work` is the writable workspace (bind-mount from host).
-- `/logs` is a read-only view of the host log sink.
-- SSH is key-only (no passwords), user `agent` (uid 1001).
-- The agent container does not need access to the container runtime socket.
+## Runtime Contract
 
-## SSH configuration
-The container expects authorized keys via one of:
-- `/config/authorized_keys` (bind-mount, preferred), or
-- `/run/authorized_keys` (bind-mount).
+- `/work`: writable workspace mount.
+- `/logs`: read-only logs mount.
+- SSH user: `agent` (uid 1001), key-only auth.
+- No Docker socket access.
 
-Keys should be provided by the harness container so the solution is self-contained.
-On startup, the agent waits briefly for the authorized keys to appear so the harness can populate the shared volume.
+## Provider Bootstrap Env
 
-## Codex CLI
-Installed via npm in the image (`@openai/codex`). The entrypoint logs a warning if the `codex` binary is missing.
+`lasso` injects provider settings via compose runtime overrides:
 
-## Codex auth and skills
-The agent can import host credentials and skills on startup:
-- `/run/codex_auth.json` -> copied to `/home/agent/.codex/auth.json`
-- `/run/codex_skills` -> copied to `/home/agent/.codex/skills`
+- `LASSO_PROVIDER`
+- `LASSO_AUTH_MODE` (`api_key` or `host_state`)
+- `LASSO_PROVIDER_SECRETS_FILE`
+- `LASSO_PROVIDER_ENV_KEY`
+- `LASSO_PROVIDER_MOUNT_HOST_STATE_IN_API_MODE`
+- `LASSO_PROVIDER_HOST_STATE_COUNT`
+- `LASSO_PROVIDER_HOST_STATE_SRC_<n>`
+- `LASSO_PROVIDER_HOST_STATE_DST_<n>`
 
-These mounts are read-only; the entrypoint copies them into the agent home and fixes ownership.
+Behavior:
+- `api_key`: entrypoint loads key from secrets file and exports it for shell sessions.
+- `host_state`: entrypoint copies mounted host-state files/directories into `/home/agent`.
+- `api_key` + `mount_host_state_in_api_mode=true`: host-state copy also runs.
 
-## Usage patterns
-Interactive TUI (harness-driven):
-- `ssh -tt agent@agent codex`
+## Supported CLIs
 
-Non-interactive:
-- `ssh agent@agent codex exec "<prompt>"`
+- `codex` (`@openai/codex`)
+- `claude` (`@anthropic-ai/claude-code`)
 
-## Security posture
+## Legacy Compatibility
+
+Legacy Codex mounts (`/run/codex_auth.json`, `/run/codex_skills`) are still imported if present.
+
+## Security Posture
+
 - Root login disabled.
 - Password auth disabled.
-- Port forwarding disabled.
-- `/logs` should be mounted read-only from the host sink.
-- SSH is internal-only (no host port mapping required).
+- No host SSH port mapping required.
+- `/logs` should remain read-only in the agent.
