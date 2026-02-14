@@ -17,6 +17,13 @@ VERSION=vX.Y.Z
 curl -fsSL "https://raw.githubusercontent.com/scottmaran/lasso/${VERSION}/install_lasso.sh" | bash -s -- --version "${VERSION}"
 ```
 
+To run the interactive setup wizard automatically after install:
+
+```bash
+VERSION=vX.Y.Z
+curl -fsSL "https://raw.githubusercontent.com/scottmaran/lasso/${VERSION}/install_lasso.sh" | bash -s -- --version "${VERSION}" --setup
+```
+
 If the repo (or release assets) are private, unauthenticated `curl` downloads
 may return 404. In that case, download the release bundle with GitHub CLI and
 install from the local tarball:
@@ -54,8 +61,9 @@ This:
 - Installs `lasso` into `~/.local/bin`
 - Creates `~/.config/lasso/config.yaml` if missing
 
-**Note:** The installer does **not** create log/workspace directories. You
-choose those in the config.
+**Note:** The installer does **not** create log/workspace directories. The
+recommended next step is `lasso setup`, which configures paths + auth and runs
+`lasso config apply` for you.
 
 If `lasso` is "command not found" after install, ensure `~/.local/bin` is in
 your `PATH`.
@@ -110,32 +118,37 @@ cp ~/.lasso/current/config/default.yaml ~/.config/lasso/config.yaml
 
 ## Configure + Run
 
-1) Edit config:
+1) Run the setup wizard (recommended):
+
+```bash
+lasso setup
+```
+
+This updates `~/.config/lasso/config.yaml` in place and can optionally create
+provider secrets files (API-key mode).
+
+2) Start stack:
+
+```bash
+lasso up --collector-only --wait
+lasso up --provider codex --wait
+lasso tui --provider codex
+```
+
+### Manual config (no wizard)
 
 ```bash
 $EDITOR ~/.config/lasso/config.yaml
-```
-
-Set:
-- `paths.log_root`
-- `paths.workspace_root`
-
-2) Apply config (creates directories + compose env file):
-
-```bash
 lasso config apply
+lasso up --collector-only --wait
+lasso up --provider codex --wait
+lasso tui --provider codex
 ```
 
-3) Start stack:
+3) Run a job (optional):
 
 ```bash
-lasso up
-```
-
-4) Run a job (optional):
-
-```bash
-lasso run "hello"
+lasso run --provider codex "hello"
 ```
 
 ## Updating
