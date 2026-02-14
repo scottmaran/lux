@@ -27,6 +27,7 @@ This directory contains manual workflows for preparing and publishing Lasso rele
 - It builds the Rust CLI bundles for multiple OS/arch targets.
 - Optionally pushes multi-arch Docker images to GHCR.
 - Optionally publishes a GitHub Release and uploads the bundles as assets.
+  - If `publish_release=true`, the workflow requires `push_images=true` (no “release without images” mode).
 
 ### How to run it (GitHub UI)
 
@@ -37,6 +38,9 @@ This directory contains manual workflows for preparing and publishing Lasso rele
    - `version` (e.g., `v0.1.0`)
    - `push_images` (`true`/`false`)
    - `publish_release` (`true`/`false`)
+   - `draft` (`true`/`false`)
+   - `prerelease` (`true`/`false`)
+   - `allow_existing_tag` (`true`/`false`) (rerun safety)
 
 ### Where the release goes
 
@@ -61,8 +65,8 @@ The release assets include the CLI bundle tarballs + SHA256 checksums.
 - Image tags are pushed as both `vX.Y.Z` and `X.Y.Z`.
 - The release bundle includes:
   - `lasso` binary
-  - `compose.yml`, `compose.codex.yml`, `compose.ui.yml`
+  - `compose.yml`, `compose.ui.yml`
   - `config/default.yaml`
   - `docs/guide/` (user docs)
-  - `README.md`, `LICENSE`, `VERSION`
+  - `README.md`, `VERSION` (and `LICENSE` if present)
   - SHA256 checksum
