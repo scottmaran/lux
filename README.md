@@ -56,3 +56,10 @@ active, use `--run-id <id>` or `--latest`.
 ## Docs
 Start with the user guide in `docs/guide/`.
 Developers/contributors: see `docs/README.md` for the full documentation map.
+
+## License
+Licensed under the GNU Affero General Public License v3.0 only (`AGPL-3.0-only`).
+See `LICENSE`.
+
+## Contributing
+See `CONTRIBUTING.md`.
