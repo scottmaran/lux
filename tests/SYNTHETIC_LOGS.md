@@ -44,11 +44,11 @@ eBPF helpers:
 1. Synthetic audit SYSCALL lines include collector-relevant core fields.
 2. Synthetic audit lines parse through the real audit parser path.
 3. Synthetic eBPF builders for configured event types match real top-level
-   shape expectations from `example_logs/ebpf.jsonl`.
+   shape expectations from `example_logs/<run_id>/collector/raw/ebpf.jsonl` (see `example_logs/.active_run.json`).
 
 Reference real samples:
-- `example_logs/audit.log`
-- `example_logs/ebpf.jsonl`
+- `example_logs/<run_id>/collector/raw/audit.log` (see `example_logs/.active_run.json`)
+- `example_logs/<run_id>/collector/raw/ebpf.jsonl` (see `example_logs/.active_run.json`)
 
 ## Known Limits
 1. Synthetic audit records are still minimal relative to full production

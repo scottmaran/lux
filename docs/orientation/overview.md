@@ -96,13 +96,25 @@ insufficient for attribution.
 - Filter raw auditd logs into a compact JSONL stream for UI consumption (drop helper execs, keep agent-owned execs
   and filesystem events).
 
-Log schema contract (TODO)
+Log schema contracts
 
-- Define schema_version, required fields, and event types for all log entries.
+- Raw:
+  - `collector/auditd_raw_data.md`
+  - `collector/ebpf_raw_data.md`
+- Filtered:
+  - `collector/auditd_filtered_data.md`
+  - `collector/ebpf_filtered_data.md`
+- Summary:
+  - `collector/ebpf_summary_data.md`
+- Unified timeline:
+  - `collector/timeline_filtered_data.md`
+- Attribution semantics:
+  - `collector/ownership_and_attribution.md`
 
-Log ordering/merge rules (TODO)
+Log ordering/merge rules
 
-- Define deterministic ordering (per-writer sequence numbers, timestamps, and tie-breakers).
+- Merge configuration: `collector/config/merge_filtering.yaml` (documented in `collector/config/merge_filtering.md`).
+- Ordering is currently deterministic by `ts`, then `source`, then `pid` (see `collector/timeline_filtered_data.md`).
 
 Explicit non‑goals / exclusions
 

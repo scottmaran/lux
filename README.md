@@ -6,9 +6,9 @@ Agent Harness is an OS‑level observation system for third‑party agents: it r
 The recommended way to run the stack is via the `lasso` CLI, which pulls the
 versioned Docker images from GHCR and manages config + compose wiring.
 
-Temporary support note (February 2026): Linux host runtime support is
-temporarily not guaranteed while bind-mount permission compatibility work is in
-progress. The currently recommended host is macOS with Docker Desktop.
+Temporary support note (February 2026): 
+- Linux host runtime support is temporarily not guaranteed while bind-mount permission compatibility work is in progress. The currently recommended host is macOS with Docker Desktop.
+- On MacOS for subscription-based Claude Code sessions on MacOS, you need to log in upon starting the TUI
 
 ### Install (beta)
 Run the versioned installer:

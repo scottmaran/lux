@@ -8,3 +8,5 @@ lasso/target/
 .pytest_cache/
 __pycache__/
 *.pyc
+
+.pytest-runtime/

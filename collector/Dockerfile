@@ -52,7 +52,7 @@ COPY scripts/filter_audit_logs.py /usr/local/bin/collector-audit-filter
 COPY scripts/filter_ebpf_logs.py /usr/local/bin/collector-ebpf-filter
 COPY scripts/summarize_ebpf_logs.py /usr/local/bin/collector-ebpf-summary
 COPY scripts/merge_filtered_logs.py /usr/local/bin/collector-merge-filtered
-COPY config/filtering.yaml /etc/collector/filtering.yaml
+COPY config/audit_filtering.yaml /etc/collector/audit_filtering.yaml
 COPY config/ebpf_filtering.yaml /etc/collector/ebpf_filtering.yaml
 COPY config/ebpf_summary.yaml /etc/collector/ebpf_summary.yaml
 COPY config/merge_filtering.yaml /etc/collector/merge_filtering.yaml

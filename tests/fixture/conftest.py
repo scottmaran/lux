@@ -21,7 +21,7 @@ EBPF_FILTER_SCRIPT = ROOT_DIR / "collector" / "scripts" / "filter_ebpf_logs.py"
 SUMMARY_SCRIPT = ROOT_DIR / "collector" / "scripts" / "summarize_ebpf_logs.py"
 MERGE_SCRIPT = ROOT_DIR / "collector" / "scripts" / "merge_filtered_logs.py"
 
-DEFAULT_AUDIT_CONFIG = ROOT_DIR / "collector" / "config" / "filtering.yaml"
+DEFAULT_AUDIT_CONFIG = ROOT_DIR / "collector" / "config" / "audit_filtering.yaml"
 DEFAULT_EBPF_FILTER_CONFIG = ROOT_DIR / "collector" / "config" / "ebpf_filtering.yaml"
 DEFAULT_EBPF_SUMMARY_CONFIG = ROOT_DIR / "collector" / "config" / "ebpf_summary.yaml"
 DEFAULT_MERGE_CONFIG = ROOT_DIR / "collector" / "config" / "merge_filtering.yaml"
@@ -272,4 +272,3 @@ def assert_expected_rows(case: FixtureCase, actual_rows: list[dict[str, Any]]) -
         expected = json.dumps(expected_rows, indent=2, sort_keys=True)
         actual = json.dumps(actual_rows, indent=2, sort_keys=True)
         raise AssertionError(f"{case.case_id} mismatch.\nEXPECTED:\n{expected}\nACTUAL:\n{actual}")
-

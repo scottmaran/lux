@@ -25,12 +25,19 @@ docs/README.md (you are here)
 │  └─ dev_log.md — implementation log
 ├─ Components (in repo root)
    ├─ agent/README.md — agent container setup
+   │  └─ agent/provider_auth.md — provider auth bootstrap details
    ├─ harness/README.md — harness behavior and config
+   │  ├─ harness/api.md — harness server-mode API contract
+   │  └─ harness/artifacts.md — harness session/job artifacts contract
    ├─ collector/README.md — collector setup and pipeline
-   │  ├─ collector/auditd_data.md — audit log schema
-   │  ├─ collector/eBPF_data.md — eBPF log schema
-   │  ├─ collector/timeline_data.md — merged timeline schema
-   │  └─ collector/config/filtering_rules.md — filtering rules
+   │  ├─ collector/auditd_raw_data.md — raw audit.log format
+   │  ├─ collector/auditd_filtered_data.md — filtered audit JSONL schema
+   │  ├─ collector/ebpf_raw_data.md — raw eBPF JSONL schema
+   │  ├─ collector/ebpf_filtered_data.md — filtered eBPF JSONL schema
+   │  ├─ collector/ebpf_summary_data.md — eBPF summary JSONL schema
+   │  ├─ collector/timeline_filtered_data.md — merged timeline JSONL schema
+   │  ├─ collector/ownership_and_attribution.md — attribution semantics
+   │  └─ collector/config/README.md — collector config map
    ├─ ui/README.md — UI build/run notes
    ├─ ui/src/Attributions.md — asset attributions
    └─ lasso/ — Rust CLI source (release bundles ship the binary only)

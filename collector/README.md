@@ -1,42 +1,69 @@
-# Overview
-The collector container to audit the VM OS that the agent and harness containers live in.
+# Collector
 
-# Implementation
+The collector runs inside the Docker Desktop Linux VM and observes OS-level
+events from the agent + harness containers:
+- auditd: exec + filesystem write/change + metadata change events (no reads)
+- eBPF: network egress + IPC connection metadata (Unix sockets, plus DNS when available)
 
-## dockerfile
-Uses Ubuntu 22.04 LTS to stay aligned with the platform default and keep auditd behavior
-predictable across environments. Includes a Rust build stage that compiles the custom
-eBPF programs and loader (Aya), then copies the artifacts into the final image. Installs
-`auditd` plus `audispd-plugins` for future forwarding options, and `util-linux` for mount
-utilities.
+It writes raw logs to the sink and runs a pipeline to produce a unified,
+UI-friendly timeline.
 
-## entrypoint.sh
-Bootstraps auditd, the audit log filter, and the custom eBPF loader without forcing the
-container to exit on non-fatal rule errors. It ensures the log files exist and are
-writable by the audit group, starts auditd in daemon mode, then launches the filter
-(`collector-audit-filter`) and the eBPF loader with paths controlled by
-`COLLECTOR_AUDIT_LOG`, `COLLECTOR_FILTER_CONFIG`, `COLLECTOR_FILTER_OUTPUT`,
-`COLLECTOR_EBPF_OUTPUT`, and `COLLECTOR_EBPF_BPF`.
+## Pipeline (run-scoped files)
+In normal `lasso up` usage, outputs are run-scoped under:
+`/logs/<run_id>/collector/...`.
 
-In normal `lasso up` usage, these env vars are run-scoped, e.g.
-`/logs/<run_id>/collector/raw/*` and `/logs/<run_id>/collector/filtered/*`.
+Stages and files:
+1) Raw auditd
+   - `collector/raw/audit.log`
+   - Contract: `collector/auditd_raw_data.md`
+2) Raw eBPF
+   - `collector/raw/ebpf.jsonl`
+   - Contract: `collector/ebpf_raw_data.md`
+3) Filter auditd (ownership + normalization)
+   - `collector/filtered/filtered_audit.jsonl` (`auditd.filtered.v1`)
+   - Contract: `collector/auditd_filtered_data.md`
+4) Filter eBPF (ownership + optional cmd linking)
+   - `collector/filtered/filtered_ebpf.jsonl` (`ebpf.filtered.v1`)
+   - Contract: `collector/ebpf_filtered_data.md`
+5) Summarize eBPF network into bursts
+   - `collector/filtered/filtered_ebpf_summary.jsonl` (`ebpf.summary.v1`)
+   - Contract: `collector/ebpf_summary_data.md`
+6) Merge into unified timeline
+   - `collector/filtered/filtered_timeline.jsonl` (`timeline.filtered.v1`)
+   - Contract: `collector/timeline_filtered_data.md`
 
-## auditd.conf
-Configured to keep audit output local and file‑backed: `local_events = yes`, RAW log
-format, and an explicit `log_file` under `/logs`. Rotation is enabled with small log
-chunks for local testing, and disk‑pressure actions are conservative (SUSPEND) to avoid
-silent loss. The log group is `adm` (Ubuntu standard).
+Attribution model:
+- `collector/ownership_and_attribution.md`
 
-## harness.rules
-Keeps scope narrow and attribution‑focused. It logs exec events for process lineage and
-audits only writes/renames/unlinks plus metadata changes inside `/work` (no reads). The
-rules use a mix of path watches and syscall filters for coverage, and avoid syscalls that
-don’t exist on aarch64 kernels. This is a starter set intended to be refined for noise
-reduction and tighter scoping later.
+## Stage Map (Code, Config, Schemas, Tests)
 
-Schema reference: `collector/eBPF_data.md`.
+This is the "time to first PR" navigation hub: each stage links to the code,
+config, schema contract, and the canonical unit + fixture coverage.
 
-# Testing
+| Stage | Code | Config | Schema | Unit tests | Fixtures |
+|---|---|---|---|---|---|
+| audit filter | `collector/scripts/filter_audit_logs.py` | `collector/config/audit_filtering.yaml` | `collector/auditd_filtered_data.md` | `tests/unit/collector/test_audit_filter.py` | `tests/fixture/audit_filter/` |
+| eBPF filter | `collector/scripts/filter_ebpf_logs.py` | `collector/config/ebpf_filtering.yaml` | `collector/ebpf_filtered_data.md` | `tests/unit/collector/test_ebpf_filter.py` | `tests/fixture/ebpf_filter/` |
+| eBPF summary | `collector/scripts/summarize_ebpf_logs.py` | `collector/config/ebpf_summary.yaml` | `collector/ebpf_summary_data.md` | `tests/unit/collector/test_ebpf_summary.py` | `tests/fixture/summary/` |
+| merge | `collector/scripts/merge_filtered_logs.py` | `collector/config/merge_filtering.yaml` | `collector/timeline_filtered_data.md` | `tests/unit/collector/test_merge_filtered.py` | `tests/fixture/merge/` |
+
+## Implementation notes
+- `collector/Dockerfile` builds the eBPF program + loader (Rust + Aya) and ships
+  the artifacts into the runtime image.
+- `collector/entrypoint.sh` boots auditd, loads rules, starts both filters in
+  follow mode, runs the eBPF loader, and periodically runs summary + merge.
+
+## Configuration
+Config and env override reference lives under `collector/config/`:
+- Index: `collector/config/README.md`
+- auditd runtime: `collector/config/auditd.conf` (documented in `collector/config/auditd.md`)
+- audit rules: `collector/config/rules.d/harness.rules` (documented in `collector/config/auditd_rules.md`)
+- audit filter: `collector/config/audit_filtering.yaml` (documented in `collector/config/audit_filtering.md`)
+- eBPF filter: `collector/config/ebpf_filtering.yaml` (documented in `collector/config/ebpf_filtering.md`)
+- eBPF summary: `collector/config/ebpf_summary.yaml` (documented in `collector/config/ebpf_summary.md`)
+- merge: `collector/config/merge_filtering.yaml` (documented in `collector/config/merge_filtering.md`)
+
+## Testing
 Canonical testing is Python/pytest via `uv`.
 
 Primary entrypoints:

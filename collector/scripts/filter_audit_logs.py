@@ -23,8 +23,8 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Filter auditd logs into JSONL.")
     parser.add_argument(
         "--config",
-        default=os.getenv("COLLECTOR_FILTER_CONFIG", "/etc/collector/filtering.yaml"),
-        help="Path to filtering.yaml",
+        default=os.getenv("COLLECTOR_FILTER_CONFIG", "/etc/collector/audit_filtering.yaml"),
+        help="Path to audit_filtering.yaml",
     )
     parser.add_argument("--follow", action="store_true", help="Tail the audit log")
     parser.add_argument(

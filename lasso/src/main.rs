@@ -1822,7 +1822,15 @@ fn collector_is_running<R: DockerRunner>(
 
 fn parse_compose_ps_output(text: &str) -> serde_json::Value {
     match serde_json::from_str(text) {
-        Ok(value) => value,
+        Ok(value) => match value {
+            // Docker Compose `ps --format json` should generally return an array,
+            // but some Compose versions/configs return a single object when the
+            // output contains exactly one row. Normalize to an array for stable
+            // downstream consumers/tests.
+            serde_json::Value::Object(_) => serde_json::Value::Array(vec![value]),
+            serde_json::Value::Null => serde_json::Value::Array(Vec::new()),
+            _ => value,
+        },
         Err(_) => {
             let mut items = Vec::new();
             for line in text.lines() {

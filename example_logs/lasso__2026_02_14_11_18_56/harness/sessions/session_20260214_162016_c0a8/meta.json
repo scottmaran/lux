@@ -1,0 +1,13 @@
+{
+  "command": "codex -C /work -s danger-full-access",
+  "ended_at": "2026-02-14T16:22:10.425617+00:00",
+  "exit_code": 0,
+  "filtered_timeline_path": "/logs/lasso__2026_02_14_11_18_56/harness/sessions/session_20260214_162016_c0a8/filtered_timeline.jsonl",
+  "mode": "tui",
+  "root_pid": 63,
+  "root_sid": 63,
+  "session_id": "session_20260214_162016_c0a8",
+  "started_at": "2026-02-14T16:20:16.073733+00:00",
+  "stdin_path": "/logs/lasso__2026_02_14_11_18_56/harness/sessions/session_20260214_162016_c0a8/stdin.log",
+  "stdout_path": "/logs/lasso__2026_02_14_11_18_56/harness/sessions/session_20260214_162016_c0a8/stdout.log"
+}
