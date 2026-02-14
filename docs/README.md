@@ -26,6 +26,8 @@ docs/README.md (you are here)
 ├─ Components (in repo root)
    ├─ agent/README.md — agent container setup
    ├─ harness/README.md — harness behavior and config
+   │  ├─ harness/api.md — harness server-mode API contract
+   │  └─ harness/artifacts.md — harness session/job artifacts contract
    ├─ collector/README.md — collector setup and pipeline
    │  ├─ collector/auditd_raw_data.md — raw audit.log format
    │  ├─ collector/auditd_filtered_data.md — filtered audit JSONL schema

@@ -1,78 +1,161 @@
-# Harness container
+# Harness
 
-Purpose: run the trusted control plane that launches provider commands in the agent container and captures session logs. It supports:
-- Interactive TUI sessions over SSH (PTY).
-- Non-interactive runs via a local HTTP API.
+## Purpose
+Trusted control plane that runs provider commands inside the `agent` container
+over SSH, while capturing evidence logs:
+- Interactive PTY sessions (TUI).
+- Non-interactive jobs (HTTP API).
 
-## Contract
-- `/work` is the shared workspace (bind-mount from host).
-- `/logs` is the host sink (harness writes logs).
-- `/harness/keys` is a shared volume with the agent; it contains `authorized_keys` and the harness SSH keypair.
-- The harness connects to the agent via SSH on the compose network (no host port required).
+It also persists run markers (`root_pid`, `root_sid`) that the collector uses
+for ownership attribution.
 
-## Key handling
-On startup, the harness generates an ed25519 keypair in `/harness/keys` if one does not exist, then writes the public key to
-`/harness/keys/authorized_keys`. The agent mounts this file at `/config/authorized_keys`.
+## Modes (Auto + Override)
+Mode selection happens in `harness/entrypoint.sh`:
+- If stdin is a TTY: `tui`
+- Otherwise: `server`
 
-## Modes
-The entrypoint chooses a mode automatically:
-- If stdin is a TTY, it runs `tui`.
-- Otherwise it runs `server`.
+Override with `HARNESS_MODE=tui|server`.
 
-You can override with `HARNESS_MODE=tui` or `HARNESS_MODE=server`.
+## Runtime Contract (Mounts, Network, Trust)
+Mounts (container paths):
+- `/work`: rw workspace
+- `/logs`: rw log sink for harness (should be ro in `agent`)
+- `/harness/keys`: rw shared key volume (ssh keypair, `authorized_keys`, `known_hosts`)
 
-### TUI mode
-Launches the configured provider TUI command via `ssh -tt agent@agent` and proxies stdin/stdout through a PTY, logging both streams:
-- `logs/<run_id>/harness/sessions/<session_id>/stdin.log`
-- `logs/<run_id>/harness/sessions/<session_id>/stdout.log`
-- `logs/<run_id>/harness/sessions/<session_id>/filtered_timeline.jsonl`
-- `logs/<run_id>/harness/sessions/<session_id>/meta.json` (includes `root_pid` + `root_sid` run markers)
+Network:
+- SSH: harness -> agent on the compose network (no host port required)
+- HTTP: binds `HARNESS_HTTP_BIND:HARNESS_HTTP_PORT` inside the harness container;
+  host exposure is controlled by `compose.yml`
 
-By default the TUI command is `bash -l`.
-You can override the command with `HARNESS_TUI_CMD`.
-You can optionally set a human-friendly TUI name via `HARNESS_TUI_NAME` or pass `--tui-name` when invoking `harness.py` directly.
+Trust boundary:
+- No Docker socket required.
+- SSH host key verification is disabled for the internal compose network
+  (`StrictHostKeyChecking=no`).
 
-### Server mode
-Exposes a minimal HTTP API for non-interactive runs:
-- `POST /run` triggers the configured run command template in the agent via SSH.
-- `GET /jobs/<id>` returns job status.
+## Key Handling (SSH Bootstrap)
+On startup, `harness/entrypoint.sh` generates an ed25519 keypair in
+`HARNESS_KEYS_DIR` (default `/harness/keys`) if missing, then ensures
+`authorized_keys` contains the public key. The agent mounts this at
+`/config/authorized_keys`.
 
-Use `HARNESS_HTTP_BIND` and `HARNESS_HTTP_PORT` to control the listen address.
-Requests must include `X-Harness-Token` matching `HARNESS_API_TOKEN`.
+## Quick Mental Model
+TUI:
+- `harness` allocates a local PTY (`forkpty`) and execs `ssh -tt ...` in the
+  child.
+- Parent proxies bytes between host stdin/stdout and the PTY, logging raw bytes
+  to `stdin.log` and `stdout.log`.
 
-The run command is controlled by `HARNESS_RUN_CMD_TEMPLATE` (default: `bash -lc {prompt}`).
-The `{prompt}` placeholder is replaced with a shell-quoted prompt; omit the placeholder to ignore the prompt.
-You can optionally include a `name` field in the `/run` payload to create a display label for the job.
+Jobs:
+- `POST /run` spawns a background thread that runs `ssh ... bash -lc <cmd>`.
+- The remote command is wrapped with `setsid` so concurrent jobs get a stable
+  per-run SID marker.
 
-Both TUI sessions and `/run` jobs persist root run markers:
-- `root_pid`: namespaced PID for the run root process.
-- `root_sid`: namespaced Linux session ID (`SID`) for the run root process.
+Attribution integration:
+- Harness writes and persists `root_pid`/`root_sid`; collector uses those + audit
+  exec lineage. See `collector/ownership_and_attribution.md`.
 
-Non-interactive `/run` launch paths use `setsid` so concurrent jobs get a stable per-run SID marker.
-TUI runs keep the native SSH PTY launch path and capture the corresponding PTY session SID.
+## Stage Map (Code + Tests)
+| Concern | Code | Primary tests |
+|---|---|---|
+| Mode selection + key bootstrap | `harness/entrypoint.sh` | stack startup coverage (for example `tests/integration/test_run_scoped_log_layout.py`) |
+| Marker helpers | `harness/harness.py` (`root_marker_prefix`, `read_remote_root_markers`, `wrap_with_setsid`) | `tests/unit/test_harness_markers.py` |
+| Server API + job execution | `harness/harness.py` (`HarnessHandler`, `handle_run`, `run_job`) | `tests/integration/test_job_lifecycle_artifacts.py` |
+| TUI PTY proxy | `harness/harness.py` (`run_tui`) | `tests/integration/test_agent_codex_tui.py`, `tests/integration/test_agent_codex_tui_concurrent.py` |
+| Per-owner timeline copies | `harness/harness.py` (timeline copy + reconcile helpers) | `tests/integration/test_run_scoped_log_layout.py` |
 
-## Environment
-- `HARNESS_AGENT_HOST` (default: `agent`)
-- `HARNESS_AGENT_PORT` (default: `22`)
-- `HARNESS_AGENT_USER` (default: `agent`)
-- `HARNESS_SSH_KEY_PATH` (default: `/harness/keys/ssh_key`)
-- `HARNESS_SSH_WAIT_SEC` (default: `30`)
-- `HARNESS_HTTP_BIND` (default: `0.0.0.0`)
-- `HARNESS_HTTP_PORT` (default: `8081`)
-- `HARNESS_API_TOKEN` (required for server mode)
-- `HARNESS_TUI_CMD` (default: `bash -l`)
-- `HARNESS_TUI_NAME` (optional: display label for TUI sessions)
-- `HARNESS_RUN_CMD_TEMPLATE` (default: `bash -lc {prompt}`)
-- `HARNESS_AGENT_WORKDIR` (default: `/work`)
-- `HARNESS_LOG_DIR` (default: `/logs`)
-- `HARNESS_TIMELINE_PATH` (default: `/logs/filtered_timeline.jsonl`)
+## On-Disk Artifacts (External Contract)
+The harness writes artifacts under `HARNESS_LOG_DIR`.
 
-For run-scoped deployments, set:
+Run-scoped deployments set:
 - `HARNESS_LOG_DIR=/logs/${LASSO_RUN_ID}/harness`
-- `HARNESS_TIMELINE_PATH=/logs/${LASSO_RUN_ID}/collector/filtered/filtered_timeline.jsonl`
 
-## Security posture
-- No Docker socket required; SSH is used for control-plane access.
-- Keys are internal to the harness/agent volume and not dependent on host files.
-- `/logs` should be writable by the harness and read-only for the agent.
-  - If you use the default `harness` user (uid 1002), ensure `./logs` is writable by that uid.
+Sessions live under `.../sessions/<session_id>/...`, jobs under
+`.../jobs/<job_id>/...`, and labels under `.../labels/...`.
+
+Full on-disk contract:
+- `harness/artifacts.md`
+
+## HTTP API (Server Mode)
+Auth:
+- Requests must include `X-Harness-Token` matching `HARNESS_API_TOKEN`.
+- The harness refuses to start in server mode if `HARNESS_API_TOKEN` is unset.
+
+Endpoints:
+- `POST /run`: submit a job
+- `GET /jobs/<id>`: in-memory status for a submitted job
+
+Important limitation:
+- `/jobs/<id>` does not load historical jobs from disk after a harness restart.
+
+Full API contract:
+- `harness/api.md`
+
+## Root Markers and Attribution Integration
+Markers written by the harness:
+- `root_pid`: namespaced PID for the run root process
+- `root_sid`: namespaced Linux session ID (SID) for the run root process
+
+Mechanics:
+- Markers are written inside the agent container under `/tmp/` as
+  `/tmp/lasso_root_pid_<id>.txt` and `/tmp/lasso_root_sid_<id>.txt`.
+- Harness polls these marker files over SSH and patches `root_pid`/`root_sid`
+  into job/session JSON.
+
+Collector integration:
+- See `collector/ownership_and_attribution.md`.
+
+## Timeline Copy Materialization (Per Job/Session)
+Input:
+- `HARNESS_TIMELINE_PATH` (global merged timeline file).
+
+Output:
+- `sessions/<id>/filtered_timeline.jsonl` and `jobs/<id>/filtered_timeline.jsonl`
+  are derived by filtering the global timeline by `session_id`/`job_id`.
+
+Semantics:
+- The collector merger rewrites the global timeline periodically.
+- Harness reconciles per-owner copies by re-filtering until row count stabilizes
+  (`HARNESS_TIMELINE_RECONCILE_PASSES`, `HARNESS_TIMELINE_RECONCILE_INTERVAL_SEC`).
+- Treat per-owner copies as derived snapshot files, not append-only tails.
+
+Related:
+- `collector/timeline_filtered_data.md` (timeline file semantics)
+
+## Configuration (Env Vars)
+Entrypoint (used by `harness/entrypoint.sh`):
+- `HARNESS_MODE`
+- `HARNESS_KEYS_DIR`
+- `HARNESS_SSH_KEY_PATH`
+- `HARNESS_AUTHORIZED_KEYS_PATH`
+
+Runtime (used by `harness/harness.py`):
+- SSH: `HARNESS_AGENT_HOST`, `HARNESS_AGENT_PORT`, `HARNESS_AGENT_USER`,
+  `HARNESS_SSH_KEY_PATH`, `HARNESS_SSH_KNOWN_HOSTS`, `HARNESS_SSH_WAIT_SEC`
+- API: `HARNESS_HTTP_BIND`, `HARNESS_HTTP_PORT`, `HARNESS_API_TOKEN`
+- Commands: `HARNESS_TUI_CMD`, `HARNESS_TUI_NAME`, `HARNESS_RUN_CMD_TEMPLATE`
+- Paths: `HARNESS_AGENT_WORKDIR`, `HARNESS_LOG_DIR`, `HARNESS_TIMELINE_PATH`
+- Markers: `HARNESS_ROOT_PID_TIMEOUT_SEC`, `HARNESS_ROOT_PID_POLL_SEC`
+- Timeline copy reconcile: `HARNESS_TIMELINE_RECONCILE_PASSES`,
+  `HARNESS_TIMELINE_RECONCILE_INTERVAL_SEC`
+
+Provider note:
+- `HARNESS_TUI_CMD` and `HARNESS_RUN_CMD_TEMPLATE` are typically set by `lasso`
+  provider runtime overrides (see `docs/guide/config.md`).
+
+## Troubleshooting
+- Server won't start: `HARNESS_API_TOKEN` missing.
+- Entrypoint fails early: `/logs` or `HARNESS_KEYS_DIR` not writable by uid 1002.
+- Agent unreachable: check SSH readiness (`HARNESS_SSH_WAIT_SEC`), key volume
+  wiring, and agent sshd.
+- Missing `root_pid/root_sid`: remote `/tmp/lasso_root_*` files missing or marker
+  capture timed out.
+- Missing per-owner timeline rows: global timeline path mismatch, collector
+  hasn't attributed rows yet, or reconcile window too short.
+
+## Change Checklist (For PRs)
+- If you change job/session JSON shapes: update `harness/artifacts.md` and the
+  corresponding integration assertions.
+- If you change marker logic: update `tests/unit/test_harness_markers.py` and
+  any attribution-sensitive integration/regression tests.
+- If you change API behavior: update `harness/api.md` and add/update integration
+  coverage.
