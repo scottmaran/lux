@@ -25,6 +25,7 @@ docs/README.md (you are here)
 │  └─ dev_log.md — implementation log
 ├─ Components (in repo root)
    ├─ agent/README.md — agent container setup
+   │  └─ agent/provider_auth.md — provider auth bootstrap details
    ├─ harness/README.md — harness behavior and config
    │  ├─ harness/api.md — harness server-mode API contract
    │  └─ harness/artifacts.md — harness session/job artifacts contract
