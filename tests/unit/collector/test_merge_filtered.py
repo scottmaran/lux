@@ -6,8 +6,13 @@ import tempfile
 import unittest
 from pathlib import Path
 
+import pytest
 
-MERGE_SCRIPT = Path(__file__).resolve().parents[1] / "scripts" / "merge_filtered_logs.py"
+pytestmark = pytest.mark.unit
+
+
+ROOT_DIR = Path(__file__).resolve().parents[3]
+MERGE_SCRIPT = ROOT_DIR / "collector" / "scripts" / "merge_filtered_logs.py"
 
 
 def make_audit_event(ts: str, session_id: str, job_id: str | None = None) -> dict:
@@ -63,7 +68,7 @@ def make_ebpf_event(ts: str, session_id: str, job_id: str | None = None) -> dict
     return event
 
 
-class MergeFilteredTests(unittest.TestCase):
+class TestMergeFiltered(unittest.TestCase):
     def run_merge(self, audit_events: list[dict], ebpf_events: list[dict], config: dict) -> list[dict]:
         with tempfile.TemporaryDirectory() as tmpdir:
             audit_path = os.path.join(tmpdir, "filtered_audit.jsonl")

@@ -6,8 +6,13 @@ import tempfile
 import unittest
 from pathlib import Path
 
+import pytest
 
-SUMMARY_SCRIPT = Path(__file__).resolve().parents[1] / "scripts" / "summarize_ebpf_logs.py"
+pytestmark = pytest.mark.unit
+
+
+ROOT_DIR = Path(__file__).resolve().parents[3]
+SUMMARY_SCRIPT = ROOT_DIR / "collector" / "scripts" / "summarize_ebpf_logs.py"
 
 
 def make_event(
@@ -44,7 +49,7 @@ def make_event(
     return event
 
 
-class EbpfSummaryTests(unittest.TestCase):
+class TestEbpfSummary(unittest.TestCase):
     def run_summary(self, events: list[dict], config_overrides: dict | None = None) -> list[dict]:
         with tempfile.TemporaryDirectory() as tmpdir:
             input_path = os.path.join(tmpdir, "filtered_ebpf.jsonl")

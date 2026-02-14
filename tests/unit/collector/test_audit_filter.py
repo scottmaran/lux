@@ -8,8 +8,13 @@ import unittest
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
+import pytest
 
-FILTER_SCRIPT = Path(__file__).resolve().parents[1] / "scripts" / "filter_audit_logs.py"
+pytestmark = pytest.mark.unit
+
+
+ROOT_DIR = Path(__file__).resolve().parents[3]
+FILTER_SCRIPT = ROOT_DIR / "collector" / "scripts" / "filter_audit_logs.py"
 
 
 
@@ -45,7 +50,7 @@ def make_path(ts: str, seq: int, name: str, nametype: str) -> str:
     return f'type=PATH msg=audit({ts}:{seq}): item=0 name="{name}" nametype={nametype}'
 
 
-class AuditFilterTests(unittest.TestCase):
+class TestAuditFilter(unittest.TestCase):
     def run_filter(self, audit_lines: list[str], config: dict, jobs: list[dict] | None = None,
                    sessions: list[dict] | None = None) -> list[dict]:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -79,7 +84,7 @@ class AuditFilterTests(unittest.TestCase):
             cfg["sessions_dir"] = sessions_dir
             cfg["jobs_dir"] = jobs_dir
 
-            config_path = os.path.join(tmpdir, "config.yaml")
+            config_path = os.path.join(tmpdir, "config.json")
             Path(config_path).write_text(json.dumps(cfg), encoding="utf-8")
 
             result = subprocess.run(

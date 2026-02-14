@@ -8,8 +8,13 @@ import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
+import pytest
 
-FILTER_SCRIPT = Path(__file__).resolve().parents[1] / "scripts" / "filter_ebpf_logs.py"
+pytestmark = pytest.mark.unit
+
+
+ROOT_DIR = Path(__file__).resolve().parents[3]
+FILTER_SCRIPT = ROOT_DIR / "collector" / "scripts" / "filter_ebpf_logs.py"
 
 
 def make_syscall(ts: str, seq: int, pid: int, ppid: int, uid: int, gid: int, comm: str, exe: str, key: str) -> str:
@@ -88,7 +93,7 @@ def make_unix_event(ts: str, pid: int, ppid: int, comm: str, path: str) -> dict:
     }
 
 
-class EbpfFilterTests(unittest.TestCase):
+class TestEbpfFilter(unittest.TestCase):
     def run_filter(
         self,
         audit_lines: list[str],
@@ -189,13 +194,16 @@ class EbpfFilterTests(unittest.TestCase):
         config_path = os.path.join(tmpdir.name, "config.json")
         Path(config_path).write_text(json.dumps(cfg), encoding="utf-8")
 
+        # Avoid PIPE deadlocks if the filter ever becomes chatty.
+        stderr_path = os.path.join(tmpdir.name, "follow.stderr.log")
+        stderr_handle = open(stderr_path, "w", encoding="utf-8")
         proc = subprocess.Popen(
             [sys.executable, str(FILTER_SCRIPT), "--config", config_path, "--follow", "--poll-interval", "0.05"],
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
+            stdout=subprocess.DEVNULL,
+            stderr=stderr_handle,
             text=True,
         )
-        return tmpdir, proc, audit_log, ebpf_log, output_log
+        return tmpdir, proc, audit_log, ebpf_log, output_log, stderr_path, stderr_handle
 
     def append_audit(self, path: str, lines: list[str]) -> None:
         with open(path, "a", encoding="utf-8") as handle:
@@ -209,7 +217,14 @@ class EbpfFilterTests(unittest.TestCase):
                 handle.write(json.dumps(event) + "\n")
             handle.flush()
 
-    def wait_for_events(self, path: str, min_count: int, timeout: float = 3.0) -> list[dict]:
+    def wait_for_events(
+        self,
+        path: str,
+        min_count: int,
+        timeout: float = 3.0,
+        proc: subprocess.Popen | None = None,
+        stderr_path: str | None = None,
+    ) -> list[dict]:
         start = time.time()
         while time.time() - start < timeout:
             if os.path.exists(path):
@@ -217,20 +232,28 @@ class EbpfFilterTests(unittest.TestCase):
                 events = [json.loads(line) for line in lines if line.strip()]
                 if len(events) >= min_count:
                     return events
+            if proc is not None and proc.poll() is not None:
+                break
             time.sleep(0.05)
-        raise AssertionError(f"Timed out waiting for {min_count} events in {path}")
 
-    def stop_follow_filter(self, tmpdir, proc) -> None:
+        stderr_tail = ""
+        if stderr_path and os.path.exists(stderr_path):
+            stderr_tail = Path(stderr_path).read_text(encoding="utf-8", errors="replace")[-2000:]
+        rc = proc.poll() if proc is not None else None
+        raise AssertionError(
+            f"Timed out waiting for {min_count} events in {path} (returncode={rc}).\n"
+            f"follow stderr tail:\n{stderr_tail}"
+        )
+
+    def stop_follow_filter(self, tmpdir, proc, stderr_handle=None) -> None:
         proc.terminate()
         try:
             proc.wait(timeout=2)
         except subprocess.TimeoutExpired:
             proc.kill()
             proc.wait(timeout=2)
-        if proc.stdout:
-            proc.stdout.close()
-        if proc.stderr:
-            proc.stderr.close()
+        if stderr_handle is not None:
+            stderr_handle.close()
         tmpdir.cleanup()
 
     def test_owned_pid_includes_event_and_cmd(self) -> None:
@@ -502,17 +525,17 @@ class EbpfFilterTests(unittest.TestCase):
         ]
 
         config = self.base_config()
-        tmpdir, proc, audit_log, ebpf_log, output_log = self.start_follow_filter(config)
+        tmpdir, proc, audit_log, ebpf_log, output_log, stderr_path, stderr_handle = self.start_follow_filter(config)
         try:
             time.sleep(0.1)
             self.append_audit(audit_log, audit_lines)
-            time.sleep(0.35)
+            time.sleep(0.5)
             self.append_ebpf(ebpf_log, [make_net_event(ebpf_ts, 801, 800, "bash", "93.184.216.34", 443)])
-            events = self.wait_for_events(output_log, 1)
+            events = self.wait_for_events(output_log, 1, proc=proc, stderr_path=stderr_path)
             self.assertEqual(events[0]["event_type"], "net_connect")
             self.assertEqual(events[0]["cmd"], "curl example.com")
         finally:
-            self.stop_follow_filter(tmpdir, proc)
+            self.stop_follow_filter(tmpdir, proc, stderr_handle=stderr_handle)
 
     def test_follow_pending_buffers_out_of_order(self) -> None:
         base = datetime(2026, 1, 22, 0, 0, 8, tzinfo=timezone.utc)
@@ -528,16 +551,16 @@ class EbpfFilterTests(unittest.TestCase):
 
         config = self.base_config()
         config["pending_buffer"] = {"enabled": True, "ttl_sec": 2.0, "max_per_pid": 100, "max_total": 1000}
-        tmpdir, proc, audit_log, ebpf_log, output_log = self.start_follow_filter(config)
+        tmpdir, proc, audit_log, ebpf_log, output_log, stderr_path, stderr_handle = self.start_follow_filter(config)
         try:
             time.sleep(0.1)
             self.append_ebpf(ebpf_log, [make_net_event(ebpf_ts, 901, 900, "bash", "93.184.216.34", 443)])
             time.sleep(0.1)
             self.append_audit(audit_log, audit_lines)
-            events = self.wait_for_events(output_log, 1)
+            events = self.wait_for_events(output_log, 1, proc=proc, stderr_path=stderr_path)
             self.assertEqual(events[0]["event_type"], "net_connect")
         finally:
-            self.stop_follow_filter(tmpdir, proc)
+            self.stop_follow_filter(tmpdir, proc, stderr_handle=stderr_handle)
 
     def test_follow_audit_rotation_does_not_skip_new_execs(self) -> None:
         base = datetime(2026, 1, 22, 0, 0, 9, tzinfo=timezone.utc)
@@ -551,20 +574,20 @@ class EbpfFilterTests(unittest.TestCase):
 
         config = self.base_config()
         config["pending_buffer"] = {"enabled": True, "ttl_sec": 2.0, "max_per_pid": 100, "max_total": 1000}
-        tmpdir, proc, audit_log, ebpf_log, output_log = self.start_follow_filter(config)
+        tmpdir, proc, audit_log, ebpf_log, output_log, stderr_path, stderr_handle = self.start_follow_filter(config)
         try:
-            time.sleep(0.1)
+            time.sleep(0.2)
             rotated = audit_log + ".1"
             os.replace(audit_log, rotated)
             Path(audit_log).write_text("", encoding="utf-8")
-            time.sleep(0.1)
+            time.sleep(0.2)
             self.append_audit(audit_log, audit_lines)
-            time.sleep(0.1)
+            time.sleep(0.2)
             self.append_ebpf(ebpf_log, [make_net_event(ebpf_ts, 950, 1, "codex", "93.184.216.34", 443)])
-            events = self.wait_for_events(output_log, 1)
+            events = self.wait_for_events(output_log, 1, proc=proc, stderr_path=stderr_path)
             self.assertEqual(events[0]["pid"], 950)
         finally:
-            self.stop_follow_filter(tmpdir, proc)
+            self.stop_follow_filter(tmpdir, proc, stderr_handle=stderr_handle)
 
 
 if __name__ == "__main__":
