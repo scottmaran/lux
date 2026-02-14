@@ -1,9 +1,0 @@
-{
-  "command": "bash -lc {prompt}",
-  "cwd": "/work",
-  "env": {},
-  "job_id": "job_20260214_203404_d6d3",
-  "prompt": "set -euo pipefail; printf data > /work/filter_merge_c9d1b25e.txt; curl -sS -o /dev/null -w 'HTTP:%{http_code}' http://harness:8081/jobs/_?run=c9d1b25e || true; sleep 3",
-  "started_at": "2026-02-14T20:34:04.511813+00:00",
-  "submitted_at": "2026-02-14T20:34:04.510195+00:00"
-}
