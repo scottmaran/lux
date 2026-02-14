@@ -16,7 +16,7 @@ Downstream stages:
   (`ebpf.summary.v1`, `filtered_ebpf_summary.jsonl`)
 
 Canonical real sample output:
-- `example_logs/ebpf.jsonl`
+- `example_logs/<run_id>/collector/raw/ebpf.jsonl` (see `example_logs/.active_run.json`)
 
 ## Scope (minimal event set)
 The loader emits five event types:

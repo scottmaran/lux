@@ -21,9 +21,33 @@ pytestmark = pytest.mark.unit
 
 
 ROOT_DIR = Path(__file__).resolve().parents[2]
-EXAMPLE_AUDIT_PATH = ROOT_DIR / "example_logs" / "audit.log"
-EXAMPLE_EBPF_PATH = ROOT_DIR / "example_logs" / "ebpf.jsonl"
+EXAMPLE_LOG_ROOT = ROOT_DIR / "example_logs"
+ACTIVE_RUN_PATH = EXAMPLE_LOG_ROOT / ".active_run.json"
 AUDIT_FILTER_SCRIPT = ROOT_DIR / "collector" / "scripts" / "filter_audit_logs.py"
+
+def _example_run_root() -> Path:
+    try:
+        meta = json.loads(ACTIVE_RUN_PATH.read_text(encoding="utf-8"))
+    except FileNotFoundError as exc:
+        raise AssertionError(f"Missing example log root selector: {ACTIVE_RUN_PATH}") from exc
+    except json.JSONDecodeError as exc:
+        raise AssertionError(f"Invalid JSON in {ACTIVE_RUN_PATH}") from exc
+    run_id = meta.get("run_id")
+    if not isinstance(run_id, str) or not run_id.strip():
+        raise AssertionError(f"Missing run_id in {ACTIVE_RUN_PATH}")
+
+    run_root = EXAMPLE_LOG_ROOT / run_id
+    if not run_root.exists():
+        raise AssertionError(f"Active run directory does not exist: {run_root}")
+    return run_root
+
+
+def _example_audit_path() -> Path:
+    return _example_run_root() / "collector" / "raw" / "audit.log"
+
+
+def _example_ebpf_path() -> Path:
+    return _example_run_root() / "collector" / "raw" / "ebpf.jsonl"
 
 
 def _load_audit_filter_module():
@@ -46,15 +70,17 @@ def _parse_audit_kv_line(line: str) -> dict[str, str]:
 
 
 def _first_real_audit_syscall_line() -> str:
-    for line in EXAMPLE_AUDIT_PATH.read_text(encoding="utf-8", errors="replace").splitlines():
+    audit_path = _example_audit_path()
+    for line in audit_path.read_text(encoding="utf-8", errors="replace").splitlines():
         if line.startswith("type=SYSCALL") and 'key="exec"' in line:
             return line
-    raise AssertionError("No exec SYSCALL line found in example_logs/audit.log")
+    raise AssertionError(f"No exec SYSCALL line found in audit log: {audit_path}")
 
 
 def _real_ebpf_events() -> list[dict]:
     events: list[dict] = []
-    for line in EXAMPLE_EBPF_PATH.read_text(encoding="utf-8", errors="replace").splitlines():
+    ebpf_path = _example_ebpf_path()
+    for line in ebpf_path.read_text(encoding="utf-8", errors="replace").splitlines():
         line = line.strip()
         if not line:
             continue
@@ -66,7 +92,9 @@ def _first_real_event_of_type(events: list[dict], event_type: str) -> dict:
     for event in events:
         if event.get("event_type") == event_type:
             return event
-    raise AssertionError(f"No event_type={event_type} found in example_logs/ebpf.jsonl")
+    raise AssertionError(
+        f"No event_type={event_type} found in example eBPF log: {_example_ebpf_path()}"
+    )
 
 
 def test_synthetic_exec_syscall_contains_realistic_core_fields() -> None:

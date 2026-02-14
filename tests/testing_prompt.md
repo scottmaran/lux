@@ -43,10 +43,10 @@ Read these files before editing:
 5. `collector/scripts/filter_ebpf_logs.py`
 6. `collector/scripts/summarize_ebpf_logs.py`
 7. `collector/scripts/merge_filtered_logs.py`
-8. `collector/tests/test_filter.py`
-9. `collector/tests/test_ebpf_filter.py`
-10. `collector/tests/test_ebpf_summary.py`
-11. `collector/tests/test_merge_filtered.py`
+8. `tests/unit/collector/test_audit_filter.py`
+9. `tests/unit/collector/test_ebpf_filter.py`
+10. `tests/unit/collector/test_ebpf_summary.py`
+11. `tests/unit/collector/test_merge_filtered.py`
 12. `tests/integration/test_*.py`
 13. `tests/support/integration_stack.py`
 14. `tests/support/pytest_docker.py`
@@ -57,8 +57,8 @@ Read these files before editing:
 19. `scripts/all_tests.py`
 20. `scripts/verify_test_delta.py`
 21. `install_lasso.sh` and `tests/integration/test_cli_*.py` (installer/update/uninstall and CLI lifecycle coverage)
-22. `example_logs/audit.log`
-23. `example_logs/ebpf.jsonl`
+22. `example_logs/<run_id>/collector/raw/audit.log` (see `example_logs/.active_run.json`)
+23. `example_logs/<run_id>/collector/raw/ebpf.jsonl` (see `example_logs/.active_run.json`)
 24. `.github/workflows/release.yml`
 
 Then implement. Do not stop at analysis.
@@ -257,8 +257,8 @@ Requirements:
   - `dns_response`
   - `unix_connect`
 - add synthetic-vs-real structure tests using:
-  - `example_logs/audit.log`
-  - `example_logs/ebpf.jsonl`
+  - `example_logs/<run_id>/collector/raw/audit.log` (see `example_logs/.active_run.json`)
+  - `example_logs/<run_id>/collector/raw/ebpf.jsonl` (see `example_logs/.active_run.json`)
 - normalize volatile fields before comparison (timestamps, pids, seq ids, inode-like ids)
 - document omissions/tradeoffs in `tests/SYNTHETIC_LOGS.md`
 

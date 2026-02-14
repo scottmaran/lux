@@ -1,5 +1,0 @@
-schema_version: ebpf.summary.v1
-input:
-  jsonl: /logs/filtered_ebpf.jsonl
-output:
-  jsonl: /logs/filtered_ebpf_summary.jsonl
