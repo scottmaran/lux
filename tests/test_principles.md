@@ -6,8 +6,12 @@ If there is a conflict, `tests/README.md` is authoritative.
 ## Core Principles
 1. Behavior-first:
    - tests describe externally observable behavior and invariants.
-2. Determinism:
-   - expectations are explicit; failures are binary and reproducible.
+2. Reproducible Verdicts (Bounded Nondeterminism):
+   - expectations are explicit; failures are binary.
+   - reruns in the same environment should produce the same pass/fail verdict.
+   - when an agent/LLM is in the loop, do not assert exact natural-language output;
+     assert durable invariants (artifacts, attribution/timeline/schema, quiescence)
+     and keep nondeterminism bounded.
 3. Isolation:
    - test resources are per-test/per-trial; teardown is unconditional.
 4. Layer boundaries:

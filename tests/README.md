@@ -28,11 +28,13 @@ Out of scope:
 - Host tamper-resistance guarantees outside Lasso's trust model
 
 ## Non-Negotiable Properties
-1. Determinism: tests compare against explicit expected outcomes.
+1. Reproducible verdicts (bounded nondeterminism): expectations are explicit; reruns
+   in the same environment produce the same verdict. For agent-in-the-loop tests,
+   do not assert exact natural-language output; assert durable evidence (artifacts,
+   attribution, timeline/schema invariants, quiescence) and keep nondeterminism bounded.
 2. Isolation: every test run uses independent resources.
-3. Reproducibility: reruns in the same environment produce the same verdict.
-4. Explicit invariants: each test states what must always be true.
-5. No silent ambiguity: ambiguous ownership must fail or be marked unknown by rule.
+3. Explicit invariants: each test states what must always be true.
+4. No silent ambiguity: ambiguous ownership must fail or be marked unknown by rule.
 
 ## Test Layers
 | Layer | Purpose | Must Include | Must Not Include | Typical Runtime |
@@ -101,7 +103,7 @@ Attribution note:
 - Collector attribution is PID-lineage first, with `root_sid` fallback when PID lineage is temporarily unavailable during startup/concurrency windows.
 
 ## Change Protocol (For PRs and Agents)
-When code changes, test updates are mandatory and deterministic.
+When code changes, test updates are mandatory and must preserve reproducible verdicts.
 
 | Source Change Area | Required Test Action |
 |---|---|
@@ -253,4 +255,4 @@ Regression naming:
 | Fixture validation fails | Missing/unexpected files in `case_*` directory | Fix case contents to match schema |
 | Timeline invariant fails | Ownership/ordering/reference bug in filter or merge pipeline | Inspect generated timeline and run metadata, then patch logic |
 | Regression test fails after refactor | Bug condition reintroduced | Reproduce with failing regression and fix behavior, not the test expectation |
-| Nondeterministic pass/fail | Hidden shared state or timing race | Isolate resources per test and remove wall-clock assumptions |
+| Non-reproducible pass/fail | Hidden shared state or timing race | Isolate resources per test and remove wall-clock assumptions |
