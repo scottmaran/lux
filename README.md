@@ -13,7 +13,8 @@ Temporary support note (February 2026):
 ### Install (beta)
 Run the versioned installer:
 ```bash
-curl -fsSL https://raw.githubusercontent.com/scottmaran/lasso/v0.1.4/install_lasso.sh | bash -s -- --version v0.1.6
+VERSION=vX.Y.Z
+curl -fsSL "https://raw.githubusercontent.com/scottmaran/lasso/${VERSION}/install_lasso.sh" | bash -s -- --version "${VERSION}"
 ```
 Private repo note: if the repo or release assets are private, unauthenticated
 `curl` downloads may return 404. In that case, download the release bundle with
@@ -55,3 +56,10 @@ active, use `--run-id <id>` or `--latest`.
 ## Docs
 Start with the user guide in `docs/guide/`.
 Developers/contributors: see `docs/README.md` for the full documentation map.
+
+## License
+Licensed under the GNU Affero General Public License v3.0 only (`AGPL-3.0-only`).
+See `LICENSE`.
+
+## Contributing
+See `CONTRIBUTING.md`.

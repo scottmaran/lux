@@ -13,7 +13,8 @@ installation for users who prefer not to run scripts.
 Run the versioned installer:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/scottmaran/lasso/v0.1.4/install_lasso.sh | bash -s -- --version v0.1.4
+VERSION=vX.Y.Z
+curl -fsSL "https://raw.githubusercontent.com/scottmaran/lasso/${VERSION}/install_lasso.sh" | bash -s -- --version "${VERSION}"
 ```
 
 If the repo (or release assets) are private, unauthenticated `curl` downloads
@@ -21,19 +22,30 @@ may return 404. In that case, download the release bundle with GitHub CLI and
 install from the local tarball:
 
 ```bash
-VERSION=v0.1.4
+VERSION=vX.Y.Z
+OS=$(uname -s | tr '[:upper:]' '[:lower:]')
+ARCH=$(uname -m)
+case "$ARCH" in
+  x86_64) ARCH="amd64" ;;
+  arm64|aarch64) ARCH="arm64" ;;
+  *) echo "Unsupported architecture: $ARCH" >&2; exit 1 ;;
+esac
+
+BUNDLE="lasso_${VERSION#v}_${OS}_${ARCH}.tar.gz"
+
 gh auth login
-gh release download "$VERSION" -R scottmaran/lasso -p "lasso_${VERSION#v}_darwin_arm64.tar.gz*" -D .
+gh release download "$VERSION" -R scottmaran/lasso -p "${BUNDLE}*" -D .
 bash install_lasso.sh --version "$VERSION" \
-  --bundle "lasso_${VERSION#v}_darwin_arm64.tar.gz" \
-  --checksum "lasso_${VERSION#v}_darwin_arm64.tar.gz.sha256"
+  --bundle "${BUNDLE}" \
+  --checksum "${BUNDLE}.sha256"
 ```
 
 If you prefer to inspect the script first:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/scottmaran/lasso/v0.1.4/install_lasso.sh -o install_lasso.sh
-bash install_lasso.sh --version v0.1.4
+VERSION=vX.Y.Z
+curl -fsSL "https://raw.githubusercontent.com/scottmaran/lasso/${VERSION}/install_lasso.sh" -o install_lasso.sh
+bash install_lasso.sh --version "${VERSION}"
 ```
 
 This:
@@ -53,28 +65,38 @@ your `PATH`.
 1) Download the correct bundle for your OS/arch:
 
 ```bash
-BUNDLE=lasso_0.1.4_darwin_arm64.tar.gz
-curl -fsSL "https://github.com/scottmaran/lasso/releases/download/v0.1.4/${BUNDLE}" -o "${BUNDLE}"
+VERSION=vX.Y.Z
+OS=$(uname -s | tr '[:upper:]' '[:lower:]')
+ARCH=$(uname -m)
+case "$ARCH" in
+  x86_64) ARCH="amd64" ;;
+  arm64|aarch64) ARCH="arm64" ;;
+  *) echo "Unsupported architecture: $ARCH" >&2; exit 1 ;;
+esac
+
+VERSION_TAG=${VERSION#v}
+BUNDLE="lasso_${VERSION_TAG}_${OS}_${ARCH}.tar.gz"
+curl -fsSL "https://github.com/scottmaran/lasso/releases/download/${VERSION}/${BUNDLE}" -o "${BUNDLE}"
 ```
 
 2) (Optional) Verify checksum:
 
 ```bash
-curl -fsSL "https://github.com/scottmaran/lasso/releases/download/v0.1.4/${BUNDLE}.sha256" -o "${BUNDLE}.sha256"
+curl -fsSL "https://github.com/scottmaran/lasso/releases/download/${VERSION}/${BUNDLE}.sha256" -o "${BUNDLE}.sha256"
 shasum -a 256 -c "${BUNDLE}.sha256"
 ```
 
 3) Extract to a versioned install dir:
 
 ```bash
-mkdir -p ~/.lasso/versions/0.1.4
-tar -xzf "${BUNDLE}" --strip-components=1 -C ~/.lasso/versions/0.1.4
+mkdir -p ~/.lasso/versions/"${VERSION_TAG}"
+tar -xzf "${BUNDLE}" --strip-components=1 -C ~/.lasso/versions/"${VERSION_TAG}"
 ```
 
 4) Create symlinks:
 
 ```bash
-ln -sfn ~/.lasso/versions/0.1.4 ~/.lasso/current
+ln -sfn ~/.lasso/versions/"${VERSION_TAG}" ~/.lasso/current
 mkdir -p ~/.local/bin
 ln -sfn ~/.lasso/current/lasso ~/.local/bin/lasso
 ```
@@ -130,7 +152,7 @@ lasso update apply --yes
 
 Preview an update without changes:
 ```bash
-lasso update apply --to v0.1.5 --dry-run
+lasso update apply --to vX.Y.Z --dry-run
 ```
 
 ## GHCR Authentication (Private Images)
