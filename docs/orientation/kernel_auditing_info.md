@@ -19,6 +19,19 @@
 - Strengths: reliable exec and file/metadata coverage; mature and stable.
 - Trade-offs: limited network/IPC detail; can be verbose; one audit daemon per system.
 
+## `auditctl` quick reference (common flags)
+These are the most common `auditctl` flags you will see in rule sets and docs:
+
+- `-w <path>`: add a watch to a file/dir path.
+- `-p <perm>`: permissions mask for watches (for example `wa` for write+attribute).
+- `-k <key>`: attach a string key to matching events (used downstream for filtering).
+- `-F <field>=<value>`: add a field filter (only match events where a field has a value).
+- `-S <syscall>[,<syscall>...]`: syscall filter for a rule (for example `-S execve,execveat`).
+- `-a <list>,<action>`: append a rule to a list/action pair (for example `-a always,exit`).
+- `-l`: list all currently loaded rules.
+- `-D`: delete all rules (clear ruleset).
+- `-t`: trim subtrees that appear after a mount command (advanced; rarely used in this repo).
+
 ## Hybrid approach used by the harness
 - auditd for exec + filesystem writes/renames/unlinks + metadata changes (chmod/chown/xattr/utime).
 - eBPF for network egress + local IPC connection metadata (Unix sockets, D-Bus) with PID attribution.
@@ -35,3 +48,12 @@
 - Kernel config can change across Docker Desktop releases; verify per version.
 - Enhanced Container Isolation (ECI) can restrict kernel access; the collector
   must be permitted to access audit/eBPF interfaces.
+
+## Lasso schema references
+- auditd raw (`audit.log`): `collector/auditd_raw_data.md`
+- auditd filtered (`filtered_audit.jsonl`): `collector/auditd_filtered_data.md`
+- eBPF raw (`ebpf.jsonl`): `collector/ebpf_raw_data.md`
+- eBPF filtered (`filtered_ebpf.jsonl`): `collector/ebpf_filtered_data.md`
+- eBPF summary (`filtered_ebpf_summary.jsonl`): `collector/ebpf_summary_data.md`
+- unified timeline (`filtered_timeline.jsonl`): `collector/timeline_filtered_data.md`
+- attribution model: `collector/ownership_and_attribution.md`

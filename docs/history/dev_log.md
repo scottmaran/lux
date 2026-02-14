@@ -12,7 +12,7 @@ Blocks of Work
 - Implemented Rust/aya eBPF program + loader (tracepoints for connect/sendto/recvfrom) emitting JSONL events via ring buffer.
 - Updated collector image build to compile and ship the eBPF artifacts, with entrypoint running auditd plus the loader.
 - Added test automation in `collector/scripts/run_test.sh` and activity generation in `collector/scripts/ebpf_activity.sh` to validate logs.
-- Aligned log output to `/logs` and kept schema/testing docs current in `collector/README.md` and `collector/eBPF_data.md`.
+- Aligned log output to `/logs` and kept schema/testing docs current in `collector/README.md` and `collector/ebpf_raw_data.md`.
 
 ### Details 
 
@@ -38,7 +38,7 @@ msghdr/iovec in `collector/ebpf/ebpf/src/lib.rs`.
 `/proc/<pid>/net/unix`, feeding those fields into net/unix event JSON in `collector/ebpf/loader/src/main.rs`.
 - DNS parsing now detects TCP length-prefixed payloads and uses socket info for transport/server fields; zero-address handling was added to
 trigger `/proc` fallback in `collector/ebpf/loader/src/main.rs`.
-- Updated documentation notes in `collector/eBPF_data.md` and refreshed the To Do section in `dev_log.md` to reflect current behavior.
+- Updated documentation notes in `collector/ebpf_raw_data.md` and refreshed the To Do section in `dev_log.md` to reflect current behavior.
 
 ## Block 3:
 - Implemented an auditd filtering pipeline that emits compact JSONL exec/fs events with session/job attribution.
@@ -48,7 +48,7 @@ trigger `/proc` fallback in `collector/ebpf/loader/src/main.rs`.
 - Added `collector/scripts/filter_audit_logs.py` to parse auditd sequences, apply ownership rules, and emit filtered JSONL, including optional
 session/job mapping and live-tail buffering.
 - Wired the filter into the collector image and entrypoint; added `python3-yaml` dependency and config at `collector/config/filtering.yaml`.
-- Documented filtered output schema and rules in `collector/auditd_data.md` and `collector/config/filtering_rules.md`, and added `docs/dev/TESTING.md`.
+- Documented filtered output schema and rules in `collector/auditd_filtered_data.md` and `collector/config/audit_filtering.md`, and added `docs/dev/TESTING.md`.
 - Created audit-filter integration scripts for no-harness, job, and TUI flows under `scripts/`.
 
 ## Block 4:
@@ -78,7 +78,7 @@ session/job mapping and live-tail buffering.
 - Created `collector/scripts/summarize_ebpf_logs.py` to emit `net_summary` rows from filtered eBPF logs.
 - Added `collector/scripts/merge_filtered_logs.py` plus configs in `collector/config/ebpf_summary.yaml` and
   `collector/config/merge_filtering.yaml`.
-- Updated `collector/timeline_data.md` to describe `timeline.filtered.v1` and the normalized `details` payload.
+- Updated `collector/timeline_filtered_data.md` to describe `timeline.filtered.v1` and the normalized `details` payload.
 - Updated `collector/entrypoint.sh` to run summary + merge loops on an interval.
 
 ## Block 7:
@@ -88,7 +88,7 @@ session/job mapping and live-tail buffering.
 ### Details
 - Replaced the summary logic to split bursts by idle gaps, track `connect_count`, and emit `ts_first/ts_last`.
 - Added `dns_lookback_sec`, `min_send_count`, and `min_bytes_sent_total` handling in the summary config.
-- Updated `collector/tests/test_ebpf_summary.py`, `collector/timeline_data.md`, and example/fixture logs under `example_logs/`.
+- Updated `collector/tests/test_ebpf_summary.py`, `collector/timeline_filtered_data.md`, and example/fixture logs under `example_logs/`.
 
 # Agent 
 
@@ -173,7 +173,7 @@ host-side logs.
 - Added `scripts/run_integration_concurrent_sessions_jobs.sh` (historical script; later retired when pytest integration coverage replaced legacy scripts).
 - Updated `harness/harness.py` to capture and persist namespaced `root_pid` for both jobs and TUI sessions.
 - Updated `collector/scripts/filter_audit_logs.py` and `collector/scripts/filter_ebpf_logs.py` to index runs by root PID and propagate ownership through PID ancestry, including namespace PID handling.
-- Updated docs in `collector/config/filtering_rules.md` to describe root-PID-based session/job mapping semantics.
+- Updated docs in `collector/ownership_and_attribution.md` to describe root-PID-based session/job mapping semantics.
 
 # Lasso CLI + Release
 

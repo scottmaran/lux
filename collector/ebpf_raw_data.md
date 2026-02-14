@@ -1,7 +1,19 @@
-# eBPF Data Schema (v1)
+# eBPF Raw Data Schema (`ebpf.v1`)
 
 This document defines the minimal event set and JSON schema for the custom eBPF
-collector output. Events are emitted as JSONL (one JSON object per line).
+loader output (`ebpf.jsonl`). Events are emitted as JSONL (one JSON object per
+line).
+
+Where it shows up:
+- In a run-scoped deployment, this file is typically
+  `logs/<run_id>/collector/raw/ebpf.jsonl`.
+- The exact path is controlled by `COLLECTOR_EBPF_OUTPUT`.
+
+Downstream stages:
+- Filtered (ownership-attributed) output: `collector/ebpf_filtered_data.md`
+  (`ebpf.filtered.v1`, `filtered_ebpf.jsonl`)
+- Summary output for UI-friendly network rows: `collector/ebpf_summary_data.md`
+  (`ebpf.summary.v1`, `filtered_ebpf_summary.jsonl`)
 
 ## Scope (minimal event set)
 The loader emits five event types:

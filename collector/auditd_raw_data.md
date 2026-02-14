@@ -1,31 +1,25 @@
-# Auditd Data Schema (v1)
+# Auditd Raw Log Format (audit.log)
 
-This document defines how auditd emits raw logs.
+This document describes the raw auditd log format as written by `auditd` in the
+collector container.
 
-# Auditd functionality
+The collector pipeline consumes this file and produces `auditd.filtered.v1`
+JSONL. For the filtered JSONL contract, see `collector/auditd_filtered_data.md`.
 
-Here is a list of some common options available to the auditctlutility.
+Where it shows up:
+- In a run-scoped deployment, the raw audit file is typically
+  `logs/<run_id>/collector/raw/audit.log`.
+- The exact path is controlled by `COLLECTOR_AUDIT_LOG` and the collector
+  entrypoint rewrites `auditd.conf` at runtime to point `log_file` at that path.
 
-```text
--w : adds a watch to the file. auditd will record the user activities of that particular file.
--k : on a specific auditd rule, sets an optional string or key, which can be used for identifying the rule (or a set of rules) that created a specific log entry,
--F : adds a field filter: “only match events where field X has value Y.”
--l : lists all currently loaded auditd rules in multiple lines, each line representing a rule.
--t : trims the subtrees that appear after a mount command.
--S : specifies which syscalls the rule applies to (e.g. -S execve,execveat means “only log exec syscalls.” )
--a : appends rule to the end of a comma-separated catalog of list and action pairs
-    Valid list names – task, exit, user, exclude
-    Valid action names – never, always
-  The pairs can be in either of the following order:
-    list, action
-    action, list
-```
-
-# Raw auditd output
+## Record grouping
 Auditd writes one record per line. Each logical event is composed of multiple
 records that share the same `msg=audit(<epoch>.<subsec>:<seq>)` identifier.
 
-Only the SYSCALL line usually carries the rule key. The related EXECVE, PATH, CWD, PROCTITLE lines for the same event can show key=(null) even though the event matched a keyed rule. Group by msg=audit(...:seq) to see the key on the SYSCALL.
+Only the `SYSCALL` record usually carries the audit rule key (`key="..."`). The
+related `EXECVE`, `PATH`, `CWD`, `PROCTITLE` records for the same event can show
+`key=(null)` even though the event matched a keyed rule. Group by the shared
+`seq` to recover the key from the `SYSCALL`.
 
 Example (one logical exec event):
 ```text
@@ -35,24 +29,22 @@ type=CWD msg=audit(1768893700.538:12): cwd="/"
 type=PATH msg=audit(1768893700.538:12): item=0 name="/usr/local/bin/collector-ebpf-loader" ... nametype=NORMAL
 ```
 
-Common record types:
-- `SYSCALL`: primary record with pid/ppid/uid/gid, syscall number, success, exit
-- `EXECVE`: argv list for exec events
-- `PATH`: file path(s), with `nametype` describing role (NORMAL/CREATE/DELETE/PARENT)
-- `CWD`: current working directory
-- `PROCTITLE`: hex-encoded command line
-- `BPRM_FCAPS`: file capabilities (exec metadata)
-- `CONFIG_CHANGE` / `DAEMON_START` / `DAEMON_END`: auditd lifecycle/control
+## Record types we rely on
+Common record types seen in `audit.log`:
+- `SYSCALL`: primary record with `pid`/`ppid`/`uid`/`gid`, syscall number, success, exit code, and usually the rule key.
+- `EXECVE`: argv list for exec events.
+- `PATH`: file path(s), with `nametype` describing role (`NORMAL`/`CREATE`/`DELETE`/`PARENT`).
+- `CWD`: current working directory.
+- `PROCTITLE`: hex-encoded command line (often redundant with `EXECVE` for our use).
+- `BPRM_FCAPS`: exec metadata (capabilities).
+- `CONFIG_CHANGE` / `DAEMON_START` / `DAEMON_END`: auditd lifecycle/control events.
 
-Record grouping:
-- The `seq` value in `msg=audit(...:<seq>)` identifies a single logical event.
-- All records with the same `seq` should be grouped together.
-
-Rule keys (from `collector/config/rules.d/harness.rules`):
-- `exec`: process start events (execve/execveat)
-- `fs_watch`: write/attribute activity under `/work`
-- `fs_change`: rename/unlink/link/symlink under `/work`
-- `fs_meta`: chmod/chown/xattr/utime under `/work`
+## Rule keys used by this repo
+Rule keys come from `collector/config/rules.d/harness.rules`:
+- `exec`: process start events (`execve`/`execveat`) used for PID lineage attribution.
+- `fs_watch`: workspace writes + attribute changes via `-w /work -p wa`.
+- `fs_change`: rename/unlink/link/symlink in workspace via syscall rules.
+- `fs_meta`: chmod/chown/xattr/utime in workspace via syscall rules.
 
 ## Example Raw Outputs from Collector Raw Smoke Coverage
 
@@ -76,8 +68,7 @@ type=SYSCALL msg=audit(1768895520.566:1731): arch=c00000b7 syscall=221 success=y
 type=EXECVE msg=audit(1768895520.566:1731): argc=3 a0="sh" a1="-c" a2=6563686F206869203E202F776F726B2F612E7478743B206D76202F776F726B2F612E747874202F776F726B2F622E7478743B2063686D6F6420363030202F776F726B2F622E7478743B20726D202F776F726B2F622E747874
 ```
 
-#### deeper dive 
-##### What the fields mean
+#### Deeper dive: what the fields mean
 ```text
   - type=SYSCALL: this line is the primary syscall record for the event.
   - msg=audit(1768895520.566:1731): timestamp + sequence number. All lines with :1731 are the same logical event.
@@ -157,76 +148,5 @@ type=PATH msg=audit(1768895520.574:1738): item=0 name="/work/" inode=5 dev=00:2d
 type=PATH msg=audit(1768895520.574:1738): item=1 name="/work/b.txt" inode=11 dev=00:2b mode=0100600 ouid=0 ogid=0 rdev=00:00 nametype=DELETE cap_fp=0 cap_fi=0 cap_fe=0 cap_fver=0 cap_frootid=0
 ```
 
-## Filtered output + rules
-
-Purpose: turn raw auditd events into a short, human-auditable JSONL timeline
-used by the UI. Display semantics are described in `docs/ui/UI_DESIGN.md`.
-Filter configuration lives in `collector/config/filtering.yaml`.
-
-Filtering steps (draft):
-1. Parse auditd records and group them by `msg=audit(...:<seq>)`.
-2. Build a process tree from `exec` events and derive "agent-owned" processes
-   from the session root (typically the `codex` process) or a known UID.
-3. Keep agent-owned `exec` events; for shell execs (`bash`/`sh`), extract the
-   command string from the `-lc` argument when present.
-4. Keep agent-owned filesystem events keyed by `fs_watch`, `fs_change`,
-   `fs_meta`, and derive a single logical event from their PATH/CWD records.
-5. Drop known helper execs (e.g., repo probes) based on the filter config.
-6. Emit JSONL, one event per line, with a stable schema version.
-
-### Filtered JSONL schema (draft v1)
-Common fields (all events):
-- `schema_version` (string): fixed `auditd.filtered.v1`
-- `session_id` (string): harness session identifier (`unknown` when no session
-  metadata is available)
-- `job_id` (string, optional): job identifier for server-mode runs
-- `ts` (string): RFC3339 timestamp derived from the audit event time
-- `source` (string): `audit`
-- `event_type` (string): `exec` or `fs_*`
-- `pid`/`ppid` (int): process IDs
-- `uid`/`gid` (int): user/group IDs
-- `comm` (string): kernel comm
-- `exe` (string): executable path
-- `audit_seq` (int): audit sequence number
-- `audit_key` (string): audit rule key
-- `agent_owned` (bool): true if the event is in the agent process tree
-
-Event-specific fields:
-- `exec`:
-  - `cmd` (string): command line (from argv; for shell, the `-lc` payload)
-  - `cwd` (string): current working directory
-  - `exec_success` (bool): true if the exec succeeded
-  - `exec_exit` (int): raw syscall return value (negative on failure)
-  - `exec_errno_name` (string, optional): errno name for failures (e.g. ENOENT)
-  - `exec_attempted_path` (string, optional): path from PATH records for the attempted executable
-- `fs_create`/`fs_write`/`fs_rename`/`fs_unlink`/`fs_meta`:
-  - `path` (string): file path derived from PATH records
-  - `cwd` (string, optional): CWD when available
-  - `cmd` (string, optional): originating command when linked by PID
-  - `op` (string, optional): derived operation label
-
-### Draft v0 (JSONL)
-
-Target shape for session `session_20260122_001630_de71`. Each line is one
-logical event. This example includes the minimal actions: `pwd` and creating
-`temp.txt`.
-
-```jsonl
-{"schema_version":"auditd.filtered.v1","session_id":"session_20260122_001630_de71","ts":"2026-01-22T00:16:46.927Z","source":"audit","event_type":"exec","cmd":"pwd","cwd":"/work","comm":"bash","exe":"/usr/bin/bash","pid":1037,"ppid":956,"uid":1001,"gid":1001,"audit_seq":353,"audit_key":"exec","agent_owned":true}
-{"schema_version":"auditd.filtered.v1","session_id":"session_20260122_001630_de71","ts":"2026-01-22T00:17:24.211Z","source":"audit","event_type":"exec","cmd":"printf '%s\\n' \"hello world! bringing verification to the ai agent world\" > temp.txt","cwd":"/work","comm":"bash","exe":"/usr/bin/bash","pid":1123,"ppid":956,"uid":1001,"gid":1001,"audit_seq":473,"audit_key":"exec","agent_owned":true}
-{"schema_version":"auditd.filtered.v1","session_id":"session_20260122_001630_de71","ts":"2026-01-22T00:17:24.214Z","source":"audit","event_type":"fs_create","path":"/work/temp.txt","comm":"bash","exe":"/usr/bin/bash","pid":1123,"ppid":956,"uid":1001,"gid":1001,"audit_seq":475,"audit_key":"fs_watch","agent_owned":true}
-```
-
-### Notes
-- `cmd` is derived from the exec argv for that PID.
-- When exec fails and argv is unavailable, `cmd` falls back to `exec_attempted_path` for clarity.
-- `fs_create` uses the PATH record with `nametype=CREATE`.
-- Filesystem events can arrive before the child process's own `exec` record; ownership is
-  still attributed through an already-owned parent PID (`ppid`) when available.
-- Internal helper execs (e.g., `locale-check`, repo probes) are omitted.
-
-### Open questions
-- Should we include helper execs with a low-importance flag instead of
-  omitting them?
-- Should file events include the originating `cmd` to make the timeline more
-  readable (attach the last exec for the same PID)?
+For how these records are normalized into one JSON object per logical event,
+see `collector/auditd_filtered_data.md`.

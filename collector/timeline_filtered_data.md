@@ -1,18 +1,24 @@
-# Timeline Data Schema (v1)
+# Filtered Timeline Data Schema (`timeline.filtered.v1`)
 
 This document defines the unified, filtered timeline emitted by the merger.
 The UI should consume this file rather than raw audit/eBPF logs.
+
+Upstream contracts:
+- Audit filter output: `collector/auditd_filtered_data.md` (`auditd.filtered.v1`)
+- eBPF summary output: `collector/ebpf_summary_data.md` (`ebpf.summary.v1`)
 
 ## Schema version
 - `schema_version`: fixed `timeline.filtered.v1`
 
 ## Common fields (all events)
 - `schema_version` (string)
-- `session_id` (string): session identifier, or `unknown`
-- `job_id` (string, optional): job identifier for server-mode runs
-- `ts` (string): RFC3339 timestamp (UTC, millisecond precision)
+- `session_id` (string): session identifier, or `unknown` when job-owned or when no harness metadata exists
+- `job_id` (string, optional): job identifier for server-mode runs (required when `session_id == "unknown"` in harness runs)
+- `ts` (string): RFC3339 timestamp (UTC)
+  - audit-derived rows are typically millisecond precision
+  - eBPF-derived rows may preserve nanosecond precision from upstream files
 - `source` (string): `audit`, `ebpf`, `proxy` (future)
-- `event_type` (string): `exec`, `fs_create`, `fs_unlink`, `fs_meta`, `net_summary`, `unix_connect`, `http` (future)
+- `event_type` (string): `exec`, `fs_create`, `fs_write`, `fs_rename`, `fs_unlink`, `fs_meta`, `net_summary`, `unix_connect`, `http` (future)
 - `pid` (int, optional)
 - `ppid` (int, optional)
 - `uid` (int, optional)
@@ -20,6 +26,10 @@ The UI should consume this file rather than raw audit/eBPF logs.
 - `comm` (string, optional)
 - `exe` (string, optional)
 - `details` (object): source-specific payload
+
+Notes:
+- `agent_owned` is not included in the timeline rows. The timeline is intended
+  to be the post-filter, owned-by-default view.
 
 ## Source-specific details
 

@@ -56,7 +56,7 @@ The agent container became a real target workload: it installs Codex CLI and exp
 **Phase 10: Audit log filtering and human-readable output (late Jan 2026)**
 Once auditd logs were flowing, the focus shifted to making them reviewable by humans. A dedicated filter stage was introduced to collapse multi-record audit events into a concise JSONL stream of exec and filesystem events, with attribution to sessions and jobs. This included:
 - A configurable filter script that groups audit sequences, applies agent-ownership rules, and emits normalized JSONL.
-- A formal schema and filtering rules documented in `collector/auditd_data.md` and `collector/config/filtering_rules.md`.
+- A formal schema and filtering rules documented in `collector/auditd_filtered_data.md` and `collector/config/audit_filtering.md`.
 - Wiring the filter into the collector container so it can run alongside auditd and eBPF in live-tail mode or batch mode.
 - Unit tests and integration scripts covering no-harness, job, and TUI runs to validate expected exec/fs output and correct session/job mapping.
 

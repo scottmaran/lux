@@ -31,7 +31,7 @@ This document describes the current UI design for the log viewer. The source of 
 ## Summary Metrics
 Three cards display aggregate counts from the currently filtered timeline:
 - **Processes** = `exec` events.
-- **File Changes** = `fs_create` + `fs_unlink` + `fs_meta`.
+- **File Changes** = `fs_create` + `fs_unlink` + `fs_meta` (note: `fs_write` and `fs_rename` can exist in the timeline but are not counted in this metric by default).
 - **Network Calls** = `net_summary`.
 
 Each card shows:

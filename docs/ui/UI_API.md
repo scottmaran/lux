@@ -25,7 +25,7 @@ Defaults to the active run when `run_id` is not provided.
 - `session_id`: filter by session id.
 - `job_id`: filter by job id.
 - `source`: comma-separated list (`audit,ebpf`).
-- `event_type`: comma-separated list (`exec,fs_create,fs_unlink,fs_meta,net_summary,unix_connect`).
+- `event_type`: comma-separated list (`exec,fs_create,fs_write,fs_rename,fs_unlink,fs_meta,net_summary,unix_connect`).
 
 ### Response
 ```json
