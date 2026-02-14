@@ -9,6 +9,11 @@ File:
 Schema:
 - Output schema contract: `collector/ebpf_summary_data.md`
 
+## Runtime wiring (env overrides)
+- `COLLECTOR_EBPF_SUMMARY_CONFIG`: config file path
+- `COLLECTOR_EBPF_FILTER_OUTPUT`: filtered eBPF JSONL input path
+- `COLLECTOR_EBPF_SUMMARY_OUTPUT`: summary JSONL output path
+
 ## Key fields (current)
 
 `schema_version`
@@ -32,4 +37,3 @@ Schema:
 `min_send_count` / `min_bytes_sent_total`
 - Burst suppression thresholds.
 - A burst is dropped only if BOTH thresholds are met (`<=`).
-

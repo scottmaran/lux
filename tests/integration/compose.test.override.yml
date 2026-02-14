@@ -7,7 +7,7 @@ services:
     volumes:
       - ./tests/integration/config:/test-config:ro
     environment:
-      COLLECTOR_FILTER_CONFIG: /test-config/filtering.yaml
+      COLLECTOR_FILTER_CONFIG: /test-config/audit_filtering.yaml
       COLLECTOR_EBPF_FILTER_CONFIG: /test-config/ebpf_filtering.yaml
 
   agent:

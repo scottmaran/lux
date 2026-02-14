@@ -7,6 +7,17 @@ Upstream contracts:
 - Audit filter output: `collector/auditd_filtered_data.md` (`auditd.filtered.v1`)
 - eBPF summary output: `collector/ebpf_summary_data.md` (`ebpf.summary.v1`)
 
+Where it shows up:
+- In a run-scoped deployment, this file is typically
+  `logs/<run_id>/collector/filtered/filtered_timeline.jsonl`.
+- The exact path is controlled by `COLLECTOR_MERGE_FILTER_OUTPUT`.
+
+File semantics (important):
+- The merger rewrites the output file (it is not append-only).
+- In live collector runs, the entrypoint refreshes this file periodically
+  (default interval is 2 seconds). Consumers should treat it as a snapshot file
+  and re-read/poll rather than assuming tail-only behavior.
+
 ## Schema version
 - `schema_version`: fixed `timeline.filtered.v1`
 

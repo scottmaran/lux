@@ -10,6 +10,12 @@ File:
 Schema:
 - Output schema contract: `collector/timeline_filtered_data.md`
 
+## Runtime wiring (env overrides)
+- `COLLECTOR_MERGE_CONFIG`: config file path
+- `COLLECTOR_FILTER_OUTPUT`: filtered audit JSONL input path override (for `source: audit` inputs)
+- `COLLECTOR_EBPF_SUMMARY_OUTPUT`: eBPF summary JSONL input path override (for `source: ebpf` inputs)
+- `COLLECTOR_MERGE_FILTER_OUTPUT`: merged timeline JSONL output path
+
 ## Key fields (current)
 
 `schema_version`
@@ -41,4 +47,3 @@ The merger normalizes each input row to:
 
 This keeps the UI and API consumption stable as upstream per-source schemas
 evolve.
-

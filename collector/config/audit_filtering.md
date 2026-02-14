@@ -1,4 +1,4 @@
-# `filtering.yaml` (Audit Filter Config)
+# `audit_filtering.yaml` (Audit Filter Config)
 
 This file configures the auditd filter stage (`collector-audit-filter`), which:
 - parses raw `audit.log`,
@@ -7,10 +7,25 @@ This file configures the auditd filter stage (`collector-audit-filter`), which:
 - emits compact `auditd.filtered.v1` JSONL.
 
 File:
-- `collector/config/filtering.yaml`
+- `collector/config/audit_filtering.yaml`
 
 Schema:
 - Output schema contract: `collector/auditd_filtered_data.md`
+
+## Runtime wiring (env overrides)
+In container runs, `compose.yml` and/or the collector entrypoint can override
+config paths and inputs/outputs via env vars:
+
+- `COLLECTOR_FILTER_CONFIG`: config file path
+- `COLLECTOR_AUDIT_LOG`: raw audit log path (input)
+- `COLLECTOR_FILTER_OUTPUT`: filtered audit JSONL path (output)
+- `COLLECTOR_SESSIONS_DIR`: run-scoped sessions metadata directory
+- `COLLECTOR_JOBS_DIR`: run-scoped jobs metadata directory
+- `COLLECTOR_ROOT_COMM`: comma-separated root comm override (overrides `agent_ownership.root_comm` when set)
+
+Note:
+- The shipped YAML defaults can look "flat" (`/logs/...`). In real runs they
+  are overridden to run-scoped paths under `/logs/${LASSO_RUN_ID}/...`.
 
 ## Why this config exists
 Audit environments vary:
@@ -72,4 +87,3 @@ rewriting core parsing logic.
 `linking.attach_cmd_to_fs`
 - If enabled, the filter attaches a best-effort `cmd` string to fs events by
   reusing the last seen exec `cmd` for the same PID.
-

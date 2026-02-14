@@ -47,7 +47,7 @@ trigger `/proc` fallback in `collector/ebpf/loader/src/main.rs`.
 ### Details
 - Added `collector/scripts/filter_audit_logs.py` to parse auditd sequences, apply ownership rules, and emit filtered JSONL, including optional
 session/job mapping and live-tail buffering.
-- Wired the filter into the collector image and entrypoint; added `python3-yaml` dependency and config at `collector/config/filtering.yaml`.
+- Wired the filter into the collector image and entrypoint; added `python3-yaml` dependency and config at `collector/config/audit_filtering.yaml`.
 - Documented filtered output schema and rules in `collector/auditd_filtered_data.md` and `collector/config/audit_filtering.md`, and added `docs/dev/TESTING.md`.
 - Created audit-filter integration scripts for no-harness, job, and TUI flows under `scripts/`.
 

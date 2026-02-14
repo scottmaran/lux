@@ -12,6 +12,24 @@ File:
 Schema:
 - Output schema contract: `collector/ebpf_filtered_data.md`
 
+## Runtime wiring (env overrides)
+In container runs, `compose.yml` and/or the collector entrypoint can override
+config paths and inputs/outputs via env vars:
+
+- `COLLECTOR_EBPF_FILTER_CONFIG`: config file path
+- `COLLECTOR_AUDIT_LOG`: raw audit log path (input; used for exec lineage)
+- `COLLECTOR_EBPF_LOG`: raw eBPF JSONL path (input)
+  - In this repo, `compose.yml` sets `COLLECTOR_EBPF_OUTPUT` for the loader,
+    and the entrypoint passes that through to the filter as `COLLECTOR_EBPF_LOG`.
+- `COLLECTOR_EBPF_FILTER_OUTPUT`: filtered eBPF JSONL path (output)
+- `COLLECTOR_SESSIONS_DIR`: run-scoped sessions metadata directory
+- `COLLECTOR_JOBS_DIR`: run-scoped jobs metadata directory
+- `COLLECTOR_ROOT_COMM`: comma-separated root comm override (overrides `ownership.root_comm` when set)
+
+Note:
+- The shipped YAML defaults can look "flat" (`/logs/...`). In real runs they
+  are overridden to run-scoped paths under `/logs/${LASSO_RUN_ID}/...`.
+
 ## Key fields (current)
 
 `schema_version`
@@ -63,4 +81,3 @@ Schema:
 The collector runs the eBPF filter with `--follow` in normal deployments so it:
 - continuously tails audit exec events to keep the PID ownership tree current,
 - continuously tails `ebpf.jsonl` for new events.
-
