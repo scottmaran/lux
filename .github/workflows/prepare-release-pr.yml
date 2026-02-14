@@ -40,16 +40,44 @@ jobs:
           sed -E -i "0,/^version = \".*\"/s//version = \"${VERSION_NO_V}\"/" lasso/Cargo.toml
           sed -E -i "0,/^version = \".*\"/s//version = \"${VERSION_NO_V}\"/" pyproject.toml
 
+      - name: Update lasso/Cargo.lock package version
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from __future__ import annotations
+
+          import os
+          import re
+          from pathlib import Path
+
+          version = os.environ["VERSION_NO_V"]
+          path = Path("lasso/Cargo.lock")
+          text = path.read_text(encoding="utf-8")
+
+          # Keep dependency versions pinned; only update the root package entry so
+          # `cargo build --locked` accepts the lock file after the version bump.
+          pattern = r'(\[\[package\]\]\r?\nname = "lasso"\r?\nversion = ")([^"]+)(")'
+          match = re.search(pattern, text)
+          if not match:
+            raise SystemExit(f"Did not find lasso package entry in {path}")
+          updated = text[: match.start(2)] + version + text[match.end(2) :]
+          if updated == text:
+            raise SystemExit(f"No change made to {path} (unexpected)")
+          path.write_text(updated, encoding="utf-8")
+          PY
+
       - name: Verify updated versions
         run: |
           set -euo pipefail
           CARGO_VERSION=$(sed -n 's/^version = "\(.*\)"/\1/p' lasso/Cargo.toml | head -n 1)
           PYPROJECT_VERSION=$(sed -n 's/^version = "\(.*\)"/\1/p' pyproject.toml | head -n 1)
+          LOCK_VERSION=$(awk 'f && /^version = /{gsub(/version = "|"/,"");print;exit} /^name = "lasso"$/{f=1}' lasso/Cargo.lock)
 
           echo "cargo version:  $CARGO_VERSION"
+          echo "cargo.lock ver: $LOCK_VERSION"
           echo "pyproject ver:  $PYPROJECT_VERSION"
 
-          if [[ "$CARGO_VERSION" != "$VERSION_NO_V" || "$PYPROJECT_VERSION" != "$VERSION_NO_V" ]]; then
+          if [[ "$CARGO_VERSION" != "$VERSION_NO_V" || "$LOCK_VERSION" != "$VERSION_NO_V" || "$PYPROJECT_VERSION" != "$VERSION_NO_V" ]]; then
             echo "version update failed" >&2
             exit 1
           fi
@@ -63,6 +91,7 @@ jobs:
           body: |
             ## Summary
             - bump `lasso/Cargo.toml` to `${{ env.VERSION_NO_V }}`
+            - bump `lasso/Cargo.lock` to `${{ env.VERSION_NO_V }}`
             - bump `pyproject.toml` to `${{ env.VERSION_NO_V }}`
 
             ## Why
@@ -72,6 +101,7 @@ jobs:
           delete-branch: true
           add-paths: |
             lasso/Cargo.toml
+            lasso/Cargo.lock
             pyproject.toml
 
       - name: Print PR URL

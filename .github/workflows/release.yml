@@ -9,11 +9,47 @@ on:
       push_images:
         description: "Build and push GHCR images"
         required: true
+        type: choice
+        options:
+          - "true"
+          - "false"
         default: "true"
       publish_release:
         description: "Create GitHub Release + upload bundles"
         required: true
+        type: choice
+        options:
+          - "true"
+          - "false"
         default: "true"
+      draft:
+        description: "Create GitHub Release as a draft"
+        required: true
+        type: choice
+        options:
+          - "false"
+          - "true"
+        default: "false"
+      prerelease:
+        description: "Mark GitHub Release as a prerelease (not returned by /releases/latest)"
+        required: true
+        type: choice
+        options:
+          - "false"
+          - "true"
+        default: "false"
+      allow_existing_tag:
+        description: "Allow rerun if the git tag already exists (tag must point at this workflow commit)"
+        required: true
+        type: choice
+        options:
+          - "false"
+          - "true"
+        default: "false"
+
+concurrency:
+  group: release-${{ inputs.version }}
+  cancel-in-progress: false
 
 permissions:
   contents: write
@@ -26,21 +62,31 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Verify workflow version matches repo versions
+      - name: Verify workflow inputs and repo versions
         run: |
           set -euo pipefail
           VERSION="${{ inputs.version }}"
+          PUSH_IMAGES="${{ inputs.push_images }}"
+          PUBLISH_RELEASE="${{ inputs.publish_release }}"
+          ALLOW_EXISTING_TAG="${{ inputs.allow_existing_tag }}"
           if [[ ! "$VERSION" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
             echo "release version must match vX.Y.Z (got: $VERSION)" >&2
             exit 1
           fi
 
+          if [[ "$PUBLISH_RELEASE" == "true" && "$PUSH_IMAGES" != "true" ]]; then
+            echo "publish_release=true requires push_images=true" >&2
+            exit 1
+          fi
+
           EXPECTED="${VERSION#v}"
           CARGO_VERSION=$(sed -n 's/^version = "\(.*\)"/\1/p' lasso/Cargo.toml | head -n 1)
+          LOCK_VERSION=$(awk 'f && /^version = /{gsub(/version = "|"/,"");print;exit} /^name = "lasso"$/{f=1}' lasso/Cargo.lock)
           PYPROJECT_VERSION=$(sed -n 's/^version = "\(.*\)"/\1/p' pyproject.toml | head -n 1)
 
           echo "release input:  $VERSION"
           echo "cargo version:  $CARGO_VERSION"
+          echo "cargo.lock ver: $LOCK_VERSION"
           echo "pyproject ver:  $PYPROJECT_VERSION"
 
           if [[ "$CARGO_VERSION" != "$EXPECTED" ]]; then
@@ -48,9 +94,30 @@ jobs:
             exit 1
           fi
 
+          if [[ "$LOCK_VERSION" != "$EXPECTED" ]]; then
+            echo "lasso/Cargo.lock package version ($LOCK_VERSION) must equal $EXPECTED" >&2
+            exit 1
+          fi
+
           if [[ "$PYPROJECT_VERSION" != "$EXPECTED" ]]; then
             echo "pyproject.toml version ($PYPROJECT_VERSION) must equal $EXPECTED" >&2
             exit 1
+          fi
+
+          if git ls-remote --exit-code --tags origin "refs/tags/${VERSION}" >/dev/null 2>&1; then
+            echo "tag exists: ${VERSION}"
+            git fetch --force --depth=1 origin "refs/tags/${VERSION}:refs/tags/${VERSION}"
+            TAG_SHA=$(git rev-parse "${VERSION}^{commit}")
+            echo "tag commit: $TAG_SHA"
+            echo "run commit: ${{ github.sha }}"
+            if [[ "$TAG_SHA" != "${{ github.sha }}" ]]; then
+              echo "tag ${VERSION} points to ${TAG_SHA}, expected ${{ github.sha }}" >&2
+              exit 1
+            fi
+            if [[ "$ALLOW_EXISTING_TAG" != "true" ]]; then
+              echo "tag ${VERSION} already exists; rerun requires allow_existing_tag=true" >&2
+              exit 1
+            fi
           fi
 
   build-cli:
@@ -101,17 +168,17 @@ jobs:
 
       - name: Build CLI
         run: |
-          cargo build --release --target ${{ matrix.target }}
+          cargo build --release --locked --target ${{ matrix.target }}
         working-directory: lasso
 
       - name: Assemble bundle
         run: |
+          set -euo pipefail
           VERSION_TAG=${VERSION#v}
           BUNDLE_DIR=dist/lasso_${VERSION_TAG}_${{ matrix.os }}_${{ matrix.arch }}
           mkdir -p "$BUNDLE_DIR/config"
           cp lasso/target/${{ matrix.target }}/release/lasso "$BUNDLE_DIR/"
           cp compose.yml "$BUNDLE_DIR/"
-          cp compose.codex.yml "$BUNDLE_DIR/"
           cp compose.ui.yml "$BUNDLE_DIR/"
           cp lasso/config/default.yaml "$BUNDLE_DIR/config/default.yaml"
           mkdir -p "$BUNDLE_DIR/docs"
@@ -129,7 +196,7 @@ jobs:
           path: dist/*.tar.gz*
 
   build-images:
-    needs: verify-version
+    needs: build-cli
     runs-on: ubuntu-latest
     if: ${{ inputs.push_images == 'true' }}
     steps:
@@ -154,6 +221,7 @@ jobs:
 
       - name: Build and push images
         run: |
+          set -euo pipefail
           VERSION_TAG=${VERSION#v}
           docker buildx build --platform linux/amd64,linux/arm64 \
             -t ghcr.io/${{ github.repository_owner }}/lasso-agent:${VERSION} \
@@ -175,7 +243,7 @@ jobs:
   publish-release:
     runs-on: ubuntu-latest
     if: ${{ inputs.publish_release == 'true' }}
-    needs: build-cli
+    needs: [build-cli, build-images]
     steps:
       - name: Download artifacts
         uses: actions/download-artifact@v4
@@ -187,4 +255,10 @@ jobs:
         with:
           tag_name: ${{ inputs.version }}
           name: ${{ inputs.version }}
-          files: dist/**/*
+          target_commitish: ${{ github.sha }}
+          draft: ${{ inputs.draft }}
+          prerelease: ${{ inputs.prerelease }}
+          fail_on_unmatched_files: true
+          files: |
+            dist/**/*.tar.gz
+            dist/**/*.tar.gz.sha256

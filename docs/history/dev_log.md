@@ -144,7 +144,7 @@ still opaque.
 
 ### Details
 - Added `HARNESS_RUN_CMD_TEMPLATE` to control the non-interactive command in `harness/harness.py` and wired it through `compose.yml`.
-- Introduced `compose.codex.yml` for mounting host Codex auth/skills without polluting the base compose file.
+- Introduced a Codex-specific compose override for mounting host Codex auth/skills without polluting the base compose file.
 - Created `scripts/run_integration_stub.sh` and `scripts/run_integration_codex.sh` to drive the `/run` API, poll status, and validate
 host-side logs.
 - Documented integration flows and the manual TUI check in the new root `README.md`.
@@ -245,7 +245,7 @@ host-side logs.
 - Added compose contract parity tests to enforce expected service/env/volume invariants and allowlisted override behavior.
 
 ### Details
-- Switched docker-backed tests to use `compose.yml` + `tests/integration/compose.test.override.yml` (+ `compose.codex.yml` for codex lanes).
+- Switched docker-backed tests to use `compose.yml` + `tests/integration/compose.test.override.yml` (plus provider-specific overrides for Codex lanes).
 - Parameterized harness host port in `compose.yml` (`HARNESS_HOST_PORT`) to support per-test isolated stacks.
 - Added `tests/unit/test_compose_contract_parity.py`.
 - Removed copied compose stack file and updated test docs to reflect the base+override model.

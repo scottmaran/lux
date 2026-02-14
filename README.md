@@ -13,7 +13,8 @@ progress. The currently recommended host is macOS with Docker Desktop.
 ### Install (beta)
 Run the versioned installer:
 ```bash
-curl -fsSL https://raw.githubusercontent.com/scottmaran/lasso/v0.1.4/install_lasso.sh | bash -s -- --version v0.1.4
+VERSION=vX.Y.Z
+curl -fsSL "https://raw.githubusercontent.com/scottmaran/lasso/${VERSION}/install_lasso.sh" | bash -s -- --version "${VERSION}"
 ```
 Private repo note: if the repo or release assets are private, unauthenticated
 `curl` downloads may return 404. In that case, download the release bundle with
