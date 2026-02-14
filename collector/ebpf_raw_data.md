@@ -15,10 +15,13 @@ Downstream stages:
 - Summary output for UI-friendly network rows: `collector/ebpf_summary_data.md`
   (`ebpf.summary.v1`, `filtered_ebpf_summary.jsonl`)
 
+Canonical real sample output:
+- `example_logs/ebpf.jsonl`
+
 ## Scope (minimal event set)
 The loader emits five event types:
 - `net_connect` (TCP connect attempts)
-- `net_send` (UDP sendto/sendmsg egress)
+- `net_send` (socket send attempts, including byte counts)
 - `dns_query` (DNS request over UDP/TCP port 53)
 - `dns_response` (DNS response over UDP/TCP port 53)
 - `unix_connect` (Unix domain socket connect, including D-Bus)
@@ -44,9 +47,12 @@ Fields are lower snake_case. Required unless marked optional.
 - `net_send`: number of bytes sent on success, negative errno on failure.
 - `dns_*`/`unix_connect`: `0` on success, negative errno on failure.
 
-## Event payloads
+## Event schemas (by `event_type`)
 
 ### net_connect
+Required additional field:
+- `net` (object): `{ protocol, family, src_ip, src_port, dst_ip, dst_port }`
+
 ```json
 {
   "schema_version": "ebpf.v1",
@@ -71,6 +77,9 @@ Fields are lower snake_case. Required unless marked optional.
 ```
 
 ### net_send
+Required additional field:
+- `net` (object): `{ protocol, family, src_ip, src_port, dst_ip, dst_port, bytes }`
+
 ```json
 {
   "schema_version": "ebpf.v1",
@@ -96,6 +105,9 @@ Fields are lower snake_case. Required unless marked optional.
 ```
 
 ### dns_query
+Required additional field:
+- `dns` (object): `{ transport, query_name, query_type, server_ip, server_port }`
+
 ```json
 {
   "schema_version": "ebpf.v1",
@@ -119,6 +131,9 @@ Fields are lower snake_case. Required unless marked optional.
 ```
 
 ### dns_response
+Required additional field:
+- `dns` (object): `{ transport, query_name, query_type, rcode, answers }`
+
 ```json
 {
   "schema_version": "ebpf.v1",
@@ -142,6 +157,9 @@ Fields are lower snake_case. Required unless marked optional.
 ```
 
 ### unix_connect
+Required additional field:
+- `unix` (object): `{ path, abstract, sock_type }`
+
 ```json
 {
   "schema_version": "ebpf.v1",
