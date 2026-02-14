@@ -55,6 +55,7 @@
 - No doc bump step needed once docs are version-agnostic.
 - Keep the version bump behavior for:
   - `lasso/Cargo.toml`
+  - `lasso/Cargo.lock`
   - `pyproject.toml`
 
 ## Acceptance Criteria

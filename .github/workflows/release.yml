@@ -81,14 +81,21 @@ jobs:
 
           EXPECTED="${VERSION#v}"
           CARGO_VERSION=$(sed -n 's/^version = "\(.*\)"/\1/p' lasso/Cargo.toml | head -n 1)
+          LOCK_VERSION=$(awk 'f && /^version = /{gsub(/version = "|"/,"");print;exit} /^name = "lasso"$/{f=1}' lasso/Cargo.lock)
           PYPROJECT_VERSION=$(sed -n 's/^version = "\(.*\)"/\1/p' pyproject.toml | head -n 1)
 
           echo "release input:  $VERSION"
           echo "cargo version:  $CARGO_VERSION"
+          echo "cargo.lock ver: $LOCK_VERSION"
           echo "pyproject ver:  $PYPROJECT_VERSION"
 
           if [[ "$CARGO_VERSION" != "$EXPECTED" ]]; then
             echo "lasso/Cargo.toml version ($CARGO_VERSION) must equal $EXPECTED" >&2
+            exit 1
+          fi
+
+          if [[ "$LOCK_VERSION" != "$EXPECTED" ]]; then
+            echo "lasso/Cargo.lock package version ($LOCK_VERSION) must equal $EXPECTED" >&2
             exit 1
           fi
 
