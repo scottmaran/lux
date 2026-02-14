@@ -76,7 +76,7 @@ def test_config_validate_rejects_unknown_fields(tmp_path: Path, lasso_cli_binary
     config_path.write_text(
         "\n".join(
             [
-                "version: 1",
+                "version: 2",
                 "unknown_field: true",
                 "paths:",
                 f"  log_root: {tmp_path / 'logs'}",
@@ -109,7 +109,7 @@ def test_config_apply_writes_env_file_and_creates_dirs(tmp_path: Path, lasso_cli
     config_path.write_text(
         "\n".join(
             [
-                "version: 1",
+                "version: 2",
                 "paths:",
                 f"  log_root: {log_root}",
                 f"  workspace_root: {work_root}",
@@ -141,7 +141,7 @@ def test_config_apply_writes_env_file_and_creates_dirs(tmp_path: Path, lasso_cli
 
 def test_config_apply_invalid_config_is_actionable(tmp_path: Path, lasso_cli_binary: Path) -> None:
     config_path = tmp_path / "config.yaml"
-    config_path.write_text("version: 1\nunknown: true\n", encoding="utf-8")
+    config_path.write_text("version: 2\nunknown: true\n", encoding="utf-8")
     env = os.environ.copy()
 
     result = _run(
@@ -164,7 +164,7 @@ def test_doctor_reports_missing_docker_in_json(tmp_path: Path, lasso_cli_binary:
     config_path.write_text(
         "\n".join(
             [
-                "version: 1",
+                "version: 2",
                 "paths:",
                 f"  log_root: {tmp_path / 'logs'}",
                 f"  workspace_root: {tmp_path / 'work'}",
@@ -192,7 +192,7 @@ def test_doctor_reports_log_root_unwritable_in_json(tmp_path: Path, lasso_cli_bi
     config_path.write_text(
         "\n".join(
             [
-                "version: 1",
+                "version: 2",
                 "paths:",
                 "  log_root: /root/lasso-denied",
                 f"  workspace_root: {tmp_path / 'work'}",
@@ -216,12 +216,12 @@ def test_doctor_reports_log_root_unwritable_in_json(tmp_path: Path, lasso_cli_bi
 
 def test_status_fails_when_docker_missing(tmp_path: Path, lasso_cli_binary: Path) -> None:
     config_path = tmp_path / "config.yaml"
-    config_path.write_text("version: 1\n", encoding="utf-8")
+    config_path.write_text("version: 2\n", encoding="utf-8")
     env = os.environ.copy()
     env["PATH"] = ""
 
     result = _run(
-        [str(lasso_cli_binary), "--config", str(config_path), "status"],
+        [str(lasso_cli_binary), "--config", str(config_path), "status", "--collector-only"],
         cwd=ROOT_DIR,
         env=env,
         timeout=30,
@@ -245,7 +245,7 @@ def test_config_apply_rewrites_env_file_when_release_tag_changes(
     config_path.write_text(
         "\n".join(
             [
-                "version: 1",
+                "version: 2",
                 "paths:",
                 f"  log_root: {log_root}",
                 f"  workspace_root: {work_root}",
@@ -267,7 +267,7 @@ def test_config_apply_rewrites_env_file_when_release_tag_changes(
     config_path.write_text(
         "\n".join(
             [
-                "version: 1",
+                "version: 2",
                 "paths:",
                 f"  log_root: {log_root}",
                 f"  workspace_root: {work_root}",

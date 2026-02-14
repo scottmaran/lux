@@ -130,10 +130,13 @@ uv sync
 uv run pytest tests/unit tests/fixture -q
 
 # Integration gate
-uv run pytest tests/integration -m "integration and not agent_codex" -q
+uv run pytest tests/integration -m "integration and not agent_codex and not agent_claude" -q
 
 # Local-only Codex agent E2E gates (requires ~/.codex auth + skills)
 uv run pytest tests/integration -m agent_codex -q
+
+# Local-only Claude agent E2E gates
+uv run pytest tests/integration -m agent_claude -q
 
 # Stress gate
 uv run pytest tests/stress -q
@@ -168,7 +171,7 @@ Integration gate note:
   use a local release server hook (`LASSO_RELEASE_BASE_URL`) so they do not
   touch a developer machine’s real `~/.lasso`, `~/.local/bin`, or `~/.config/lasso`.
 - Local Codex coverage includes `tests/integration/test_agent_codex_cli_tui.py`,
-  which validates interactive Codex behavior through `lasso tui --codex`.
+  which validates interactive Codex behavior through `lasso tui --provider codex`.
 
 Marker-based selection:
 
@@ -176,8 +179,9 @@ Marker-based selection:
 uv run pytest -m unit -q
 uv run pytest -m fixture -q
 uv run pytest -m integration -q
-uv run pytest -m "integration and not agent_codex" -q
+uv run pytest -m "integration and not agent_codex and not agent_claude" -q
 uv run pytest -m agent_codex -q
+uv run pytest -m agent_claude -q
 uv run pytest -m stress -q
 uv run pytest -m regression -q
 uv run pytest -m "not integration and not stress" -q
@@ -196,6 +200,7 @@ uv run python scripts/all_tests.py --lane full
 
 # Local-only Codex lane
 uv run python scripts/all_tests.py --lane codex
+uv run python scripts/all_tests.py --lane claude
 
 # Local comprehensive lane (CI-safe + Codex)
 uv run python scripts/all_tests.py --lane local-full

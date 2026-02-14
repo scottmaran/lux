@@ -49,6 +49,17 @@ def load_config(path: str) -> dict:
         ) from exc
 
 
+def env_root_comm_override() -> set[str] | None:
+    raw = os.getenv("COLLECTOR_ROOT_COMM")
+    if raw is None:
+        return None
+    stripped = raw.strip()
+    if not stripped:
+        return None
+    values = {item.strip() for item in stripped.split(",") if item.strip()}
+    return values or None
+
+
 def parse_iso(value: str | None) -> dt.datetime | None:
     if not value:
         return None
@@ -489,6 +500,9 @@ def build_event(
     root_pids = run_index.root_pids
     agent_uid = cfg.get("agent_ownership", {}).get("uid")
     root_comm = set(cfg.get("agent_ownership", {}).get("root_comm", []))
+    env_root_comm = env_root_comm_override()
+    if env_root_comm is not None:
+        root_comm = env_root_comm
     shell_comm = set(exec_cfg.get("shell_comm", []))
 
     if audit_key in include_exec:
@@ -656,7 +670,10 @@ def main() -> int:
     state = FilterState()
     run_index = RunIndex(sessions_dir, jobs_dir)
     pending = []
-    pending_delay_sec = 2.0
+    # In follow mode, session/job root markers can arrive slightly after the first owned
+    # audit events. Buffer a bit longer to avoid emitting "unknown" owner rows that pollute
+    # the merged timeline and break strict ownership validation.
+    pending_delay_sec = 10.0
 
     def assign_run(event: dict, force_refresh: bool = False) -> tuple[str | None, str | None]:
         pid = event.get("_ns_pid")
@@ -700,8 +717,7 @@ def main() -> int:
                 emit(event)
                 continue
             if now - enqueued >= pending_delay_sec:
-                assign_run(event)
-                emit(event)
+                # Drop still-unattributed events instead of emitting ownerless rows.
                 continue
             remaining.append((event, enqueued))
         pending[:] = remaining

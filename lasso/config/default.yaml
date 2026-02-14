@@ -1,4 +1,4 @@
-version: 1
+version: 2
 
 paths:
   log_root: ~/lasso-logs
@@ -14,3 +14,48 @@ harness:
   api_host: 127.0.0.1
   api_port: 8081
   api_token: ""
+
+providers:
+  codex:
+    auth_mode: api_key
+    mount_host_state_in_api_mode: false
+    commands:
+      tui: "codex -C /work -s danger-full-access"
+      run_template: "codex -C /work -s danger-full-access exec {prompt}"
+    auth:
+      api_key:
+        secrets_file: ~/.config/lasso/secrets/codex.env
+        env_key: OPENAI_API_KEY
+      host_state:
+        paths:
+          - ~/.codex/auth.json
+          - ~/.codex/skills
+    ownership:
+      root_comm:
+        - bash
+        - sh
+        - setsid
+        - timeout
+        - codex
+  claude:
+    auth_mode: host_state
+    mount_host_state_in_api_mode: false
+    commands:
+      tui: "claude"
+      run_template: "claude -p {prompt}"
+    auth:
+      api_key:
+        secrets_file: ~/.config/lasso/secrets/claude.env
+        env_key: ANTHROPIC_API_KEY
+      host_state:
+        paths:
+          - ~/.claude.json
+          - ~/.claude
+          - ~/.config/claude-code/auth.json
+    ownership:
+      root_comm:
+        - bash
+        - sh
+        - setsid
+        - timeout
+        - claude

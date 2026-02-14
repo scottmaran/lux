@@ -40,8 +40,10 @@ enum Commands {
         command: ConfigCommand,
     },
     Up {
-        #[arg(long)]
-        codex: bool,
+        #[arg(long, conflicts_with = "collector_only")]
+        provider: Option<String>,
+        #[arg(long, default_value_t = false, conflicts_with = "provider")]
+        collector_only: bool,
         #[arg(long)]
         ui: bool,
         #[arg(long, value_parser = ["always", "never", "missing"]) ]
@@ -52,22 +54,24 @@ enum Commands {
         timeout_sec: Option<u64>,
     },
     Down {
-        #[arg(long)]
-        codex: bool,
+        #[arg(long, conflicts_with = "collector_only")]
+        provider: Option<String>,
+        #[arg(long, default_value_t = false, conflicts_with = "provider")]
+        collector_only: bool,
         #[arg(long)]
         ui: bool,
-        #[arg(long)]
-        volumes: bool,
-        #[arg(long)]
-        remove_orphans: bool,
     },
     Status {
-        #[arg(long)]
-        codex: bool,
+        #[arg(long, conflicts_with = "collector_only")]
+        provider: Option<String>,
+        #[arg(long, default_value_t = false, conflicts_with = "provider")]
+        collector_only: bool,
         #[arg(long)]
         ui: bool,
     },
     Run {
+        #[arg(long)]
+        provider: String,
         prompt: String,
         #[arg(long)]
         capture_input: Option<bool>,
@@ -80,7 +84,7 @@ enum Commands {
     },
     Tui {
         #[arg(long)]
-        codex: bool,
+        provider: String,
     },
     Jobs {
         #[command(subcommand)]
@@ -204,6 +208,7 @@ struct Config {
     release: Release,
     docker: Docker,
     harness: Harness,
+    providers: BTreeMap<String, Provider>,
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
@@ -233,14 +238,74 @@ struct Harness {
     api_token: String,
 }
 
+#[derive(Debug, Deserialize, Serialize, Clone, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+enum AuthMode {
+    ApiKey,
+    HostState,
+}
+
+impl AuthMode {
+    fn as_str(&self) -> &'static str {
+        match self {
+            Self::ApiKey => "api_key",
+            Self::HostState => "host_state",
+        }
+    }
+}
+
+#[derive(Debug, Deserialize, Serialize, Clone)]
+#[serde(default, deny_unknown_fields)]
+struct Provider {
+    auth_mode: AuthMode,
+    mount_host_state_in_api_mode: bool,
+    commands: ProviderCommands,
+    auth: ProviderAuth,
+    ownership: ProviderOwnership,
+}
+
+#[derive(Debug, Deserialize, Serialize, Clone)]
+#[serde(default, deny_unknown_fields)]
+struct ProviderCommands {
+    tui: String,
+    run_template: String,
+}
+
+#[derive(Debug, Deserialize, Serialize, Clone)]
+#[serde(default, deny_unknown_fields)]
+struct ProviderAuth {
+    api_key: ProviderApiKeyAuth,
+    host_state: ProviderHostStateAuth,
+}
+
+#[derive(Debug, Deserialize, Serialize, Clone)]
+#[serde(default, deny_unknown_fields)]
+struct ProviderApiKeyAuth {
+    secrets_file: String,
+    env_key: String,
+}
+
+#[derive(Debug, Deserialize, Serialize, Clone)]
+#[serde(default, deny_unknown_fields)]
+struct ProviderHostStateAuth {
+    paths: Vec<String>,
+}
+
+#[derive(Debug, Deserialize, Serialize, Clone)]
+#[serde(default, deny_unknown_fields)]
+struct ProviderOwnership {
+    root_comm: Vec<String>,
+}
+
 impl Default for Config {
     fn default() -> Self {
         Self {
-            version: 1,
+            version: 2,
             paths: Paths::default(),
             release: Release::default(),
             docker: Docker::default(),
             harness: Harness::default(),
+            providers: default_providers(),
         }
     }
 }
@@ -280,6 +345,120 @@ impl Default for Harness {
     }
 }
 
+impl Default for AuthMode {
+    fn default() -> Self {
+        Self::ApiKey
+    }
+}
+
+impl Default for Provider {
+    fn default() -> Self {
+        Self {
+            auth_mode: AuthMode::ApiKey,
+            mount_host_state_in_api_mode: false,
+            commands: ProviderCommands::default(),
+            auth: ProviderAuth::default(),
+            ownership: ProviderOwnership::default(),
+        }
+    }
+}
+
+impl Default for ProviderCommands {
+    fn default() -> Self {
+        Self {
+            tui: "bash -l".to_string(),
+            run_template: "bash -lc {prompt}".to_string(),
+        }
+    }
+}
+
+impl Default for ProviderAuth {
+    fn default() -> Self {
+        Self {
+            api_key: ProviderApiKeyAuth::default(),
+            host_state: ProviderHostStateAuth::default(),
+        }
+    }
+}
+
+impl Default for ProviderApiKeyAuth {
+    fn default() -> Self {
+        Self {
+            secrets_file: "".to_string(),
+            env_key: "".to_string(),
+        }
+    }
+}
+
+impl Default for ProviderHostStateAuth {
+    fn default() -> Self {
+        Self { paths: Vec::new() }
+    }
+}
+
+impl Default for ProviderOwnership {
+    fn default() -> Self {
+        Self {
+            root_comm: Vec::new(),
+        }
+    }
+}
+
+fn default_providers() -> BTreeMap<String, Provider> {
+    let mut providers = BTreeMap::new();
+    providers.insert(
+        "codex".to_string(),
+        Provider {
+            auth_mode: AuthMode::ApiKey,
+            mount_host_state_in_api_mode: false,
+            commands: ProviderCommands {
+                tui: "codex -C /work -s danger-full-access".to_string(),
+                run_template: "codex -C /work -s danger-full-access exec {prompt}".to_string(),
+            },
+            auth: ProviderAuth {
+                api_key: ProviderApiKeyAuth {
+                    secrets_file: "~/.config/lasso/secrets/codex.env".to_string(),
+                    env_key: "OPENAI_API_KEY".to_string(),
+                },
+                host_state: ProviderHostStateAuth {
+                    paths: vec!["~/.codex/auth.json".to_string(), "~/.codex/skills".to_string()],
+                },
+            },
+            ownership: ProviderOwnership {
+                root_comm: vec!["codex".to_string()],
+            },
+        },
+    );
+    providers.insert(
+        "claude".to_string(),
+        Provider {
+            auth_mode: AuthMode::HostState,
+            mount_host_state_in_api_mode: false,
+            commands: ProviderCommands {
+                tui: "claude".to_string(),
+                run_template: "claude -p {prompt}".to_string(),
+            },
+            auth: ProviderAuth {
+                api_key: ProviderApiKeyAuth {
+                    secrets_file: "~/.config/lasso/secrets/claude.env".to_string(),
+                    env_key: "ANTHROPIC_API_KEY".to_string(),
+                },
+                host_state: ProviderHostStateAuth {
+                    paths: vec![
+                        "~/.claude.json".to_string(),
+                        "~/.claude".to_string(),
+                        "~/.config/claude-code/auth.json".to_string(),
+                    ],
+                },
+            },
+            ownership: ProviderOwnership {
+                root_comm: vec!["claude".to_string()],
+            },
+        },
+    );
+    providers
+}
+
 #[derive(Debug, Serialize)]
 struct JsonResult<T: Serialize> {
     ok: bool,
@@ -298,6 +477,14 @@ struct Context {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct ActiveRunState {
+    run_id: String,
+    started_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct ActiveProviderState {
+    provider: String,
+    auth_mode: String,
     run_id: String,
     started_at: String,
 }
@@ -374,27 +561,41 @@ fn main() -> Result<(), LassoError> {
     let result = match cli.command {
         Commands::Config { command } => handle_config(&ctx, command),
         Commands::Up {
-            codex,
+            provider,
+            collector_only,
             ui,
             pull,
             wait,
             timeout_sec,
-        } => handle_up(&ctx, codex, ui, pull, wait, timeout_sec, &runner),
-        Commands::Down {
-            codex,
+        } => handle_up(
+            &ctx,
+            provider,
+            collector_only,
             ui,
-            volumes,
-            remove_orphans,
-        } => handle_down(&ctx, codex, ui, volumes, remove_orphans, &runner),
-        Commands::Status { codex, ui } => handle_status(&ctx, codex, ui, &runner),
+            pull,
+            wait,
+            timeout_sec,
+            &runner,
+        ),
+        Commands::Down {
+            provider,
+            collector_only,
+            ui,
+        } => handle_down(&ctx, provider, collector_only, ui, &runner),
+        Commands::Status {
+            provider,
+            collector_only,
+            ui,
+        } => handle_status(&ctx, provider, collector_only, ui, &runner),
         Commands::Run {
+            provider,
             prompt,
             capture_input,
             cwd,
             timeout_sec,
             env,
-        } => handle_run(&ctx, prompt, capture_input, cwd, timeout_sec, env),
-        Commands::Tui { codex } => handle_tui(&ctx, codex, &runner),
+        } => handle_run(&ctx, provider, prompt, capture_input, cwd, timeout_sec, env),
+        Commands::Tui { provider } => handle_tui(&ctx, provider, &runner),
         Commands::Jobs { command } => handle_jobs(&ctx, command),
         Commands::Doctor => handle_doctor(&ctx),
         Commands::Paths => handle_paths(&ctx),
@@ -533,13 +734,55 @@ fn ensure_parent(path: &Path) -> Result<(), LassoError> {
 fn read_config(path: &Path) -> Result<Config, LassoError> {
     let content = fs::read_to_string(path)?;
     let cfg: Config = serde_yaml::from_str(&content)?;
-    if cfg.version != 1 {
+    if cfg.version != 2 {
         return Err(LassoError::Config(format!(
             "unsupported config version {}",
             cfg.version
         )));
     }
+    validate_config(&cfg)?;
     Ok(cfg)
+}
+
+fn validate_config(cfg: &Config) -> Result<(), LassoError> {
+    if cfg.providers.is_empty() {
+        return Err(LassoError::Config(
+            "config.providers must contain at least one provider".to_string(),
+        ));
+    }
+    for (name, provider) in &cfg.providers {
+        if provider.commands.tui.trim().is_empty() {
+            return Err(LassoError::Config(format!(
+                "providers.{name}.commands.tui must be non-empty"
+            )));
+        }
+        if provider.commands.run_template.trim().is_empty() {
+            return Err(LassoError::Config(format!(
+                "providers.{name}.commands.run_template must be non-empty"
+            )));
+        }
+        if provider.auth.api_key.secrets_file.trim().is_empty() {
+            return Err(LassoError::Config(format!(
+                "providers.{name}.auth.api_key.secrets_file must be non-empty"
+            )));
+        }
+        if provider.auth.api_key.env_key.trim().is_empty() {
+            return Err(LassoError::Config(format!(
+                "providers.{name}.auth.api_key.env_key must be non-empty"
+            )));
+        }
+        if provider.auth.host_state.paths.is_empty() {
+            return Err(LassoError::Config(format!(
+                "providers.{name}.auth.host_state.paths must contain at least one path"
+            )));
+        }
+        if provider.ownership.root_comm.is_empty() {
+            return Err(LassoError::Config(format!(
+                "providers.{name}.ownership.root_comm must contain at least one process name"
+            )));
+        }
+    }
+    Ok(())
 }
 
 fn expand_path(input: &str) -> String {
@@ -577,7 +820,24 @@ fn config_to_env(cfg: &Config) -> BTreeMap<String, String> {
         "HARNESS_HTTP_PORT".to_string(),
         cfg.harness.api_port.to_string(),
     );
+    let root_comm = merged_root_comm(cfg);
+    if !root_comm.is_empty() {
+        envs.insert("COLLECTOR_ROOT_COMM".to_string(), root_comm.join(","));
+    }
     envs
+}
+
+fn merged_root_comm(cfg: &Config) -> Vec<String> {
+    let mut merged = std::collections::BTreeSet::new();
+    for provider in cfg.providers.values() {
+        for value in &provider.ownership.root_comm {
+            let item = value.trim();
+            if !item.is_empty() {
+                merged.insert(item.to_string());
+            }
+        }
+    }
+    merged.into_iter().collect()
 }
 
 fn write_env_file(path: &Path, envs: &BTreeMap<String, String>) -> Result<(), LassoError> {
@@ -1078,22 +1338,55 @@ fn temp_download_dir() -> PathBuf {
     env::temp_dir().join(format!("lasso-update-{}-{}", std::process::id(), nanos))
 }
 
-fn configured_compose_files(ctx: &Context, codex: bool, ui: bool) -> Vec<PathBuf> {
-    if !ctx.compose_file_overrides.is_empty() {
-        return ctx.compose_file_overrides.clone();
-    }
-    let mut files = vec![ctx.bundle_dir.join("compose.yml")];
-    if codex {
-        files.push(ctx.bundle_dir.join("compose.codex.yml"));
-    }
-    if ui {
-        files.push(ctx.bundle_dir.join("compose.ui.yml"));
-    }
+#[derive(Debug)]
+enum LifecycleTarget {
+    CollectorOnly,
+    Provider(String),
+}
+
+#[derive(Debug, Serialize, Default)]
+struct ComposeServiceOverride {
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    volumes: Vec<String>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    environment: Vec<String>,
+}
+
+#[derive(Debug, Serialize, Default)]
+struct ComposeRuntimeOverride {
+    services: BTreeMap<String, ComposeServiceOverride>,
+}
+
+#[derive(Debug)]
+struct ProviderRuntimeCompose {
+    override_file: PathBuf,
+    warnings: Vec<String>,
+}
+
+fn configured_compose_files(
+    ctx: &Context,
+    ui: bool,
+    runtime_overrides: &[PathBuf],
+) -> Vec<PathBuf> {
+    let mut files = if !ctx.compose_file_overrides.is_empty() {
+        ctx.compose_file_overrides.clone()
+    } else {
+        let mut resolved = vec![ctx.bundle_dir.join("compose.yml")];
+        if ui {
+            resolved.push(ctx.bundle_dir.join("compose.ui.yml"));
+        }
+        resolved
+    };
+    files.extend(runtime_overrides.iter().cloned());
     files
 }
 
-fn compose_files(ctx: &Context, codex: bool, ui: bool) -> Result<Vec<PathBuf>, LassoError> {
-    let files = configured_compose_files(ctx, codex, ui);
+fn compose_files(
+    ctx: &Context,
+    ui: bool,
+    runtime_overrides: &[PathBuf],
+) -> Result<Vec<PathBuf>, LassoError> {
+    let files = configured_compose_files(ctx, ui, runtime_overrides);
     for path in &files {
         if !path.exists() {
             return Err(LassoError::Config(format!(
@@ -1105,11 +1398,15 @@ fn compose_files(ctx: &Context, codex: bool, ui: bool) -> Result<Vec<PathBuf>, L
     Ok(files)
 }
 
-fn compose_base_args(ctx: &Context, codex: bool, ui: bool) -> Result<Vec<String>, LassoError> {
-    let cfg = read_config(&ctx.config_path)?;
-    let files = compose_files(ctx, codex, ui)?;
+fn compose_base_args(
+    ctx: &Context,
+    cfg: &Config,
+    ui: bool,
+    runtime_overrides: &[PathBuf],
+) -> Result<Vec<String>, LassoError> {
+    let files = compose_files(ctx, ui, runtime_overrides)?;
     if !ctx.env_file.exists() {
-        let envs = config_to_env(&cfg);
+        let envs = config_to_env(cfg);
         write_env_file(&ctx.env_file, &envs)?;
     }
     let mut args = vec![
@@ -1119,13 +1416,230 @@ fn compose_base_args(ctx: &Context, codex: bool, ui: bool) -> Result<Vec<String>
     ];
     if !cfg.docker.project_name.trim().is_empty() {
         args.push("-p".to_string());
-        args.push(cfg.docker.project_name);
+        args.push(cfg.docker.project_name.clone());
     }
     for file in files {
         args.push("-f".to_string());
         args.push(file.to_string_lossy().to_string());
     }
     Ok(args)
+}
+
+fn resolve_lifecycle_target(
+    provider: Option<String>,
+    collector_only: bool,
+) -> Result<LifecycleTarget, LassoError> {
+    if collector_only {
+        if provider.is_some() {
+            return Err(LassoError::Config(
+                "--collector-only conflicts with --provider".to_string(),
+            ));
+        }
+        return Ok(LifecycleTarget::CollectorOnly);
+    }
+    let provider = provider.ok_or_else(|| {
+        LassoError::Config("missing required --provider for this command".to_string())
+    })?;
+    if provider.trim().is_empty() {
+        return Err(LassoError::Config(
+            "--provider must be non-empty".to_string(),
+        ));
+    }
+    Ok(LifecycleTarget::Provider(provider))
+}
+
+fn provider_from_config<'a>(cfg: &'a Config, provider: &str) -> Result<&'a Provider, LassoError> {
+    cfg.providers.get(provider).ok_or_else(|| {
+        LassoError::Config(format!(
+            "provider '{provider}' is not defined in config.providers"
+        ))
+    })
+}
+
+fn active_provider_state_path(log_root: &Path) -> PathBuf {
+    log_root.join(".active_provider.json")
+}
+
+fn load_active_provider_state(log_root: &Path) -> Result<Option<ActiveProviderState>, LassoError> {
+    let state_path = active_provider_state_path(log_root);
+    if !state_path.exists() {
+        return Ok(None);
+    }
+    let content = fs::read_to_string(&state_path)?;
+    let parsed: ActiveProviderState = serde_json::from_str(&content)?;
+    Ok(Some(parsed))
+}
+
+fn write_active_provider_state(
+    log_root: &Path,
+    provider: &str,
+    auth_mode: &AuthMode,
+    run_id: &str,
+) -> Result<(), LassoError> {
+    fs::create_dir_all(log_root)?;
+    let state = ActiveProviderState {
+        provider: provider.to_string(),
+        auth_mode: auth_mode.as_str().to_string(),
+        run_id: run_id.to_string(),
+        started_at: Utc::now().to_rfc3339(),
+    };
+    let path = active_provider_state_path(log_root);
+    let tmp_path = path.with_extension("json.tmp");
+    let body = serde_json::to_string_pretty(&state)?;
+    fs::write(&tmp_path, format!("{body}\n"))?;
+    fs::rename(&tmp_path, &path)?;
+    Ok(())
+}
+
+fn clear_active_provider_state(log_root: &Path) -> Result<(), LassoError> {
+    let path = active_provider_state_path(log_root);
+    if path.exists() {
+        fs::remove_file(path)?;
+    }
+    Ok(())
+}
+
+fn resolve_host_state_destination(host_path: &Path) -> String {
+    if let Some(home) = home_dir() {
+        if let Ok(relative) = host_path.strip_prefix(home) {
+            let mapped = Path::new("/home/agent").join(relative);
+            return mapped.to_string_lossy().to_string();
+        }
+    }
+    if host_path.is_absolute() {
+        return host_path.to_string_lossy().to_string();
+    }
+    Path::new("/home/agent")
+        .join(host_path)
+        .to_string_lossy()
+        .to_string()
+}
+
+fn generate_provider_runtime_compose(
+    ctx: &Context,
+    provider_name: &str,
+    provider: &Provider,
+) -> Result<ProviderRuntimeCompose, LassoError> {
+    let runtime_dir = ctx
+        .config_path
+        .parent()
+        .map(PathBuf::from)
+        .unwrap_or_else(default_config_dir)
+        .join("runtime");
+    fs::create_dir_all(&runtime_dir)?;
+
+    let override_file = runtime_dir.join(format!("compose.provider.{provider_name}.yml"));
+    let mut warnings = Vec::new();
+
+    let mut agent = ComposeServiceOverride::default();
+    let mut harness = ComposeServiceOverride::default();
+
+    harness
+        .environment
+        .push(format!("HARNESS_TUI_CMD={}", provider.commands.tui));
+    harness.environment.push(format!(
+        "HARNESS_RUN_CMD_TEMPLATE={}",
+        provider.commands.run_template
+    ));
+
+    agent
+        .environment
+        .push(format!("LASSO_PROVIDER={provider_name}"));
+    agent
+        .environment
+        .push(format!("LASSO_AUTH_MODE={}", provider.auth_mode.as_str()));
+    agent.environment.push(format!(
+        "LASSO_PROVIDER_MOUNT_HOST_STATE_IN_API_MODE={}",
+        if provider.mount_host_state_in_api_mode {
+            "true"
+        } else {
+            "false"
+        }
+    ));
+    agent.environment.push(format!(
+        "LASSO_PROVIDER_ENV_KEY={}",
+        provider.auth.api_key.env_key
+    ));
+
+    let mut host_state_count = 0usize;
+    let should_mount_host_state = provider.auth_mode == AuthMode::HostState
+        || provider.mount_host_state_in_api_mode;
+    if should_mount_host_state {
+        for configured in &provider.auth.host_state.paths {
+            let host_path = PathBuf::from(expand_path(configured));
+            if !host_path.exists() {
+                warnings.push(format!(
+                    "provider '{provider_name}': host-state path missing, skipping mount: {}",
+                    host_path.display()
+                ));
+                continue;
+            }
+            let mount_dst = format!("/run/lasso/provider_host_state/{host_state_count}");
+            agent.volumes.push(format!(
+                "{}:{}:ro",
+                host_path.to_string_lossy(),
+                mount_dst
+            ));
+            agent.environment.push(format!(
+                "LASSO_PROVIDER_HOST_STATE_SRC_{host_state_count}={mount_dst}"
+            ));
+            agent.environment.push(format!(
+                "LASSO_PROVIDER_HOST_STATE_DST_{host_state_count}={}",
+                resolve_host_state_destination(&host_path)
+            ));
+            host_state_count += 1;
+        }
+        if host_state_count == 0 {
+            warnings.push(format!(
+                "provider '{provider_name}': all configured host-state paths are missing"
+            ));
+        }
+    }
+    agent
+        .environment
+        .push(format!("LASSO_PROVIDER_HOST_STATE_COUNT={host_state_count}"));
+
+    if provider.auth_mode == AuthMode::ApiKey {
+        let secrets_file = PathBuf::from(expand_path(&provider.auth.api_key.secrets_file));
+        if !secrets_file.exists() {
+            return Err(LassoError::Config(format!(
+                "provider '{provider_name}': API secrets file not found: {}",
+                secrets_file.display()
+            )));
+        }
+        if !secrets_file.is_file() {
+            return Err(LassoError::Config(format!(
+                "provider '{provider_name}': API secrets path is not a file: {}",
+                secrets_file.display()
+            )));
+        }
+        let container_secrets = "/run/lasso/provider_secrets.env";
+        agent.volumes.push(format!(
+            "{}:{}:ro",
+            secrets_file.to_string_lossy(),
+            container_secrets
+        ));
+        agent.environment.push(format!(
+            "LASSO_PROVIDER_SECRETS_FILE={container_secrets}"
+        ));
+    } else {
+        agent
+            .environment
+            .push("LASSO_PROVIDER_SECRETS_FILE=".to_string());
+    }
+
+    let mut runtime_override = ComposeRuntimeOverride::default();
+    runtime_override.services.insert("agent".to_string(), agent);
+    runtime_override
+        .services
+        .insert("harness".to_string(), harness);
+    let body = serde_yaml::to_string(&runtime_override)?;
+    fs::write(&override_file, body)?;
+
+    Ok(ProviderRuntimeCompose {
+        override_file,
+        warnings,
+    })
 }
 
 fn run_id_from_now() -> String {
@@ -1241,27 +1755,95 @@ fn resolve_run_id_from_selector(
     resolve_default_run_id(log_root)
 }
 
-fn stack_has_running_services<R: DockerRunner>(
+fn running_services<R: DockerRunner>(
     ctx: &Context,
     runner: &R,
-    codex: bool,
+    cfg: &Config,
     ui: bool,
-) -> Result<bool, LassoError> {
-    let mut args = compose_base_args(ctx, codex, ui)?;
+    runtime_overrides: &[PathBuf],
+    env_overrides: &BTreeMap<String, String>,
+    services: &[&str],
+) -> Result<Vec<String>, LassoError> {
+    let mut args = compose_base_args(ctx, cfg, ui, runtime_overrides)?;
     args.push("ps".to_string());
     args.push("--status".to_string());
     args.push("running".to_string());
     args.push("--services".to_string());
-    let output = execute_docker(
+    for service in services {
+        args.push((*service).to_string());
+    }
+    let output = execute_docker(ctx, runner, &args, env_overrides, true, false)?;
+    let text = String::from_utf8_lossy(&output.stdout);
+    Ok(text
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+        .map(ToString::to_string)
+        .collect())
+}
+
+fn provider_plane_is_running<R: DockerRunner>(
+    ctx: &Context,
+    runner: &R,
+    cfg: &Config,
+    ui: bool,
+    env_overrides: &BTreeMap<String, String>,
+) -> Result<bool, LassoError> {
+    let running = running_services(
         ctx,
         runner,
-        &args,
-        &BTreeMap::new(),
-        true,
-        false,
+        cfg,
+        ui,
+        &[],
+        env_overrides,
+        &["agent", "harness"],
     )?;
-    let text = String::from_utf8_lossy(&output.stdout);
-    Ok(text.lines().any(|line| !line.trim().is_empty()))
+    Ok(running.iter().any(|s| s == "agent") && running.iter().any(|s| s == "harness"))
+}
+
+fn collector_is_running<R: DockerRunner>(
+    ctx: &Context,
+    runner: &R,
+    cfg: &Config,
+    ui: bool,
+    env_overrides: &BTreeMap<String, String>,
+) -> Result<bool, LassoError> {
+    let running = running_services(
+        ctx,
+        runner,
+        cfg,
+        ui,
+        &[],
+        env_overrides,
+        &["collector"],
+    )?;
+    Ok(running.iter().any(|s| s == "collector"))
+}
+
+fn parse_compose_ps_output(text: &str) -> serde_json::Value {
+    match serde_json::from_str(text) {
+        Ok(value) => value,
+        Err(_) => {
+            let mut items = Vec::new();
+            for line in text.lines() {
+                let line = line.trim();
+                if line.is_empty() {
+                    continue;
+                }
+                if let Ok(value) = serde_json::from_str::<serde_json::Value>(line) {
+                    items.push(value);
+                }
+            }
+            serde_json::Value::Array(items)
+        }
+    }
+}
+
+fn provider_mismatch_error(active_provider: &str, requested_provider: &str) -> LassoError {
+    LassoError::Process(format!(
+        "provider mismatch: active provider is '{active_provider}', requested '{requested_provider}'. \
+Run `lasso down --provider {active_provider}` first."
+    ))
 }
 
 fn execute_docker<R: DockerRunner>(
@@ -1315,7 +1897,8 @@ fn run_docker_command<R: DockerRunner>(
 
 fn handle_up<R: DockerRunner>(
     ctx: &Context,
-    codex: bool,
+    provider: Option<String>,
+    collector_only: bool,
     ui: bool,
     pull: Option<String>,
     wait: bool,
@@ -1327,112 +1910,244 @@ fn handle_up<R: DockerRunner>(
             "--timeout-sec requires --wait".to_string(),
         ));
     }
-    if stack_has_running_services(ctx, runner, codex, ui)? {
-        return Err(LassoError::Process(
-            "already up: stack is already running".to_string(),
-        ));
-    }
     let cfg = read_config(&ctx.config_path)?;
     let log_root = PathBuf::from(expand_path(&cfg.paths.log_root));
-    let run_id = run_id_from_now();
-    fs::create_dir_all(run_root(&log_root, &run_id))?;
-    write_active_run_state(&log_root, &run_id)?;
+    let target = resolve_lifecycle_target(provider, collector_only)?;
 
-    let mut args = compose_base_args(ctx, codex, ui)?;
-    args.push("up".to_string());
-    args.push("-d".to_string());
-    if let Some(pull) = pull {
-        args.push("--pull".to_string());
-        args.push(pull);
-    }
-    if wait {
-        args.push("--wait".to_string());
-        if let Some(timeout_sec) = timeout_sec {
-            args.push("--wait-timeout".to_string());
-            args.push(timeout_sec.to_string());
+    match target {
+        LifecycleTarget::CollectorOnly => {
+            if provider_plane_is_running(ctx, runner, &cfg, ui, &BTreeMap::new())? {
+                return Err(LassoError::Process(
+                    "provider plane is still running; stop it before starting a new collector run"
+                        .to_string(),
+                ));
+            }
+            if collector_is_running(ctx, runner, &cfg, ui, &BTreeMap::new())? {
+                return Err(LassoError::Process(
+                    "collector is already running".to_string(),
+                ));
+            }
+            let run_id = run_id_from_now();
+            fs::create_dir_all(run_root(&log_root, &run_id))?;
+            write_active_run_state(&log_root, &run_id)?;
+
+            let mut args = compose_base_args(ctx, &cfg, ui, &[])?;
+            args.push("up".to_string());
+            args.push("-d".to_string());
+            if let Some(pull) = pull {
+                args.push("--pull".to_string());
+                args.push(pull);
+            }
+            if wait {
+                args.push("--wait".to_string());
+                if let Some(timeout_sec) = timeout_sec {
+                    args.push("--wait-timeout".to_string());
+                    args.push(timeout_sec.to_string());
+                }
+            }
+            args.push("collector".to_string());
+            let env_overrides = compose_env_for_run(Some(&run_id));
+            let result = run_docker_command(
+                ctx,
+                runner,
+                &args,
+                &env_overrides,
+                json!({"action": "up", "collector_only": true, "run_id": run_id}),
+                true,
+            );
+            if result.is_err() {
+                let _ = clear_active_run_state(&log_root);
+            }
+            result
+        }
+        LifecycleTarget::Provider(provider_name) => {
+            let provider_cfg = provider_from_config(&cfg, &provider_name)?;
+            let active_run = load_active_run_state(&log_root)?
+                .ok_or_else(|| {
+                    LassoError::Process(
+                        "no active run found; start collector first with `lasso up --collector-only`"
+                            .to_string(),
+                    )
+                })?;
+            if !run_root(&log_root, &active_run.run_id).exists() {
+                clear_active_run_state(&log_root)?;
+                return Err(LassoError::Process(
+                    "active run metadata points to a missing run directory; restart collector with `lasso up --collector-only`"
+                        .to_string(),
+                ));
+            }
+            let run_env = compose_env_for_run(Some(&active_run.run_id));
+            if !collector_is_running(ctx, runner, &cfg, ui, &run_env)? {
+                return Err(LassoError::Process(
+                    "collector is not running; start it first with `lasso up --collector-only`"
+                        .to_string(),
+                ));
+            }
+            if let Some(active_provider) = load_active_provider_state(&log_root)? {
+                if active_provider.provider != provider_name {
+                    return Err(provider_mismatch_error(
+                        &active_provider.provider,
+                        &provider_name,
+                    ));
+                }
+            }
+            if provider_plane_is_running(ctx, runner, &cfg, ui, &run_env)? {
+                return Err(LassoError::Process(format!(
+                    "provider plane is already running for '{}'",
+                    provider_name
+                )));
+            }
+
+            let runtime = generate_provider_runtime_compose(ctx, &provider_name, provider_cfg)?;
+            for warning in &runtime.warnings {
+                eprintln!("warning: {warning}");
+            }
+
+            let mut args = compose_base_args(
+                ctx,
+                &cfg,
+                ui,
+                &[runtime.override_file.clone()],
+            )?;
+            args.push("up".to_string());
+            args.push("-d".to_string());
+            if let Some(pull) = pull {
+                args.push("--pull".to_string());
+                args.push(pull);
+            }
+            if wait {
+                args.push("--wait".to_string());
+                if let Some(timeout_sec) = timeout_sec {
+                    args.push("--wait-timeout".to_string());
+                    args.push(timeout_sec.to_string());
+                }
+            }
+            args.push("agent".to_string());
+            args.push("harness".to_string());
+
+            let result = run_docker_command(
+                ctx,
+                runner,
+                &args,
+                &run_env,
+                json!({
+                    "action": "up",
+                    "collector_only": false,
+                    "provider": provider_name,
+                    "run_id": active_run.run_id,
+                    "auth_mode": provider_cfg.auth_mode.as_str(),
+                }),
+                true,
+            );
+            if result.is_ok() {
+                write_active_provider_state(
+                    &log_root,
+                    &provider_name,
+                    &provider_cfg.auth_mode,
+                    &active_run.run_id,
+                )?;
+            }
+            result
         }
     }
-    let env_overrides = compose_env_for_run(Some(&run_id));
-    let result = run_docker_command(
-        ctx,
-        runner,
-        &args,
-        &env_overrides,
-        json!({"action": "up", "run_id": run_id}),
-        true,
-    );
-    if result.is_err() {
-        let _ = clear_active_run_state(&log_root);
-    }
-    result
 }
 
 fn handle_down<R: DockerRunner>(
     ctx: &Context,
-    codex: bool,
+    provider: Option<String>,
+    collector_only: bool,
     ui: bool,
-    volumes: bool,
-    remove_orphans: bool,
     runner: &R,
 ) -> Result<(), LassoError> {
     let cfg = read_config(&ctx.config_path)?;
     let log_root = PathBuf::from(expand_path(&cfg.paths.log_root));
+    let target = resolve_lifecycle_target(provider, collector_only)?;
     let run_id = load_active_run_state(&log_root)?.map(|state| state.run_id);
-    let mut args = compose_base_args(ctx, codex, ui)?;
-    args.push("down".to_string());
-    if volumes {
-        args.push("--volumes".to_string());
-    }
-    if remove_orphans {
-        args.push("--remove-orphans".to_string());
-    }
     let env_overrides = compose_env_for_run(run_id.as_deref());
-    let result = run_docker_command(
-        ctx,
-        runner,
-        &args,
-        &env_overrides,
-        json!({"action": "down", "volumes": volumes, "remove_orphans": remove_orphans, "run_id": run_id}),
-        true,
-    );
-    if result.is_ok() {
-        clear_active_run_state(&log_root)?;
+
+    match target {
+        LifecycleTarget::CollectorOnly => {
+            let mut args = compose_base_args(ctx, &cfg, ui, &[])?;
+            args.push("stop".to_string());
+            args.push("collector".to_string());
+            run_docker_command(
+                ctx,
+                runner,
+                &args,
+                &env_overrides,
+                json!({"action": "down", "collector_only": true, "run_id": run_id}),
+                true,
+            )
+        }
+        LifecycleTarget::Provider(provider_name) => {
+            let _provider_cfg = provider_from_config(&cfg, &provider_name)?;
+            if let Some(active_provider) = load_active_provider_state(&log_root)? {
+                if active_provider.provider != provider_name {
+                    return Err(provider_mismatch_error(
+                        &active_provider.provider,
+                        &provider_name,
+                    ));
+                }
+            }
+            let mut args = compose_base_args(ctx, &cfg, ui, &[])?;
+            args.push("stop".to_string());
+            args.push("agent".to_string());
+            args.push("harness".to_string());
+            let result = run_docker_command(
+                ctx,
+                runner,
+                &args,
+                &env_overrides,
+                json!({"action": "down", "collector_only": false, "provider": provider_name, "run_id": run_id}),
+                true,
+            );
+            if result.is_ok() {
+                clear_active_provider_state(&log_root)?;
+            }
+            result
+        }
     }
-    result
 }
 
 fn handle_status<R: DockerRunner>(
     ctx: &Context,
-    codex: bool,
+    provider: Option<String>,
+    collector_only: bool,
     ui: bool,
     runner: &R,
 ) -> Result<(), LassoError> {
     let cfg = read_config(&ctx.config_path)?;
     let log_root = PathBuf::from(expand_path(&cfg.paths.log_root));
     let run_id = load_active_run_state(&log_root)?.map(|state| state.run_id);
-    let mut args = compose_base_args(ctx, codex, ui)?;
+    let env_overrides = compose_env_for_run(run_id.as_deref());
+    let target = resolve_lifecycle_target(provider, collector_only)?;
+
+    let mut args = compose_base_args(ctx, &cfg, ui, &[])?;
     args.push("ps".to_string());
     args.push("--format".to_string());
     args.push("json".to_string());
-    let env_overrides = compose_env_for_run(run_id.as_deref());
-    let cmd_output = execute_docker(ctx, runner, &args, &env_overrides, true, false)?;
-    let text = String::from_utf8_lossy(&cmd_output.stdout);
-    let rows: serde_json::Value = match serde_json::from_str(&text) {
-        Ok(value) => value,
-        Err(_) => {
-            let mut items = Vec::new();
-            for line in text.lines() {
-                let line = line.trim();
-                if line.is_empty() {
-                    continue;
-                }
-                if let Ok(value) = serde_json::from_str::<serde_json::Value>(line) {
-                    items.push(value);
+    match target {
+        LifecycleTarget::CollectorOnly => {
+            args.push("collector".to_string());
+        }
+        LifecycleTarget::Provider(provider_name) => {
+            let _provider_cfg = provider_from_config(&cfg, &provider_name)?;
+            if let Some(active_provider) = load_active_provider_state(&log_root)? {
+                if active_provider.provider != provider_name {
+                    return Err(provider_mismatch_error(
+                        &active_provider.provider,
+                        &provider_name,
+                    ));
                 }
             }
-            serde_json::Value::Array(items)
+            args.push("agent".to_string());
+            args.push("harness".to_string());
         }
-    };
+    }
+
+    let cmd_output = execute_docker(ctx, runner, &args, &env_overrides, true, false)?;
+    let text = String::from_utf8_lossy(&cmd_output.stdout);
+    let rows = parse_compose_ps_output(&text);
     if ctx.json {
         let payload = JsonResult {
             ok: true,
@@ -1452,6 +2167,7 @@ fn handle_status<R: DockerRunner>(
 
 fn handle_run(
     ctx: &Context,
+    provider: String,
     prompt: String,
     capture_input: Option<bool>,
     cwd: Option<String>,
@@ -1459,6 +2175,20 @@ fn handle_run(
     env_list: Vec<String>,
 ) -> Result<(), LassoError> {
     let cfg = read_config(&ctx.config_path)?;
+    let _provider_cfg = provider_from_config(&cfg, &provider)?;
+    let log_root = PathBuf::from(expand_path(&cfg.paths.log_root));
+    let active_provider = load_active_provider_state(&log_root)?.ok_or_else(|| {
+        LassoError::Process(
+            "no active provider plane found; start one with `lasso up --provider <name>`"
+                .to_string(),
+        )
+    })?;
+    if active_provider.provider != provider {
+        return Err(provider_mismatch_error(
+            &active_provider.provider,
+            &provider,
+        ));
+    }
     let token = resolve_token(&cfg)?;
     let mut env_map = BTreeMap::new();
     for entry in env_list {
@@ -1506,23 +2236,45 @@ fn handle_run(
     Ok(())
 }
 
-fn handle_tui<R: DockerRunner>(ctx: &Context, codex: bool, runner: &R) -> Result<(), LassoError> {
+fn handle_tui<R: DockerRunner>(ctx: &Context, provider: String, runner: &R) -> Result<(), LassoError> {
     let cfg = read_config(&ctx.config_path)?;
+    let provider_cfg = provider_from_config(&cfg, &provider)?;
     let log_root = PathBuf::from(expand_path(&cfg.paths.log_root));
-    let run_id = resolve_default_run_id(&log_root)?;
-    let mut args = compose_base_args(ctx, codex, false)?;
+    let active_provider = load_active_provider_state(&log_root)?.ok_or_else(|| {
+        LassoError::Process(
+            "no active provider plane found; start one with `lasso up --provider <name>`"
+                .to_string(),
+        )
+    })?;
+    if active_provider.provider != provider {
+        return Err(provider_mismatch_error(
+            &active_provider.provider,
+            &provider,
+        ));
+    }
+
+    let runtime = generate_provider_runtime_compose(ctx, &provider, provider_cfg)?;
+    for warning in &runtime.warnings {
+        eprintln!("warning: {warning}");
+    }
+    let mut args = compose_base_args(ctx, &cfg, false, &[runtime.override_file.clone()])?;
     args.push("run".to_string());
     args.push("--rm".to_string());
     args.push("-e".to_string());
     args.push("HARNESS_MODE=tui".to_string());
     args.push("harness".to_string());
-    let env_overrides = compose_env_for_run(Some(&run_id));
+    let env_overrides = compose_env_for_run(Some(&active_provider.run_id));
+    if !provider_plane_is_running(ctx, runner, &cfg, false, &env_overrides)? {
+        return Err(LassoError::Process(format!(
+            "provider plane for '{provider}' is not running; start it with `lasso up --provider {provider}`"
+        )));
+    }
     run_docker_command(
         ctx,
         runner,
         &args,
         &env_overrides,
-        json!({"action": "tui", "run_id": run_id}),
+        json!({"action": "tui", "provider": provider, "run_id": active_provider.run_id}),
         false,
     )
 }
@@ -1623,7 +2375,7 @@ fn handle_doctor(ctx: &Context) -> Result<(), LassoError> {
 fn handle_paths(ctx: &Context) -> Result<(), LassoError> {
     let (paths, config_exists) = resolve_runtime_paths(ctx)?;
     let env_exists = paths.env_file.exists();
-    let compose_files: Vec<String> = configured_compose_files(ctx, false, false)
+    let compose_files: Vec<String> = configured_compose_files(ctx, false, &[])
         .into_iter()
         .map(|p| p.to_string_lossy().to_string())
         .collect();
@@ -1935,18 +2687,19 @@ fn handle_uninstall<R: DockerRunner>(
                 ctx.env_file.display()
             ));
         } else {
-            let compose_files = match compose_files(ctx, false, false) {
-                Ok(files) => files,
-                Err(err) => {
-                    warnings.push(format!(
-                        "skipping stack shutdown: compose files unavailable ({})",
-                        err
-                    ));
-                    Vec::new()
+            let files = configured_compose_files(ctx, false, &[]);
+            let mut missing_files: Vec<String> = Vec::new();
+            for path in &files {
+                if !path.exists() {
+                    missing_files.push(path.to_string_lossy().to_string());
                 }
-            };
-
-            if !compose_files.is_empty() {
+            }
+            if !missing_files.is_empty() {
+                warnings.push(format!(
+                    "skipping stack shutdown: missing compose files: {}",
+                    missing_files.join(", ")
+                ));
+            } else {
                 down_attempted = true;
                 let project_name = match read_config(&ctx.config_path) {
                     Ok(cfg) => cfg.docker.project_name,
@@ -1968,7 +2721,7 @@ fn handle_uninstall<R: DockerRunner>(
                     down_args.push("-p".to_string());
                     down_args.push(project_name);
                 }
-                for file in compose_files {
+                for file in files {
                     down_args.push("-f".to_string());
                     down_args.push(file.to_string_lossy().to_string());
                 }
@@ -2282,19 +3035,14 @@ mod tests {
 
     fn write_minimal_config(path: &Path) {
         let base = path.parent().unwrap_or_else(|| Path::new("."));
-        let log_root = base.join("logs");
-        let workspace_root = base.join("workspace");
-        let content = format!(
-            "version: 1\npaths:\n  log_root: {}\n  workspace_root: {}\n",
-            log_root.display(),
-            workspace_root.display()
-        );
-        fs::write(path, content).unwrap();
+        let mut cfg = Config::default();
+        cfg.paths.log_root = base.join("logs").to_string_lossy().to_string();
+        cfg.paths.workspace_root = base.join("workspace").to_string_lossy().to_string();
+        fs::write(path, serde_yaml::to_string(&cfg).unwrap()).unwrap();
     }
 
     fn write_default_compose_files(dir: &Path) {
         fs::write(dir.join("compose.yml"), "services: {}\n").unwrap();
-        fs::write(dir.join("compose.codex.yml"), "services: {}\n").unwrap();
         fs::write(dir.join("compose.ui.yml"), "services: {}\n").unwrap();
     }
 
@@ -2313,7 +3061,7 @@ mod tests {
     #[test]
     fn config_unknown_field_errors() {
         let yaml = r#"
-version: 1
+version: 2
 unknown: true
 paths:
   log_root: ~/lasso-logs
@@ -2325,9 +3073,9 @@ paths:
 
     #[test]
     fn config_defaults_apply() {
-        let yaml = r#"version: 1"#;
+        let yaml = r#"version: 2"#;
         let cfg: Config = serde_yaml::from_str(yaml).expect("config");
-        assert_eq!(cfg.version, 1);
+        assert_eq!(cfg.version, 2);
         assert_eq!(cfg.paths.log_root, "~/lasso-logs");
     }
 
@@ -2341,7 +3089,7 @@ paths:
     fn env_file_written() {
         let dir = tempdir().unwrap();
         let env_path = dir.path().join("compose.env");
-        let cfg: Config = serde_yaml::from_str("version: 1").unwrap();
+        let cfg: Config = serde_yaml::from_str("version: 2").unwrap();
         let envs = config_to_env(&cfg);
         write_env_file(&env_path, &envs).unwrap();
         let content = fs::read_to_string(&env_path).unwrap();
@@ -2357,22 +3105,22 @@ paths:
         let ctx = make_context(dir.path());
         let runner = MockDockerRunner::default();
 
-        handle_up(&ctx, false, false, None, true, Some(45), &runner).unwrap();
+        handle_up(&ctx, None, true, false, None, true, Some(45), &runner).unwrap();
 
         let calls = runner.calls();
-        assert_eq!(calls.len(), 2);
+        assert_eq!(calls.len(), 3);
 
         let ps_args = &calls[0].args;
         assert!(ps_args.iter().any(|x| x == "ps"));
         assert!(calls[0].env_overrides.is_empty());
 
-        let args = &calls[1].args;
-        assert!(calls[1].capture_output);
+        let args = &calls[2].args;
+        assert!(calls[2].capture_output);
         assert!(args.iter().any(|x| x == "up"));
         assert!(args.iter().any(|x| x == "--wait"));
         let idx = args.iter().position(|x| x == "--wait-timeout").unwrap();
         assert_eq!(args[idx + 1], "45");
-        assert!(calls[1].env_overrides.contains_key("LASSO_RUN_ID"));
+        assert!(calls[2].env_overrides.contains_key("LASSO_RUN_ID"));
     }
 
     #[test]
@@ -2383,7 +3131,7 @@ paths:
         let ctx = make_context(dir.path());
         let runner = MockDockerRunner::default();
 
-        let err = handle_up(&ctx, false, false, None, false, Some(10), &runner)
+        let err = handle_up(&ctx, None, true, false, None, false, Some(10), &runner)
             .expect_err("timeout without wait should fail");
         assert!(err.to_string().contains("--timeout-sec requires --wait"));
     }
@@ -2397,31 +3145,36 @@ paths:
         let runner = MockDockerRunner::default();
         runner.push_output(CommandOutput {
             status_code: 0,
+            stdout: Vec::new(),
+            stderr: Vec::new(),
+        });
+        runner.push_output(CommandOutput {
+            status_code: 0,
             stdout: b"collector\n".to_vec(),
             stderr: Vec::new(),
         });
 
-        let err = handle_up(&ctx, false, false, None, false, None, &runner)
+        let err = handle_up(&ctx, None, true, false, None, false, None, &runner)
             .expect_err("already-running stack should fail");
-        assert!(err.to_string().contains("already up"));
-        assert_eq!(runner.calls().len(), 1);
+        assert!(err.to_string().contains("collector is already running"));
+        assert_eq!(runner.calls().len(), 2);
     }
 
     #[test]
-    fn down_cleanup_flags_build_expected_args() {
+    fn down_collector_only_builds_expected_args() {
         let dir = tempdir().unwrap();
         write_minimal_config(&dir.path().join("config.yaml"));
         write_default_compose_files(dir.path());
         let ctx = make_context(dir.path());
         let runner = MockDockerRunner::default();
 
-        handle_down(&ctx, false, false, true, true, &runner).unwrap();
+        handle_down(&ctx, None, true, false, &runner).unwrap();
 
         let calls = runner.calls();
         assert_eq!(calls.len(), 1);
         let args = &calls[0].args;
-        assert!(args.iter().any(|x| x == "--volumes"));
-        assert!(args.iter().any(|x| x == "--remove-orphans"));
+        assert!(args.iter().any(|x| x == "stop"));
+        assert!(args.iter().any(|x| x == "collector"));
     }
 
     #[test]
@@ -2439,7 +3192,7 @@ paths:
             stderr: Vec::new(),
         });
 
-        handle_status(&ctx, true, true, &runner).unwrap();
+        handle_status(&ctx, None, true, true, &runner).unwrap();
 
         let calls = runner.calls();
         assert_eq!(calls.len(), 1);
@@ -2447,8 +3200,6 @@ paths:
         assert!(args
             .iter()
             .any(|x| x == &override_file.to_string_lossy().to_string()));
-        assert!(!args.iter().any(|x| x.ends_with("compose.codex.yml")));
-        assert!(!args.iter().any(|x| x.ends_with("compose.ui.yml")));
     }
 
     #[test]

@@ -64,7 +64,7 @@ def _write_cli_config(
     config_path.write_text(
         "\n".join(
             [
-                "version: 1",
+                "version: 2",
                 "paths:",
                 f"  log_root: {log_root}",
                 f"  workspace_root: {workspace_root}",
@@ -76,6 +76,28 @@ def _write_cli_config(
                 "  api_host: 127.0.0.1",
                 f"  api_port: {api_port}",
                 f'  api_token: "{api_token}"',
+                "providers:",
+                "  codex:",
+                "    auth_mode: host_state",
+                "    mount_host_state_in_api_mode: false",
+                "    commands:",
+                '      tui: "codex -C /work -s danger-full-access"',
+                '      run_template: "codex -C /work -s danger-full-access exec {prompt}"',
+                "    auth:",
+                "      api_key:",
+                "        secrets_file: ~/.config/lasso/secrets/codex.env",
+                "        env_key: OPENAI_API_KEY",
+                "      host_state:",
+                "        paths:",
+                "          - ~/.codex/auth.json",
+                "          - ~/.codex/skills",
+                "    ownership:",
+                "      root_comm:",
+                "        - bash",
+                "        - sh",
+                "        - setsid",
+                "        - timeout",
+                "        - codex",
                 "",
             ]
         ),
@@ -133,31 +155,59 @@ def test_cli_up_wait_status_down_removes_volumes(
             timeout=120,
         )
 
-        up = _run_lasso(
+        up_collector = _run_lasso(
             lasso_cli_binary,
             config_path=config_path,
             compose_files=compose_files,
-            args=["up", "--wait", "--timeout-sec", "240"],
+            args=["up", "--collector-only", "--wait", "--timeout-sec", "240"],
             env=env,
             timeout=600,
         )
-        payload = json.loads(up.stdout)
+        payload = json.loads(up_collector.stdout)
         assert payload["ok"] is True
         assert payload["result"].get("run_id"), f"Expected run_id in up payload: {payload}"
+        run_id = payload["result"]["run_id"]
 
-        status = _run_lasso(
+        up_provider = _run_lasso(
             lasso_cli_binary,
             config_path=config_path,
             compose_files=compose_files,
-            args=["status"],
+            args=["up", "--provider", "codex", "--wait", "--timeout-sec", "240"],
+            env=env,
+            timeout=600,
+        )
+        payload = json.loads(up_provider.stdout)
+        assert payload["ok"] is True
+        assert payload["result"].get("run_id") == run_id
+        assert payload["result"].get("provider") == "codex"
+
+        collector_status = _run_lasso(
+            lasso_cli_binary,
+            config_path=config_path,
+            compose_files=compose_files,
+            args=["status", "--collector-only"],
             env=env,
             timeout=60,
         )
-        payload = json.loads(status.stdout)
+        payload = json.loads(collector_status.stdout)
         assert payload["ok"] is True
         services = payload["result"]
         assert isinstance(services, list)
-        assert services, f"Expected running services after up, got: {payload}"
+        assert services, f"Expected running collector after up, got: {payload}"
+
+        provider_status = _run_lasso(
+            lasso_cli_binary,
+            config_path=config_path,
+            compose_files=compose_files,
+            args=["status", "--provider", "codex"],
+            env=env,
+            timeout=60,
+        )
+        payload = json.loads(provider_status.stdout)
+        assert payload["ok"] is True
+        services = payload["result"]
+        assert isinstance(services, list)
+        assert services, f"Expected running provider plane after up, got: {payload}"
 
         # Named volume should exist after up.
         volume_name = f"{project_name}_harness_keys"
@@ -173,7 +223,7 @@ def test_cli_up_wait_status_down_removes_volumes(
             lasso_cli_binary,
             config_path=config_path,
             compose_files=compose_files,
-            args=["down", "--volumes", "--remove-orphans"],
+            args=["down", "--provider", "codex"],
             env=env,
             timeout=240,
         )
@@ -182,7 +232,7 @@ def test_cli_up_wait_status_down_removes_volumes(
             lasso_cli_binary,
             config_path=config_path,
             compose_files=compose_files,
-            args=["status"],
+            args=["status", "--provider", "codex"],
             env=env,
             timeout=60,
         )
@@ -190,13 +240,38 @@ def test_cli_up_wait_status_down_removes_volumes(
         assert payload["ok"] is True
         assert payload["result"] == []
 
-        # Volume should be removed by down --volumes.
-        volume_ls = run_cmd(
-            ["docker", "volume", "ls", "--format", "{{.Name}}"],
-            cwd=ROOT_DIR,
-            check=True,
-            timeout=30,
+        # Collector should remain running while the provider plane is down.
+        collector_status = _run_lasso(
+            lasso_cli_binary,
+            config_path=config_path,
+            compose_files=compose_files,
+            args=["status", "--collector-only"],
+            env=env,
+            timeout=60,
         )
-        assert volume_name not in (volume_ls.stdout or "").splitlines()
+        payload = json.loads(collector_status.stdout)
+        assert payload["ok"] is True
+        assert payload["result"] != []
+
+        _run_lasso(
+            lasso_cli_binary,
+            config_path=config_path,
+            compose_files=compose_files,
+            args=["down", "--collector-only"],
+            env=env,
+            timeout=240,
+        )
+
+        status = _run_lasso(
+            lasso_cli_binary,
+            config_path=config_path,
+            compose_files=compose_files,
+            args=["status", "--collector-only"],
+            env=env,
+            timeout=60,
+        )
+        payload = json.loads(status.stdout)
+        assert payload["ok"] is True
+        assert payload["result"] == []
     finally:
         _cleanup_project(project_name)

@@ -24,6 +24,7 @@ services:
       - COLLECTOR_MERGE_FILTER_OUTPUT=/logs/${LASSO_RUN_ID:-lasso__adhoc}/collector/filtered/filtered_timeline.jsonl
       - COLLECTOR_SESSIONS_DIR=/logs/${LASSO_RUN_ID:-lasso__adhoc}/harness/sessions
       - COLLECTOR_JOBS_DIR=/logs/${LASSO_RUN_ID:-lasso__adhoc}/harness/jobs
+      - COLLECTOR_ROOT_COMM=${COLLECTOR_ROOT_COMM:-}
 
   agent:
     image: ghcr.io/scottmaran/lasso-agent:${LASSO_VERSION}
@@ -63,6 +64,7 @@ services:
       - HARNESS_AGENT_WORKDIR=/work
       - HARNESS_LOG_DIR=/logs/${LASSO_RUN_ID:-lasso__adhoc}/harness
       - HARNESS_TIMELINE_PATH=/logs/${LASSO_RUN_ID:-lasso__adhoc}/collector/filtered/filtered_timeline.jsonl
+      - HARNESS_TUI_CMD=${HARNESS_TUI_CMD:-}
       - HARNESS_RUN_CMD_TEMPLATE=${HARNESS_RUN_CMD_TEMPLATE:-}
     depends_on:
       - agent
