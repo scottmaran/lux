@@ -1,5 +1,7 @@
 use chrono::{DateTime, Utc};
 use clap::{Parser, Subcommand};
+use dialoguer::console::style;
+use dialoguer::theme::ColorfulTheme;
 use dialoguer::{Confirm, Input, Password, Select};
 use dirs::home_dir;
 use serde::{Deserialize, Serialize};
@@ -1025,236 +1027,427 @@ fn handle_setup(
         )
     }
 
-    // Interactive setup
-    let log_root = Input::<String>::new()
-        .with_prompt("paths.log_root (evidence logs)")
-        .default(base_cfg.paths.log_root.clone())
-        .interact_text()?;
-    let workspace_root = Input::<String>::new()
-        .with_prompt("paths.workspace_root (agent workspace)")
-        .default(base_cfg.paths.workspace_root.clone())
-        .interact_text()?;
+    fn print_step(step: usize, total: usize, title: &str) {
+        println!();
+        println!(
+            "{} {}",
+            style(format!("Lasso Setup ({step}/{total})")).bold().cyan(),
+            style(title).bold()
+        );
+    }
 
-    let mut provider_auth_modes: BTreeMap<String, String> = BTreeMap::new();
+    // Interactive setup (wizard loop).
+    let theme = ColorfulTheme::default();
+    let total_steps = 4usize;
+
+    println!();
+    println!("{}", style("Lasso Setup").bold().cyan());
+    println!(
+        "{}",
+        style(format!("Config: {}", config_path.display())).dim()
+    );
+    println!(
+        "{}",
+        style("Updates config.yaml in place (preserves comments/formatting).").dim()
+    );
+    println!(
+        "{}",
+        style("Can optionally create provider secrets files (never prints secret values).").dim()
+    );
+
+    let mut log_root_state = base_cfg.paths.log_root.clone();
+    let mut workspace_root_state = base_cfg.paths.workspace_root.clone();
+    let mut provider_auth_state: BTreeMap<String, String> = BTreeMap::new();
+    for (provider_name, provider) in &base_cfg.providers {
+        provider_auth_state.insert(
+            provider_name.clone(),
+            provider.auth_mode.as_str().to_string(),
+        );
+    }
+
     let mut pending_secrets: Vec<PendingSecretWrite> = Vec::new();
     let mut missing_api_key_secrets: Vec<(String, String, PathBuf)> = Vec::new();
 
-    for (provider_name, provider) in &base_cfg.providers {
-        let items = ["api_key", "host_state"];
-        let current = provider.auth_mode.as_str();
-        let default_idx = if current == "host_state" { 1 } else { 0 };
-        let selection = Select::new()
-            .with_prompt(format!(
-                "providers.{provider_name}.auth_mode (Enter = keep {current})"
-            ))
-            .items(&items)
-            .default(default_idx)
-            .interact()?;
-        let chosen = items[selection].to_string();
-        provider_auth_modes.insert(provider_name.clone(), chosen.clone());
+    let (patched_yaml, cfg_after_yaml, should_write_config) = loop {
+        warnings.clear();
+        pending_secrets.clear();
+        missing_api_key_secrets.clear();
 
-        if provider_name == "claude" && chosen == "host_state" && env::consts::OS == "macos" {
-            warnings.push("provider 'claude': host_state mode on macOS can fail when auth depends on Keychain; switch to api_key if needed".to_string());
+        print_step(1, total_steps, "Paths");
+        log_root_state = Input::<String>::with_theme(&theme)
+            .with_prompt("Log root (evidence logs) [paths.log_root]")
+            .default(log_root_state.clone())
+            .interact_text()?;
+        workspace_root_state = Input::<String>::with_theme(&theme)
+            .with_prompt("Workspace root (agent workspace) [paths.workspace_root]")
+            .default(workspace_root_state.clone())
+            .interact_text()?;
+
+        print_step(2, total_steps, "Provider Auth");
+
+        #[derive(Debug, Clone)]
+        struct ApiKeyProviderInfo {
+            provider: String,
+            env_key: String,
+            secrets_file: PathBuf,
+            secrets_exists: bool,
         }
 
-        let should_mount_host_state =
-            chosen == "host_state" || provider.mount_host_state_in_api_mode;
-        if should_mount_host_state {
-            for configured in &provider.auth.host_state.paths {
-                let host_path = PathBuf::from(expand_path(configured));
-                if !host_path.exists() {
-                    warnings.push(format!(
-                        "provider '{provider_name}': host-state path missing: {}",
-                        host_path.display()
-                    ));
+        let mut api_key_providers: Vec<ApiKeyProviderInfo> = Vec::new();
+
+        for (provider_name, provider) in &base_cfg.providers {
+            let current = provider_auth_state
+                .get(provider_name)
+                .map(|s| s.as_str())
+                .unwrap_or_else(|| provider.auth_mode.as_str());
+
+            let items = [
+                "api_key   (recommended; uses a secrets file)",
+                "host_state (mount local app state; no secrets file)",
+            ];
+            let values = ["api_key", "host_state"];
+            let default_idx = if current == "host_state" { 1 } else { 0 };
+            let selection = Select::with_theme(&theme)
+                .with_prompt(format!(
+                    "providers.{provider_name}.auth_mode (Enter = keep {current})"
+                ))
+                .items(&items)
+                .default(default_idx)
+                .interact()?;
+            let chosen = values[selection].to_string();
+            provider_auth_state.insert(provider_name.clone(), chosen.clone());
+
+            if provider_name == "claude" && chosen == "host_state" && env::consts::OS == "macos" {
+                warnings.push("provider 'claude': host_state mode on macOS can fail when auth depends on Keychain; switch to api_key if needed".to_string());
+            }
+
+            let should_mount_host_state =
+                chosen == "host_state" || provider.mount_host_state_in_api_mode;
+            if should_mount_host_state {
+                for configured in &provider.auth.host_state.paths {
+                    let host_path = PathBuf::from(expand_path(configured));
+                    if !host_path.exists() {
+                        warnings.push(format!(
+                            "provider '{provider_name}': host-state path missing: {}",
+                            host_path.display()
+                        ));
+                    }
                 }
             }
-        }
 
-        if chosen != "api_key" {
-            continue;
-        }
-
-        let env_key = provider.auth.api_key.env_key.trim().to_string();
-        let secrets_file = PathBuf::from(expand_path(&provider.auth.api_key.secrets_file));
-        let secrets_exists = secrets_file.exists();
-
-        let wants_write = if secrets_exists {
-            Confirm::new()
-                .with_prompt(format!(
-                    "Secrets file exists for provider '{provider_name}' at {}. Overwrite?",
-                    secrets_file.display()
-                ))
-                .default(false)
-                .interact()?
-        } else {
-            Confirm::new()
-                .with_prompt(format!(
-                    "Create secrets file for provider '{provider_name}' at {} now?",
-                    secrets_file.display()
-                ))
-                .default(true)
-                .interact()?
-        };
-
-        if !wants_write {
-            if !secrets_exists {
-                missing_api_key_secrets.push((
-                    provider_name.clone(),
-                    env_key.clone(),
-                    secrets_file,
-                ));
+            if chosen != "api_key" {
+                continue;
             }
-            continue;
+
+            let env_key = provider.auth.api_key.env_key.trim().to_string();
+            let secrets_file = PathBuf::from(expand_path(&provider.auth.api_key.secrets_file));
+            let secrets_exists = secrets_file.exists();
+            api_key_providers.push(ApiKeyProviderInfo {
+                provider: provider_name.clone(),
+                env_key,
+                secrets_file,
+                secrets_exists,
+            });
         }
 
-        let existing_env = env::var(&env_key).ok().unwrap_or_default();
-        let value = if !existing_env.trim().is_empty() {
-            let use_env = Confirm::new()
-                .with_prompt(format!(
-                    "Use existing ${env_key} from your environment for provider '{provider_name}'?"
-                ))
-                .default(true)
-                .interact()?;
-            if use_env {
-                existing_env
+        print_step(3, total_steps, "Secrets");
+        if api_key_providers.is_empty() {
+            println!(
+                "{}",
+                style("No providers are using auth_mode=api_key.").dim()
+            );
+        }
+        for item in &api_key_providers {
+            let wants_write = if item.secrets_exists {
+                Confirm::with_theme(&theme)
+                    .with_prompt(format!(
+                        "Secrets file exists for provider '{}' at {}. Overwrite?",
+                        item.provider,
+                        item.secrets_file.display()
+                    ))
+                    .default(false)
+                    .interact()?
             } else {
-                Password::new()
-                    .with_prompt(format!("Enter {env_key} for provider '{provider_name}'"))
+                Confirm::with_theme(&theme)
+                    .with_prompt(format!(
+                        "Create secrets file for provider '{}' at {} now?",
+                        item.provider,
+                        item.secrets_file.display()
+                    ))
+                    .default(true)
+                    .interact()?
+            };
+
+            if !wants_write {
+                if !item.secrets_exists {
+                    missing_api_key_secrets.push((
+                        item.provider.clone(),
+                        item.env_key.clone(),
+                        item.secrets_file.clone(),
+                    ));
+                }
+                continue;
+            }
+
+            if dry_run {
+                pending_secrets.push(PendingSecretWrite {
+                    provider: item.provider.clone(),
+                    env_key: item.env_key.clone(),
+                    path: item.secrets_file.clone(),
+                    value: String::new(),
+                    overwrite: item.secrets_exists,
+                });
+                continue;
+            }
+
+            let existing_env = env::var(&item.env_key).ok().unwrap_or_default();
+            let value = if !existing_env.trim().is_empty() {
+                let use_env = Confirm::with_theme(&theme)
+                    .with_prompt(format!(
+                        "Use existing ${} from your environment for provider '{}'?",
+                        item.env_key, item.provider
+                    ))
+                    .default(true)
+                    .interact()?;
+                if use_env {
+                    existing_env
+                } else {
+                    Password::with_theme(&theme)
+                        .with_prompt(format!(
+                            "Enter {} for provider '{}'",
+                            item.env_key, item.provider
+                        ))
+                        .with_confirmation("Confirm value", "Values do not match")
+                        .interact()?
+                }
+            } else {
+                Password::with_theme(&theme)
+                    .with_prompt(format!(
+                        "Enter {} for provider '{}'",
+                        item.env_key, item.provider
+                    ))
                     .with_confirmation("Confirm value", "Values do not match")
                     .interact()?
+            };
+
+            pending_secrets.push(PendingSecretWrite {
+                provider: item.provider.clone(),
+                env_key: item.env_key.clone(),
+                path: item.secrets_file.clone(),
+                value,
+                overwrite: item.secrets_exists,
+            });
+        }
+
+        // Desired config (in memory).
+        let mut desired_cfg = base_cfg.clone();
+        desired_cfg.paths.log_root = log_root_state.clone();
+        desired_cfg.paths.workspace_root = workspace_root_state.clone();
+        for (provider_name, auth_mode) in &provider_auth_state {
+            let provider = desired_cfg
+                .providers
+                .get_mut(provider_name)
+                .ok_or_else(|| {
+                    LassoError::Config(format!("provider missing from config: {provider_name}"))
+                })?;
+            provider.auth_mode = match auth_mode.as_str() {
+                "api_key" => AuthMode::ApiKey,
+                "host_state" => AuthMode::HostState,
+                other => {
+                    return Err(LassoError::Config(format!(
+                        "unsupported auth_mode '{other}'"
+                    )))
+                }
+            };
+        }
+        validate_config(&desired_cfg)?;
+
+        let mut yaml_edits = SetupYamlEdits::default();
+        if desired_cfg.paths.log_root != base_cfg.paths.log_root {
+            yaml_edits.log_root = Some(desired_cfg.paths.log_root.clone());
+        }
+        if desired_cfg.paths.workspace_root != base_cfg.paths.workspace_root {
+            yaml_edits.workspace_root = Some(desired_cfg.paths.workspace_root.clone());
+        }
+        for (provider_name, provider) in &desired_cfg.providers {
+            let desired = provider.auth_mode.as_str();
+            let existing = base_cfg
+                .providers
+                .get(provider_name)
+                .map(|p| p.auth_mode.as_str())
+                .unwrap_or("");
+            if desired != existing {
+                yaml_edits
+                    .provider_auth_modes
+                    .insert(provider_name.clone(), desired.to_string());
             }
+        }
+
+        let (candidate_yaml, yaml_changed) = patch_setup_config_yaml(&base_yaml, &yaml_edits)?;
+        let candidate_cfg = read_config_from_str(&candidate_yaml)?;
+        let should_write_config = created_config || yaml_changed;
+
+        print_step(4, total_steps, "Review");
+        println!("{} {}", style("Config:").bold(), config_path.display());
+
+        println!("\n{}", style("Paths").bold());
+        if desired_cfg.paths.log_root == base_cfg.paths.log_root {
+            println!(
+                "  {} {}",
+                style("paths.log_root:").dim(),
+                style(&desired_cfg.paths.log_root).dim()
+            );
         } else {
-            Password::new()
-                .with_prompt(format!("Enter {env_key} for provider '{provider_name}'"))
-                .with_confirmation("Confirm value", "Values do not match")
-                .interact()?
-        };
-
-        pending_secrets.push(PendingSecretWrite {
-            provider: provider_name.clone(),
-            env_key: env_key.clone(),
-            path: secrets_file.clone(),
-            value,
-            overwrite: secrets_exists,
-        });
-    }
-
-    // Desired config (in memory).
-    let mut desired_cfg = base_cfg.clone();
-    desired_cfg.paths.log_root = log_root.clone();
-    desired_cfg.paths.workspace_root = workspace_root.clone();
-    for (provider_name, auth_mode) in &provider_auth_modes {
-        let provider = desired_cfg
-            .providers
-            .get_mut(provider_name)
-            .ok_or_else(|| {
-                LassoError::Config(format!("provider missing from config: {provider_name}"))
-            })?;
-        provider.auth_mode = match auth_mode.as_str() {
-            "api_key" => AuthMode::ApiKey,
-            "host_state" => AuthMode::HostState,
-            other => {
-                return Err(LassoError::Config(format!(
-                    "unsupported auth_mode '{other}'"
-                )))
-            }
-        };
-    }
-    validate_config(&desired_cfg)?;
-
-    let mut yaml_edits = SetupYamlEdits::default();
-    if desired_cfg.paths.log_root != base_cfg.paths.log_root {
-        yaml_edits.log_root = Some(desired_cfg.paths.log_root.clone());
-    }
-    if desired_cfg.paths.workspace_root != base_cfg.paths.workspace_root {
-        yaml_edits.workspace_root = Some(desired_cfg.paths.workspace_root.clone());
-    }
-    for (provider_name, provider) in &desired_cfg.providers {
-        let desired = provider.auth_mode.as_str();
-        let existing = base_cfg
-            .providers
-            .get(provider_name)
-            .map(|p| p.auth_mode.as_str())
-            .unwrap_or("");
-        if desired != existing {
-            yaml_edits
-                .provider_auth_modes
-                .insert(provider_name.clone(), desired.to_string());
+            println!(
+                "  {} {} {} {}",
+                style("paths.log_root:").dim(),
+                style(&base_cfg.paths.log_root).dim(),
+                style("->").dim(),
+                style(&desired_cfg.paths.log_root).green()
+            );
         }
-    }
+        if desired_cfg.paths.workspace_root == base_cfg.paths.workspace_root {
+            println!(
+                "  {} {}",
+                style("paths.workspace_root:").dim(),
+                style(&desired_cfg.paths.workspace_root).dim()
+            );
+        } else {
+            println!(
+                "  {} {} {} {}",
+                style("paths.workspace_root:").dim(),
+                style(&base_cfg.paths.workspace_root).dim(),
+                style("->").dim(),
+                style(&desired_cfg.paths.workspace_root).green()
+            );
+        }
 
-    let (patched_yaml, yaml_changed) = patch_setup_config_yaml(&base_yaml, &yaml_edits)?;
-    let cfg_after_yaml = read_config_from_str(&patched_yaml)?;
-    let should_write_config = created_config || yaml_changed;
-
-    println!("\nPlan:");
-    println!("  Config: {}", config_path.display());
-    if should_write_config {
-        println!(
-            "  - {} config.yaml (preserving comments/formatting)",
-            if created_config { "create" } else { "update" }
-        );
-    } else {
-        println!("  - no config.yaml changes");
-    }
-    for item in &pending_secrets {
-        println!(
-            "  - write secrets for provider '{}' to {} ({})",
-            item.provider,
-            item.path.display(),
-            if item.overwrite {
-                "overwrite"
+        println!("\n{}", style("Provider Auth").bold());
+        for (provider_name, provider) in &desired_cfg.providers {
+            let old = base_cfg
+                .providers
+                .get(provider_name)
+                .map(|p| p.auth_mode.as_str())
+                .unwrap_or("");
+            let new = provider.auth_mode.as_str();
+            if old == new {
+                println!(
+                    "  {} {}",
+                    style(format!("{provider_name}:")).dim(),
+                    style(new).dim()
+                );
             } else {
-                "create"
+                println!(
+                    "  {} {} {} {}",
+                    style(format!("{provider_name}:")).dim(),
+                    style(old).dim(),
+                    style("->").dim(),
+                    style(new).green()
+                );
+            }
+        }
+
+        println!("\n{}", style("Secrets").bold());
+        if pending_secrets.is_empty() && missing_api_key_secrets.is_empty() {
+            println!("  {}", style("no changes").dim());
+        } else {
+            for item in &pending_secrets {
+                println!(
+                    "  {} {} {}",
+                    style(format!("{}:", item.provider)).dim(),
+                    style(if item.overwrite {
+                        "overwrite"
+                    } else {
+                        "create"
+                    })
+                    .yellow(),
+                    style(item.path.display()).dim(),
+                );
+            }
+            for (provider_name, env_key, secrets_file) in &missing_api_key_secrets {
+                println!(
+                    "  {} {} {}",
+                    style(format!("{provider_name}:")).dim(),
+                    style("missing").red(),
+                    style(format!("{env_key} at {}", secrets_file.display())).dim(),
+                );
+            }
+        }
+
+        println!("\n{}", style("Apply").bold());
+        println!(
+            "  {}",
+            if apply {
+                style("yes").green()
+            } else {
+                style("no").yellow()
             }
         );
-    }
-    if !missing_api_key_secrets.is_empty() {
-        println!("  - WARNING: missing secrets files for api_key providers:");
-        for (provider_name, env_key, secrets_file) in &missing_api_key_secrets {
+
+        if !warnings.is_empty() {
+            println!("\n{}", style("Warnings").bold().yellow());
+            for w in &warnings {
+                println!("  {}", style(format!("- {w}")).yellow());
+            }
+        }
+
+        if should_write_config {
             println!(
-                "    - provider '{provider_name}': {} missing at {}",
-                env_key,
-                secrets_file.display()
+                "\n{} {}",
+                style("Config file:").bold(),
+                style(if created_config { "create" } else { "update" }).green()
+            );
+        } else {
+            println!(
+                "\n{} {}",
+                style("Config file:").bold(),
+                style("no changes").dim()
             );
         }
-    }
-    if !warnings.is_empty() {
-        println!("  - warnings:");
-        for w in &warnings {
-            println!("    - {w}");
-        }
-    }
-    println!("  Apply config: {}", if apply { "yes" } else { "no" });
-    if dry_run {
-        println!("  Dry-run: yes (no filesystem changes will be made)");
-    }
 
-    if !missing_api_key_secrets.is_empty() {
-        println!("\nManual secrets next steps:");
-        for (provider_name, env_key, secrets_file) in &missing_api_key_secrets {
+        if dry_run {
+            println!();
             println!(
-                "\nProvider '{provider_name}' ({env_key}):\n{}",
-                manual_secrets_instructions(env_key, secrets_file)
+                "{}",
+                style("Dry-run: no filesystem changes will be made.").yellow()
             );
-        }
-    }
-
-    if dry_run {
-        return Ok(());
-    }
-
-    if !yes {
-        let proceed = Confirm::new()
-            .with_prompt("Proceed with these changes?")
-            .default(true)
-            .interact()?;
-        if !proceed {
-            println!("Aborted.");
+            if !missing_api_key_secrets.is_empty() {
+                println!("\n{}", style("Manual secrets next steps").bold());
+                for (provider_name, env_key, secrets_file) in &missing_api_key_secrets {
+                    println!(
+                        "\n{} {}:\n{}",
+                        style("Provider").dim(),
+                        style(format!("'{provider_name}' ({env_key})")).bold(),
+                        manual_secrets_instructions(env_key, secrets_file)
+                    );
+                }
+            }
             return Ok(());
         }
-    }
+
+        let mut proceed = true;
+        if !yes {
+            let actions = ["Proceed", "Back", "Abort"];
+            let action_idx = Select::with_theme(&theme)
+                .with_prompt("Confirm")
+                .items(&actions)
+                .default(0)
+                .interact()?;
+            match actions[action_idx] {
+                "Proceed" => proceed = true,
+                "Back" => proceed = false,
+                "Abort" => {
+                    println!("\n{}", style("Aborted.").yellow());
+                    return Ok(());
+                }
+                _ => proceed = false,
+            }
+        }
+
+        if proceed {
+            break (candidate_yaml, candidate_cfg, should_write_config);
+        }
+    };
 
     if should_write_config {
         write_atomic_text_file_preserving_mode(config_path, &patched_yaml, 0o644)?;
@@ -1274,11 +1467,32 @@ fn handle_setup(
         });
     }
 
+    if !missing_api_key_secrets.is_empty() {
+        println!();
+        println!(
+            "{}",
+            style("Manual secrets next steps (required before `lasso up --provider <name>` will work):")
+                .yellow()
+                .bold()
+        );
+        for (provider_name, env_key, secrets_file) in &missing_api_key_secrets {
+            println!(
+                "\n{} {}:\n{}",
+                style("Provider").dim(),
+                style(format!("'{provider_name}' ({env_key})")).bold(),
+                manual_secrets_instructions(env_key, secrets_file)
+            );
+        }
+    }
+
     if apply {
+        println!();
+        println!("{}", style("Applying config...").cyan().bold());
         let _ = apply_config(ctx, &cfg_after_yaml)?;
     }
 
-    println!("\nNext steps:");
+    println!();
+    println!("{}", style("Next steps").bold().cyan());
     if !apply {
         println!("  lasso config apply");
     }
