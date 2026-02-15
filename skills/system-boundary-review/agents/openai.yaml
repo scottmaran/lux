@@ -1,0 +1,4 @@
+interface:
+  display_name: "System Boundary Review"
+  short_description: "Boundary-aware design reviews and checklists"
+  default_prompt: "Perform a system boundary review for this task. Identify whether the change touches a boundary (CLI/API/schema/artifact format/cross-component interface). If yes: propose the boundary shape with minimal information leakage, check dependency direction and ownership, and outline versioning/backcompat expectations. Output a short 'Boundary Review' section plus any candidate repo-specific boundary rules to discuss with the user."
