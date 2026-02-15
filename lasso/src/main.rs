@@ -1,6 +1,7 @@
 use chrono::{DateTime, Utc};
 use clap::{Parser, Subcommand};
 use dialoguer::console::style;
+use dialoguer::console::Term;
 use dialoguer::theme::ColorfulTheme;
 use dialoguer::{Confirm, Input, Password, Select};
 use dirs::home_dir;
@@ -1040,20 +1041,31 @@ fn handle_setup(
     let theme = ColorfulTheme::default();
     let total_steps = 4usize;
 
-    println!();
+    if io::stdout().is_terminal() {
+        // Best-effort clear so the wizard starts at the top of the visible terminal,
+        // without needing a full-screen TUI.
+        let _ = Term::stdout().clear_screen();
+    }
     println!("{}", style("Lasso Setup").bold().cyan());
+    println!("{}", style("Welcome to Lasso! The blackbox for your ai agents. "));
+    println!(
+        "{}",
+        style("Follow the prompts to help set a few configs, stored at: ")
+        .dim()
+    );
+    println!();
     println!(
         "{}",
         style(format!("Config: {}", config_path.display())).dim()
     );
-    println!(
-        "{}",
-        style("Updates config.yaml in place (preserves comments/formatting).").dim()
-    );
-    println!(
-        "{}",
-        style("Can optionally create provider secrets files (never prints secret values).").dim()
-    );
+    // println!(
+    //     "{}",
+    //     style("Updates config.yaml in place (preserves comments/formatting).").dim()
+    // );
+    // println!(
+    //     "{}",
+    //     style("Can optionally create provider secrets files (never prints secret values).").dim()
+    // );
 
     let mut log_root_state = base_cfg.paths.log_root.clone();
     let mut workspace_root_state = base_cfg.paths.workspace_root.clone();
@@ -1074,16 +1086,59 @@ fn handle_setup(
         missing_api_key_secrets.clear();
 
         print_step(1, total_steps, "Paths");
+        println!(
+            "{}",
+            style("This will be where your logs are stored (on your computer/host).").dim()
+        );
+        println!(
+            "{}",
+            style(
+                "These logs can grow to be large. 
+We recommend putting it in your root directory with our default name."
+            )
+            .dim()
+        );
         log_root_state = Input::<String>::with_theme(&theme)
-            .with_prompt("Log root (evidence logs) [paths.log_root]")
+            .with_prompt("What directory do you want your logs to be stored?")
             .default(log_root_state.clone())
             .interact_text()?;
+        println!(
+            "{}",
+            style("Great! Now choose your agent's workspace")
+        );
+        println!(
+            "{}",
+            style(
+                "This will be where your agents have access
+Lasso works by creating a separate Docker container for your agents to work in
+(that way they don't have unfettered access to your personal machine).
+
+The safest way would be to create a new, empty directory (e.g. ~/lasso-workspace)
+that your agents can access from the isolatd container.
+
+If you want your agent to retain access to all of your files, you can set the workspace
+as something like your user root directory (e.g. ~/ ).
+
+We recommend using your best judgement.
+"
+            )
+            .dim()
+        );
         workspace_root_state = Input::<String>::with_theme(&theme)
-            .with_prompt("Workspace root (agent workspace) [paths.workspace_root]")
+            .with_prompt("Select your agent's workspace folder.")
             .default(workspace_root_state.clone())
             .interact_text()?;
 
         print_step(2, total_steps, "Provider Auth");
+        println!(
+            "{}",
+            style("How Lasso authenticates your agents depends on 
+if you're using an API key or a subscription-based plan").dim()
+        );
+        println!(
+            "{}",
+            style("select host_state if you don't use an API key").dim()
+        );
 
         #[derive(Debug, Clone)]
         struct ApiKeyProviderInfo {
@@ -1102,8 +1157,8 @@ fn handle_setup(
                 .unwrap_or_else(|| provider.auth_mode.as_str());
 
             let items = [
-                "api_key   (recommended; uses a secrets file)",
-                "host_state (mount local app state; no secrets file)",
+                "api_key",
+                "host_state (mounts local app state)",
             ];
             let values = ["api_key", "host_state"];
             let default_idx = if current == "host_state" { 1 } else { 0 };
@@ -1490,7 +1545,12 @@ fn handle_setup(
         println!("{}", style("Applying config...").cyan().bold());
         let _ = apply_config(ctx, &cfg_after_yaml)?;
     }
-
+    println!();
+    println!("{}", style("That's it!"));
+    println!("{}", style("Now go spin up Lasso and start keeping track of your agents.").dim());
+    println!("{}", style("Start the collector and it will run in the background.").dim());
+    println!("{}", style("Run codex or cluade through our ```lasso tui ``` command.").dim());
+    
     println!();
     println!("{}", style("Next steps").bold().cyan());
     if !apply {
