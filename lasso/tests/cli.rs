@@ -406,6 +406,120 @@ fn paths_reports_resolved_values() {
 }
 
 #[test]
+fn setup_defaults_creates_secrets_from_env_when_missing() {
+    let dir = tempdir().unwrap();
+    let home = dir.path().join("home");
+    let config_dir = dir.path().join("config");
+    fs::create_dir_all(&home).unwrap();
+    fs::create_dir_all(&config_dir).unwrap();
+
+    let secrets_path = home
+        .join(".config")
+        .join("lasso")
+        .join("secrets")
+        .join("codex.env");
+    assert!(!secrets_path.exists());
+
+    let output = bin()
+        .env("HOME", &home)
+        .env("LASSO_CONFIG_DIR", &config_dir)
+        .env("OPENAI_API_KEY", "test-key-123")
+        .arg("--json")
+        .arg("setup")
+        .arg("--defaults")
+        .arg("--yes")
+        .arg("--no-apply")
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+
+    let value = parse_json(&output);
+    assert!(value["ok"].as_bool().unwrap());
+    assert!(secrets_path.exists());
+
+    let content = fs::read_to_string(&secrets_path).unwrap();
+    assert!(content.contains("OPENAI_API_KEY="));
+    assert!(content.contains("test-key-123"));
+
+    let config_path = config_dir.join("config.yaml");
+    assert!(config_path.exists());
+
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mode = fs::metadata(&secrets_path).unwrap().permissions().mode() & 0o777;
+        assert_eq!(mode, 0o600);
+    }
+}
+
+#[test]
+fn setup_defaults_errors_when_api_key_missing_and_env_missing() {
+    let dir = tempdir().unwrap();
+    let home = dir.path().join("home");
+    let config_dir = dir.path().join("config");
+    fs::create_dir_all(&home).unwrap();
+    fs::create_dir_all(&config_dir).unwrap();
+
+    let output = bin()
+        .env("HOME", &home)
+        .env("LASSO_CONFIG_DIR", &config_dir)
+        .arg("--json")
+        .arg("setup")
+        .arg("--defaults")
+        .arg("--no-apply")
+        .assert()
+        .failure()
+        .get_output()
+        .stdout
+        .clone();
+
+    let value = parse_json(&output);
+    assert!(!value["ok"].as_bool().unwrap());
+    let error = value["error"].as_str().unwrap_or_default();
+    assert!(error.contains("OPENAI_API_KEY"));
+    assert!(error.contains("secrets"));
+}
+
+#[test]
+fn setup_dry_run_writes_nothing() {
+    let dir = tempdir().unwrap();
+    let home = dir.path().join("home");
+    let config_dir = dir.path().join("config");
+    fs::create_dir_all(&home).unwrap();
+    fs::create_dir_all(&config_dir).unwrap();
+
+    let config_path = config_dir.join("config.yaml");
+    let secrets_path = home
+        .join(".config")
+        .join("lasso")
+        .join("secrets")
+        .join("codex.env");
+
+    let output = bin()
+        .env("HOME", &home)
+        .env("LASSO_CONFIG_DIR", &config_dir)
+        .env("OPENAI_API_KEY", "dry-run-key")
+        .arg("--json")
+        .arg("setup")
+        .arg("--defaults")
+        .arg("--dry-run")
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+
+    let value = parse_json(&output);
+    assert!(value["ok"].as_bool().unwrap());
+    assert!(value["result"]["dry_run"].as_bool().unwrap());
+
+    assert!(!config_path.exists());
+    assert!(!secrets_path.exists());
+}
+
+#[test]
 fn uninstall_requires_yes_without_dry_run() {
     let dir = tempdir().unwrap();
     let config_path = dir.path().join("config.yaml");

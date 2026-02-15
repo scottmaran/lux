@@ -11,14 +11,24 @@
 ## Quick Start
 
 ```bash
-lasso config init
-lasso config apply
+lasso setup
 lasso up --collector-only --wait
 lasso up --provider codex --wait
 lasso tui --provider codex
 ```
 
 ## Core Commands
+
+### `setup`
+
+Interactive setup wizard that updates `config.yaml` in place (preserving
+comments/formatting) and optionally creates provider secrets files.
+
+Flags:
+- `--defaults`: non-interactive mode (for scripts/CI)
+- `--dry-run`: show planned changes without writing
+- `--no-apply`: skip `lasso config apply`
+- `--yes`: in interactive mode, skip the final confirmation prompt
 
 ### `config`
 

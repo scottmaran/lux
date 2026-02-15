@@ -1,5 +1,9 @@
 use chrono::{DateTime, Utc};
 use clap::{Parser, Subcommand};
+use dialoguer::console::style;
+use dialoguer::console::Term;
+use dialoguer::theme::ColorfulTheme;
+use dialoguer::{Confirm, Input, Password, Select};
 use dirs::home_dir;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -7,6 +11,7 @@ use std::collections::BTreeMap;
 use std::env;
 use std::fs;
 use std::io;
+use std::io::IsTerminal;
 #[cfg(unix)]
 use std::os::unix::fs::symlink;
 use std::path::{Path, PathBuf};
@@ -38,6 +43,16 @@ enum Commands {
     Config {
         #[command(subcommand)]
         command: ConfigCommand,
+    },
+    Setup {
+        #[arg(long, default_value_t = false)]
+        defaults: bool,
+        #[arg(long, default_value_t = false)]
+        yes: bool,
+        #[arg(long, default_value_t = false)]
+        no_apply: bool,
+        #[arg(long, default_value_t = false)]
+        dry_run: bool,
     },
     Up {
         #[arg(long, conflicts_with = "collector_only")]
@@ -190,6 +205,8 @@ enum LassoError {
     Config(String),
     #[error("io error: {0}")]
     Io(#[from] io::Error),
+    #[error("prompt error: {0}")]
+    Prompt(#[from] dialoguer::Error),
     #[error("yaml error: {0}")]
     Yaml(#[from] serde_yaml::Error),
     #[error("json error: {0}")]
@@ -421,7 +438,10 @@ fn default_providers() -> BTreeMap<String, Provider> {
                     env_key: "OPENAI_API_KEY".to_string(),
                 },
                 host_state: ProviderHostStateAuth {
-                    paths: vec!["~/.codex/auth.json".to_string(), "~/.codex/skills".to_string()],
+                    paths: vec![
+                        "~/.codex/auth.json".to_string(),
+                        "~/.codex/skills".to_string(),
+                    ],
                 },
             },
             ownership: ProviderOwnership {
@@ -560,6 +580,12 @@ fn main() -> Result<(), LassoError> {
 
     let result = match cli.command {
         Commands::Config { command } => handle_config(&ctx, command),
+        Commands::Setup {
+            defaults,
+            yes,
+            no_apply,
+            dry_run,
+        } => handle_setup(&ctx, defaults, yes, no_apply, dry_run),
         Commands::Up {
             provider,
             collector_only,
@@ -731,9 +757,8 @@ fn ensure_parent(path: &Path) -> Result<(), LassoError> {
     Ok(())
 }
 
-fn read_config(path: &Path) -> Result<Config, LassoError> {
-    let content = fs::read_to_string(path)?;
-    let cfg: Config = serde_yaml::from_str(&content)?;
+fn read_config_from_str(content: &str) -> Result<Config, LassoError> {
+    let cfg: Config = serde_yaml::from_str(content)?;
     if cfg.version != 2 {
         return Err(LassoError::Config(format!(
             "unsupported config version {}",
@@ -742,6 +767,11 @@ fn read_config(path: &Path) -> Result<Config, LassoError> {
     }
     validate_config(&cfg)?;
     Ok(cfg)
+}
+
+fn read_config(path: &Path) -> Result<Config, LassoError> {
+    let content = fs::read_to_string(path)?;
+    read_config_from_str(&content)
 }
 
 fn validate_config(cfg: &Config) -> Result<(), LassoError> {
@@ -861,6 +891,692 @@ fn host_dir_writable(path: &Path) -> bool {
         .is_ok()
 }
 
+#[derive(Debug, Clone, Serialize)]
+struct SetupActionPlan {
+    config_path: String,
+    created_config: bool,
+    updated_config: bool,
+    wrote_secrets: Vec<SetupSecretPlan>,
+    apply: bool,
+    dry_run: bool,
+    warnings: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct SetupSecretPlan {
+    provider: String,
+    env_key: String,
+    path: String,
+    action: String,
+}
+
+fn handle_setup(
+    ctx: &Context,
+    defaults: bool,
+    yes: bool,
+    no_apply: bool,
+    dry_run: bool,
+) -> Result<(), LassoError> {
+    let apply = !no_apply && !dry_run;
+    if ctx.json && !defaults {
+        return Err(LassoError::Process(
+            "--json is only supported with `lasso setup --defaults`".to_string(),
+        ));
+    }
+    if !defaults && !io::stdin().is_terminal() {
+        return Err(LassoError::Process(
+            "interactive setup requires a TTY; re-run with `--defaults` for non-interactive mode"
+                .to_string(),
+        ));
+    }
+
+    let config_path = &ctx.config_path;
+    let config_exists = config_path.exists();
+    let mut base_yaml = if config_exists {
+        fs::read_to_string(config_path)?
+    } else {
+        DEFAULT_CONFIG_YAML.to_string()
+    };
+    if !base_yaml.ends_with('\n') {
+        base_yaml.push('\n');
+    }
+    let base_cfg = match read_config_from_str(&base_yaml) {
+        Ok(cfg) => cfg,
+        Err(err) => {
+            return Err(LassoError::Config(format!(
+                "config is invalid. Please edit {} and try again. ({})",
+                config_path.display(),
+                err
+            )));
+        }
+    };
+    let created_config = !config_exists;
+
+    let mut warnings: Vec<String> = Vec::new();
+    let mut wrote_secrets: Vec<SetupSecretPlan> = Vec::new();
+
+    if defaults {
+        // Non-interactive: keep values as-is, but ensure API-key providers have secrets.
+        for (provider_name, provider) in &base_cfg.providers {
+            if provider.auth_mode != AuthMode::ApiKey {
+                continue;
+            }
+            let secrets_file = PathBuf::from(expand_path(&provider.auth.api_key.secrets_file));
+            if secrets_file.exists() {
+                continue;
+            }
+            let env_key = provider.auth.api_key.env_key.trim();
+            let value = env::var(env_key).ok().unwrap_or_default();
+            if value.trim().is_empty() {
+                return Err(LassoError::Process(format!(
+                    "provider '{provider_name}' uses auth_mode=api_key but secrets file is missing at {}; set {} in your environment or create the secrets file manually",
+                    secrets_file.display(),
+                    env_key
+                )));
+            }
+            if !dry_run {
+                write_provider_secrets_file(&secrets_file, env_key, &value, false)?;
+            }
+            wrote_secrets.push(SetupSecretPlan {
+                provider: provider_name.clone(),
+                env_key: env_key.to_string(),
+                path: secrets_file.to_string_lossy().to_string(),
+                action: "create_from_env".to_string(),
+            });
+        }
+
+        if created_config && !dry_run {
+            write_atomic_text_file_preserving_mode(config_path, &base_yaml, 0o644)?;
+        }
+
+        if apply && !dry_run {
+            let _ = apply_config(ctx, &base_cfg)?;
+        }
+
+        let plan = SetupActionPlan {
+            config_path: config_path.to_string_lossy().to_string(),
+            created_config,
+            updated_config: false,
+            wrote_secrets,
+            apply,
+            dry_run,
+            warnings,
+        };
+        if ctx.json {
+            return output(ctx, serde_json::to_value(plan)?);
+        }
+        println!("{}", serde_json::to_string_pretty(&plan)?);
+        return Ok(());
+    }
+
+    #[derive(Debug, Clone)]
+    struct PendingSecretWrite {
+        provider: String,
+        env_key: String,
+        path: PathBuf,
+        value: String,
+        overwrite: bool,
+    }
+
+    fn manual_secrets_instructions(env_key: &str, secrets_file: &Path) -> String {
+        let dir = secrets_file.parent().unwrap_or_else(|| Path::new("."));
+        format!(
+            "mkdir -p {dir}\nchmod 700 {dir}\nprintf '{env_key}=%s\\n' 'YOUR_KEY' > {file}\nchmod 600 {file}",
+            dir = dir.to_string_lossy(),
+            file = secrets_file.to_string_lossy(),
+            env_key = env_key
+        )
+    }
+
+    fn print_step(step: usize, total: usize, title: &str) {
+        println!();
+        println!(
+            "{} {}",
+            style(format!("Lasso Setup ({step}/{total})")).bold().cyan(),
+            style(title).bold()
+        );
+    }
+
+    // Interactive setup (wizard loop).
+    let theme = ColorfulTheme::default();
+    let total_steps = 4usize;
+
+    if io::stdout().is_terminal() {
+        // Best-effort clear so the wizard starts at the top of the visible terminal,
+        // without needing a full-screen TUI.
+        let _ = Term::stdout().clear_screen();
+    }
+    println!("{}", style("Lasso Setup").bold().cyan());
+    println!("{}", style("Welcome to Lasso! The blackbox for your ai agents. "));
+    println!(
+        "{}",
+        style("Follow the prompts to help set a few configs, stored at: ")
+        .dim()
+    );
+    println!();
+    println!(
+        "{}",
+        style(format!("Config: {}", config_path.display())).dim()
+    );
+    // println!(
+    //     "{}",
+    //     style("Updates config.yaml in place (preserves comments/formatting).").dim()
+    // );
+    // println!(
+    //     "{}",
+    //     style("Can optionally create provider secrets files (never prints secret values).").dim()
+    // );
+
+    let mut log_root_state = base_cfg.paths.log_root.clone();
+    let mut workspace_root_state = base_cfg.paths.workspace_root.clone();
+    let mut provider_auth_state: BTreeMap<String, String> = BTreeMap::new();
+    for (provider_name, provider) in &base_cfg.providers {
+        provider_auth_state.insert(
+            provider_name.clone(),
+            provider.auth_mode.as_str().to_string(),
+        );
+    }
+
+    let mut pending_secrets: Vec<PendingSecretWrite> = Vec::new();
+    let mut missing_api_key_secrets: Vec<(String, String, PathBuf)> = Vec::new();
+
+    let (patched_yaml, cfg_after_yaml, should_write_config) = loop {
+        warnings.clear();
+        pending_secrets.clear();
+        missing_api_key_secrets.clear();
+
+        print_step(1, total_steps, "Paths");
+        println!(
+            "{}",
+            style("This will be where your logs are stored (on your computer/host).").dim()
+        );
+        println!(
+            "{}",
+            style(
+                "These logs can grow to be large. 
+We recommend putting it in your root directory with our default name."
+            )
+            .dim()
+        );
+        log_root_state = Input::<String>::with_theme(&theme)
+            .with_prompt("What directory do you want your logs to be stored?")
+            .default(log_root_state.clone())
+            .interact_text()?;
+        println!(
+            "{}",
+            style("Great! Now choose your agent's workspace")
+        );
+        println!(
+            "{}",
+            style(
+                "This will be where your agents have access
+Lasso works by creating a separate Docker container for your agents to work in
+(that way they don't have unfettered access to your personal machine).
+
+The safest way would be to create a new, empty directory (e.g. ~/lasso-workspace)
+that your agents can access from the isolatd container.
+
+If you want your agent to retain access to all of your files, you can set the workspace
+as something like your user root directory (e.g. ~/ ).
+
+We recommend using your best judgement.
+"
+            )
+            .dim()
+        );
+        workspace_root_state = Input::<String>::with_theme(&theme)
+            .with_prompt("Select your agent's workspace folder.")
+            .default(workspace_root_state.clone())
+            .interact_text()?;
+
+        print_step(2, total_steps, "Provider Auth");
+        println!(
+            "{}",
+            style("How Lasso authenticates your agents depends on 
+if you're using an API key or a subscription-based plan").dim()
+        );
+        println!(
+            "{}",
+            style("select host_state if you don't use an API key").dim()
+        );
+
+        #[derive(Debug, Clone)]
+        struct ApiKeyProviderInfo {
+            provider: String,
+            env_key: String,
+            secrets_file: PathBuf,
+            secrets_exists: bool,
+        }
+
+        let mut api_key_providers: Vec<ApiKeyProviderInfo> = Vec::new();
+
+        for (provider_name, provider) in &base_cfg.providers {
+            let current = provider_auth_state
+                .get(provider_name)
+                .map(|s| s.as_str())
+                .unwrap_or_else(|| provider.auth_mode.as_str());
+
+            let items = [
+                "api_key",
+                "host_state (mounts local app state)",
+            ];
+            let values = ["api_key", "host_state"];
+            let default_idx = if current == "host_state" { 1 } else { 0 };
+            let selection = Select::with_theme(&theme)
+                .with_prompt(format!(
+                    "providers.{provider_name}.auth_mode (Enter = keep {current})"
+                ))
+                .items(&items)
+                .default(default_idx)
+                .interact()?;
+            let chosen = values[selection].to_string();
+            provider_auth_state.insert(provider_name.clone(), chosen.clone());
+
+            if provider_name == "claude" && chosen == "host_state" && env::consts::OS == "macos" {
+                warnings.push("provider 'claude': host_state mode on macOS can fail when auth depends on Keychain; switch to api_key if needed".to_string());
+            }
+
+            let should_mount_host_state =
+                chosen == "host_state" || provider.mount_host_state_in_api_mode;
+            if should_mount_host_state {
+                for configured in &provider.auth.host_state.paths {
+                    let host_path = PathBuf::from(expand_path(configured));
+                    if !host_path.exists() {
+                        warnings.push(format!(
+                            "provider '{provider_name}': host-state path missing: {}",
+                            host_path.display()
+                        ));
+                    }
+                }
+            }
+
+            if chosen != "api_key" {
+                continue;
+            }
+
+            let env_key = provider.auth.api_key.env_key.trim().to_string();
+            let secrets_file = PathBuf::from(expand_path(&provider.auth.api_key.secrets_file));
+            let secrets_exists = secrets_file.exists();
+            api_key_providers.push(ApiKeyProviderInfo {
+                provider: provider_name.clone(),
+                env_key,
+                secrets_file,
+                secrets_exists,
+            });
+        }
+
+        print_step(3, total_steps, "Secrets");
+        if api_key_providers.is_empty() {
+            println!(
+                "{}",
+                style("No providers are using auth_mode=api_key.").dim()
+            );
+        }
+        for item in &api_key_providers {
+            let wants_write = if item.secrets_exists {
+                Confirm::with_theme(&theme)
+                    .with_prompt(format!(
+                        "Secrets file exists for provider '{}' at {}. Overwrite?",
+                        item.provider,
+                        item.secrets_file.display()
+                    ))
+                    .default(false)
+                    .interact()?
+            } else {
+                Confirm::with_theme(&theme)
+                    .with_prompt(format!(
+                        "Create secrets file for provider '{}' at {} now?",
+                        item.provider,
+                        item.secrets_file.display()
+                    ))
+                    .default(true)
+                    .interact()?
+            };
+
+            if !wants_write {
+                if !item.secrets_exists {
+                    missing_api_key_secrets.push((
+                        item.provider.clone(),
+                        item.env_key.clone(),
+                        item.secrets_file.clone(),
+                    ));
+                }
+                continue;
+            }
+
+            if dry_run {
+                pending_secrets.push(PendingSecretWrite {
+                    provider: item.provider.clone(),
+                    env_key: item.env_key.clone(),
+                    path: item.secrets_file.clone(),
+                    value: String::new(),
+                    overwrite: item.secrets_exists,
+                });
+                continue;
+            }
+
+            let existing_env = env::var(&item.env_key).ok().unwrap_or_default();
+            let value = if !existing_env.trim().is_empty() {
+                let use_env = Confirm::with_theme(&theme)
+                    .with_prompt(format!(
+                        "Use existing ${} from your environment for provider '{}'?",
+                        item.env_key, item.provider
+                    ))
+                    .default(true)
+                    .interact()?;
+                if use_env {
+                    existing_env
+                } else {
+                    Password::with_theme(&theme)
+                        .with_prompt(format!(
+                            "Enter {} for provider '{}'",
+                            item.env_key, item.provider
+                        ))
+                        .with_confirmation("Confirm value", "Values do not match")
+                        .interact()?
+                }
+            } else {
+                Password::with_theme(&theme)
+                    .with_prompt(format!(
+                        "Enter {} for provider '{}'",
+                        item.env_key, item.provider
+                    ))
+                    .with_confirmation("Confirm value", "Values do not match")
+                    .interact()?
+            };
+
+            pending_secrets.push(PendingSecretWrite {
+                provider: item.provider.clone(),
+                env_key: item.env_key.clone(),
+                path: item.secrets_file.clone(),
+                value,
+                overwrite: item.secrets_exists,
+            });
+        }
+
+        // Desired config (in memory).
+        let mut desired_cfg = base_cfg.clone();
+        desired_cfg.paths.log_root = log_root_state.clone();
+        desired_cfg.paths.workspace_root = workspace_root_state.clone();
+        for (provider_name, auth_mode) in &provider_auth_state {
+            let provider = desired_cfg
+                .providers
+                .get_mut(provider_name)
+                .ok_or_else(|| {
+                    LassoError::Config(format!("provider missing from config: {provider_name}"))
+                })?;
+            provider.auth_mode = match auth_mode.as_str() {
+                "api_key" => AuthMode::ApiKey,
+                "host_state" => AuthMode::HostState,
+                other => {
+                    return Err(LassoError::Config(format!(
+                        "unsupported auth_mode '{other}'"
+                    )))
+                }
+            };
+        }
+        validate_config(&desired_cfg)?;
+
+        let mut yaml_edits = SetupYamlEdits::default();
+        if desired_cfg.paths.log_root != base_cfg.paths.log_root {
+            yaml_edits.log_root = Some(desired_cfg.paths.log_root.clone());
+        }
+        if desired_cfg.paths.workspace_root != base_cfg.paths.workspace_root {
+            yaml_edits.workspace_root = Some(desired_cfg.paths.workspace_root.clone());
+        }
+        for (provider_name, provider) in &desired_cfg.providers {
+            let desired = provider.auth_mode.as_str();
+            let existing = base_cfg
+                .providers
+                .get(provider_name)
+                .map(|p| p.auth_mode.as_str())
+                .unwrap_or("");
+            if desired != existing {
+                yaml_edits
+                    .provider_auth_modes
+                    .insert(provider_name.clone(), desired.to_string());
+            }
+        }
+
+        let (candidate_yaml, yaml_changed) = patch_setup_config_yaml(&base_yaml, &yaml_edits)?;
+        let candidate_cfg = read_config_from_str(&candidate_yaml)?;
+        let should_write_config = created_config || yaml_changed;
+
+        print_step(4, total_steps, "Review");
+        println!("{} {}", style("Config:").bold(), config_path.display());
+
+        println!("\n{}", style("Paths").bold());
+        if desired_cfg.paths.log_root == base_cfg.paths.log_root {
+            println!(
+                "  {} {}",
+                style("paths.log_root:").dim(),
+                style(&desired_cfg.paths.log_root).dim()
+            );
+        } else {
+            println!(
+                "  {} {} {} {}",
+                style("paths.log_root:").dim(),
+                style(&base_cfg.paths.log_root).dim(),
+                style("->").dim(),
+                style(&desired_cfg.paths.log_root).green()
+            );
+        }
+        if desired_cfg.paths.workspace_root == base_cfg.paths.workspace_root {
+            println!(
+                "  {} {}",
+                style("paths.workspace_root:").dim(),
+                style(&desired_cfg.paths.workspace_root).dim()
+            );
+        } else {
+            println!(
+                "  {} {} {} {}",
+                style("paths.workspace_root:").dim(),
+                style(&base_cfg.paths.workspace_root).dim(),
+                style("->").dim(),
+                style(&desired_cfg.paths.workspace_root).green()
+            );
+        }
+
+        println!("\n{}", style("Provider Auth").bold());
+        for (provider_name, provider) in &desired_cfg.providers {
+            let old = base_cfg
+                .providers
+                .get(provider_name)
+                .map(|p| p.auth_mode.as_str())
+                .unwrap_or("");
+            let new = provider.auth_mode.as_str();
+            if old == new {
+                println!(
+                    "  {} {}",
+                    style(format!("{provider_name}:")).dim(),
+                    style(new).dim()
+                );
+            } else {
+                println!(
+                    "  {} {} {} {}",
+                    style(format!("{provider_name}:")).dim(),
+                    style(old).dim(),
+                    style("->").dim(),
+                    style(new).green()
+                );
+            }
+        }
+
+        println!("\n{}", style("Secrets").bold());
+        if pending_secrets.is_empty() && missing_api_key_secrets.is_empty() {
+            println!("  {}", style("no changes").dim());
+        } else {
+            for item in &pending_secrets {
+                println!(
+                    "  {} {} {}",
+                    style(format!("{}:", item.provider)).dim(),
+                    style(if item.overwrite {
+                        "overwrite"
+                    } else {
+                        "create"
+                    })
+                    .yellow(),
+                    style(item.path.display()).dim(),
+                );
+            }
+            for (provider_name, env_key, secrets_file) in &missing_api_key_secrets {
+                println!(
+                    "  {} {} {}",
+                    style(format!("{provider_name}:")).dim(),
+                    style("missing").red(),
+                    style(format!("{env_key} at {}", secrets_file.display())).dim(),
+                );
+            }
+        }
+
+        println!("\n{}", style("Apply").bold());
+        println!(
+            "  {}",
+            if apply {
+                style("yes").green()
+            } else {
+                style("no").yellow()
+            }
+        );
+
+        if !warnings.is_empty() {
+            println!("\n{}", style("Warnings").bold().yellow());
+            for w in &warnings {
+                println!("  {}", style(format!("- {w}")).yellow());
+            }
+        }
+
+        if should_write_config {
+            println!(
+                "\n{} {}",
+                style("Config file:").bold(),
+                style(if created_config { "create" } else { "update" }).green()
+            );
+        } else {
+            println!(
+                "\n{} {}",
+                style("Config file:").bold(),
+                style("no changes").dim()
+            );
+        }
+
+        if dry_run {
+            println!();
+            println!(
+                "{}",
+                style("Dry-run: no filesystem changes will be made.").yellow()
+            );
+            if !missing_api_key_secrets.is_empty() {
+                println!("\n{}", style("Manual secrets next steps").bold());
+                for (provider_name, env_key, secrets_file) in &missing_api_key_secrets {
+                    println!(
+                        "\n{} {}:\n{}",
+                        style("Provider").dim(),
+                        style(format!("'{provider_name}' ({env_key})")).bold(),
+                        manual_secrets_instructions(env_key, secrets_file)
+                    );
+                }
+            }
+            return Ok(());
+        }
+
+        let mut proceed = true;
+        if !yes {
+            let actions = ["Proceed", "Back", "Abort"];
+            let action_idx = Select::with_theme(&theme)
+                .with_prompt("Confirm")
+                .items(&actions)
+                .default(0)
+                .interact()?;
+            match actions[action_idx] {
+                "Proceed" => proceed = true,
+                "Back" => proceed = false,
+                "Abort" => {
+                    println!("\n{}", style("Aborted.").yellow());
+                    return Ok(());
+                }
+                _ => proceed = false,
+            }
+        }
+
+        if proceed {
+            break (candidate_yaml, candidate_cfg, should_write_config);
+        }
+    };
+
+    if should_write_config {
+        write_atomic_text_file_preserving_mode(config_path, &patched_yaml, 0o644)?;
+    }
+
+    for item in &pending_secrets {
+        write_provider_secrets_file(&item.path, &item.env_key, &item.value, item.overwrite)?;
+        wrote_secrets.push(SetupSecretPlan {
+            provider: item.provider.clone(),
+            env_key: item.env_key.clone(),
+            path: item.path.to_string_lossy().to_string(),
+            action: if item.overwrite {
+                "overwrite".to_string()
+            } else {
+                "create".to_string()
+            },
+        });
+    }
+
+    if !missing_api_key_secrets.is_empty() {
+        println!();
+        println!(
+            "{}",
+            style("Manual secrets next steps (required before `lasso up --provider <name>` will work):")
+                .yellow()
+                .bold()
+        );
+        for (provider_name, env_key, secrets_file) in &missing_api_key_secrets {
+            println!(
+                "\n{} {}:\n{}",
+                style("Provider").dim(),
+                style(format!("'{provider_name}' ({env_key})")).bold(),
+                manual_secrets_instructions(env_key, secrets_file)
+            );
+        }
+    }
+
+    if apply {
+        println!();
+        println!("{}", style("Applying config...").cyan().bold());
+        let _ = apply_config(ctx, &cfg_after_yaml)?;
+    }
+    println!();
+    println!("{}", style("That's it!"));
+    println!("{}", style("Now go spin up Lasso and start keeping track of your agents.").dim());
+    println!("{}", style("Start the collector and it will run in the background.").dim());
+    println!("{}", style("Run codex or cluade through our ```lasso tui ``` command.").dim());
+    
+    println!();
+    println!("{}", style("Next steps").bold().cyan());
+    if !apply {
+        println!("  lasso config apply");
+    }
+    println!("  lasso up --collector-only --wait");
+    if let Some(example) = cfg_after_yaml.providers.keys().next() {
+        println!("  lasso up --provider {example} --wait");
+        println!("  lasso tui --provider {example}");
+    } else {
+        println!("  lasso up --provider <provider> --wait");
+        println!("  lasso tui --provider <provider>");
+    }
+    println!(
+        "  Available providers: {}",
+        cfg_after_yaml
+            .providers
+            .keys()
+            .cloned()
+            .collect::<Vec<String>>()
+            .join(", ")
+    );
+
+    Ok(())
+}
+
 fn handle_config(ctx: &Context, command: ConfigCommand) -> Result<(), LassoError> {
     match command {
         ConfigCommand::Init => {
@@ -909,18 +1625,525 @@ fn handle_config(ctx: &Context, command: ConfigCommand) -> Result<(), LassoError
                     )));
                 }
             };
-            let envs = config_to_env(&cfg);
-            write_env_file(&ctx.env_file, &envs)?;
-            let log_root = PathBuf::from(expand_path(&cfg.paths.log_root));
-            fs::create_dir_all(&log_root)?;
-            let workspace_root = PathBuf::from(expand_path(&cfg.paths.workspace_root));
-            fs::create_dir_all(&workspace_root)?;
+            let (log_root, workspace_root) = apply_config(ctx, &cfg)?;
             output(
                 ctx,
                 json!({"env_file": ctx.env_file, "log_root": log_root, "workspace_root": workspace_root}),
             )
         }
     }
+}
+
+fn apply_config(ctx: &Context, cfg: &Config) -> Result<(PathBuf, PathBuf), LassoError> {
+    let envs = config_to_env(cfg);
+    write_env_file(&ctx.env_file, &envs)?;
+    let log_root = PathBuf::from(expand_path(&cfg.paths.log_root));
+    fs::create_dir_all(&log_root)?;
+    let workspace_root = PathBuf::from(expand_path(&cfg.paths.workspace_root));
+    fs::create_dir_all(&workspace_root)?;
+    Ok((log_root, workspace_root))
+}
+
+fn shell_single_quote(value: &str) -> String {
+    // Bash-safe single-quoted string: close/open around escaped single quotes.
+    // Example: foo'bar -> 'foo'\''bar'
+    let mut out = String::new();
+    out.push('\'');
+    for ch in value.chars() {
+        if ch == '\'' {
+            out.push_str("'\\''");
+        } else {
+            out.push(ch);
+        }
+    }
+    out.push('\'');
+    out
+}
+
+fn write_atomic_text_file(path: &Path, content: &str, mode: Option<u32>) -> Result<(), LassoError> {
+    ensure_parent(path)?;
+    let parent = path.parent().unwrap_or_else(|| Path::new("."));
+    let pid = std::process::id();
+    let ts = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis();
+    let tmp_path = parent.join(format!(
+        ".{}.tmp.{}.{}",
+        path.file_name()
+            .map(|s| s.to_string_lossy().to_string())
+            .unwrap_or_else(|| "lasso".to_string()),
+        pid,
+        ts
+    ));
+
+    fs::write(&tmp_path, content)?;
+    #[cfg(unix)]
+    if let Some(mode) = mode {
+        use std::os::unix::fs::PermissionsExt;
+        fs::set_permissions(&tmp_path, fs::Permissions::from_mode(mode))?;
+    }
+    fs::rename(&tmp_path, path)?;
+    Ok(())
+}
+
+fn write_atomic_text_file_preserving_mode(
+    path: &Path,
+    content: &str,
+    default_mode: u32,
+) -> Result<(), LassoError> {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mode = fs::metadata(path)
+            .map(|m| m.permissions().mode())
+            .unwrap_or(default_mode);
+        return write_atomic_text_file(path, content, Some(mode));
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = default_mode;
+        write_atomic_text_file(path, content, None)
+    }
+}
+
+fn write_provider_secrets_file(
+    path: &Path,
+    env_key: &str,
+    value: &str,
+    overwrite_allowed: bool,
+) -> Result<(), LassoError> {
+    if path.exists() && !overwrite_allowed {
+        return Err(LassoError::Process(format!(
+            "refusing to overwrite existing secrets file: {}",
+            path.display()
+        )));
+    }
+    let parent = path.parent().unwrap_or_else(|| Path::new("."));
+    fs::create_dir_all(parent)?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        // Best-effort tighten perms; if it fails, we still proceed (common on some filesystems).
+        let _ = fs::set_permissions(parent, fs::Permissions::from_mode(0o700));
+    }
+
+    let env_key = env_key.trim();
+    if env_key.is_empty() {
+        return Err(LassoError::Config(
+            "provider env_key must be non-empty".to_string(),
+        ));
+    }
+    let quoted = shell_single_quote(value);
+    let content = format!("{env_key}={quoted}\n");
+    write_atomic_text_file(path, &content, Some(0o600))
+}
+
+#[derive(Debug, Clone, Default)]
+struct SetupYamlEdits {
+    log_root: Option<String>,
+    workspace_root: Option<String>,
+    provider_auth_modes: BTreeMap<String, String>,
+}
+
+fn is_blank_or_comment(line: &str) -> bool {
+    let trimmed = line.trim();
+    trimmed.is_empty() || trimmed.starts_with('#')
+}
+
+fn leading_space_count(line: &str) -> Result<usize, LassoError> {
+    let mut count = 0usize;
+    for ch in line.chars() {
+        match ch {
+            ' ' => count += 1,
+            '\t' => {
+                return Err(LassoError::Config(
+                    "tabs are not supported in config.yaml indentation".to_string(),
+                ))
+            }
+            _ => break,
+        }
+    }
+    Ok(count)
+}
+
+fn match_block_key_line(line: &str, key: &str) -> Result<Option<usize>, LassoError> {
+    if is_blank_or_comment(line) {
+        return Ok(None);
+    }
+    let indent = leading_space_count(line)?;
+    let rest = &line[indent..];
+    if !rest.starts_with(key) {
+        return Ok(None);
+    }
+    let mut idx = key.len();
+    while idx < rest.len() && rest.as_bytes()[idx].is_ascii_whitespace() {
+        idx += 1;
+    }
+    if idx >= rest.len() || rest.as_bytes()[idx] != b':' {
+        return Ok(None);
+    }
+    idx += 1;
+    while idx < rest.len() && rest.as_bytes()[idx].is_ascii_whitespace() {
+        idx += 1;
+    }
+    if idx >= rest.len() {
+        return Ok(Some(indent));
+    }
+    if rest.as_bytes()[idx] == b'#' {
+        return Ok(Some(indent));
+    }
+    Ok(None)
+}
+
+fn match_scalar_key_line(line: &str, key: &str) -> Result<Option<usize>, LassoError> {
+    if is_blank_or_comment(line) {
+        return Ok(None);
+    }
+    let indent = leading_space_count(line)?;
+    let rest = &line[indent..];
+    if !rest.starts_with(key) {
+        return Ok(None);
+    }
+    let mut idx = key.len();
+    while idx < rest.len() && rest.as_bytes()[idx].is_ascii_whitespace() {
+        idx += 1;
+    }
+    if idx >= rest.len() || rest.as_bytes()[idx] != b':' {
+        return Ok(None);
+    }
+    Ok(Some(indent))
+}
+
+fn find_block_range(
+    lines: &[String],
+    start: usize,
+    key: &str,
+    expected_indent: usize,
+) -> Result<(usize, usize, usize), LassoError> {
+    for (idx, line) in lines.iter().enumerate().skip(start) {
+        let Some(indent) = match_block_key_line(line, key)? else {
+            continue;
+        };
+        if indent != expected_indent {
+            continue;
+        }
+        let block_indent = indent;
+        let body_start = idx + 1;
+        let mut body_end = lines.len();
+        for j in body_start..lines.len() {
+            let candidate = &lines[j];
+            if is_blank_or_comment(candidate) {
+                continue;
+            }
+            let ind = leading_space_count(candidate)?;
+            if ind <= block_indent {
+                body_end = j;
+                break;
+            }
+        }
+        return Ok((idx, body_start, body_end));
+    }
+    Err(LassoError::Config(format!(
+        "could not find YAML mapping block '{key}:' at indent {expected_indent}"
+    )))
+}
+
+fn is_yaml_indicator(ch: char) -> bool {
+    matches!(
+        ch,
+        '#' | ':'
+            | '{'
+            | '}'
+            | '['
+            | ']'
+            | ','
+            | '&'
+            | '*'
+            | '!'
+            | '|'
+            | '>'
+            | '\''
+            | '"'
+            | '%'
+            | '@'
+            | '`'
+    )
+}
+
+fn is_safe_plain_yaml_scalar(value: &str) -> bool {
+    if value.is_empty() {
+        return false;
+    }
+    if value.chars().any(|c| c == '\n' || c == '\r') {
+        return false;
+    }
+    if value.trim() != value {
+        return false;
+    }
+    if value.chars().next().map(is_yaml_indicator).unwrap_or(true) {
+        return false;
+    }
+    if value.contains(": ") {
+        return false;
+    }
+    if value.contains(" #") || value.contains("\t#") {
+        return false;
+    }
+    true
+}
+
+fn format_yaml_scalar_preserving(existing_token: &str, new_value: &str) -> String {
+    let token = existing_token.trim();
+    if token.len() >= 2 && token.starts_with('\'') && token.ends_with('\'') {
+        let inner = new_value.replace('\'', "''");
+        return format!("'{inner}'");
+    }
+    if token.len() >= 2 && token.starts_with('\"') && token.ends_with('\"') {
+        let mut inner = String::new();
+        for ch in new_value.chars() {
+            match ch {
+                '\\' => inner.push_str("\\\\"),
+                '\"' => inner.push_str("\\\""),
+                '\n' => inner.push_str("\\n"),
+                '\r' => inner.push_str("\\r"),
+                '\t' => inner.push_str("\\t"),
+                _ => inner.push(ch),
+            }
+        }
+        return format!("\"{inner}\"");
+    }
+    if is_safe_plain_yaml_scalar(new_value) {
+        return new_value.to_string();
+    }
+    let mut inner = String::new();
+    for ch in new_value.chars() {
+        match ch {
+            '\\' => inner.push_str("\\\\"),
+            '\"' => inner.push_str("\\\""),
+            '\n' => inner.push_str("\\n"),
+            '\r' => inner.push_str("\\r"),
+            '\t' => inner.push_str("\\t"),
+            _ => inner.push(ch),
+        }
+    }
+    format!("\"{inner}\"")
+}
+
+fn replace_yaml_scalar_value_in_line(
+    line: &str,
+    key: &str,
+    new_value: &str,
+) -> Result<(String, bool), LassoError> {
+    let indent = leading_space_count(line)?;
+    let rest = &line[indent..];
+    if !rest.starts_with(key) {
+        return Ok((line.to_string(), false));
+    }
+    let mut idx = key.len();
+    while idx < rest.len() && rest.as_bytes()[idx].is_ascii_whitespace() {
+        idx += 1;
+    }
+    if idx >= rest.len() || rest.as_bytes()[idx] != b':' {
+        return Ok((line.to_string(), false));
+    }
+    let colon_idx = indent + idx;
+    let mut value_start = colon_idx + 1;
+    while value_start < line.len() && line.as_bytes()[value_start].is_ascii_whitespace() {
+        value_start += 1;
+    }
+    if value_start >= line.len() {
+        return Err(LassoError::Config(format!(
+            "expected scalar value for key '{key}'"
+        )));
+    }
+
+    // Find comment start outside quotes where '#' is preceded by whitespace.
+    let mut in_single = false;
+    let mut in_double = false;
+    let mut i = value_start;
+    let bytes = line.as_bytes();
+    let mut comment_start: Option<usize> = None;
+    while i < line.len() {
+        let ch = bytes[i] as char;
+        if in_double {
+            if ch == '\\' {
+                i = (i + 2).min(line.len());
+                continue;
+            }
+            if ch == '\"' {
+                in_double = false;
+            }
+            i += 1;
+            continue;
+        }
+        if in_single {
+            if ch == '\'' {
+                if i + 1 < line.len() && bytes[i + 1] as char == '\'' {
+                    i += 2;
+                    continue;
+                }
+                in_single = false;
+            }
+            i += 1;
+            continue;
+        }
+        match ch {
+            '\'' => in_single = true,
+            '"' => in_double = true,
+            '#' => {
+                if i == 0 || bytes[i.saturating_sub(1)].is_ascii_whitespace() {
+                    comment_start = Some(i);
+                    break;
+                }
+            }
+            _ => {}
+        }
+        i += 1;
+    }
+
+    let (pre_comment, comment_part) = if let Some(cs) = comment_start {
+        (&line[..cs], &line[cs..])
+    } else {
+        (line, "")
+    };
+    let value_with_ws = &pre_comment[value_start..];
+    let value_trimmed = value_with_ws.trim_end_matches(|c: char| c.is_ascii_whitespace());
+    let trailing_ws = &value_with_ws[value_trimmed.len()..];
+
+    let formatted = format_yaml_scalar_preserving(value_trimmed, new_value);
+    let new_line = format!(
+        "{}{}{}{}",
+        &line[..value_start],
+        formatted,
+        trailing_ws,
+        comment_part
+    );
+    Ok((new_line.clone(), new_line != line))
+}
+
+fn patch_scalar_in_block(
+    lines: &mut [String],
+    block_body_start: usize,
+    block_body_end: usize,
+    block_indent: usize,
+    key: &str,
+    new_value: &str,
+) -> Result<bool, LassoError> {
+    for idx in block_body_start..block_body_end {
+        let line = &lines[idx];
+        if is_blank_or_comment(line) {
+            continue;
+        }
+        let indent = leading_space_count(line)?;
+        if indent <= block_indent {
+            continue;
+        }
+        if match_scalar_key_line(line, key)?.is_none() {
+            continue;
+        }
+        let (patched, changed) = replace_yaml_scalar_value_in_line(line, key, new_value)?;
+        lines[idx] = patched;
+        return Ok(changed);
+    }
+    Err(LassoError::Config(format!(
+        "could not find scalar key '{key}:' within YAML block"
+    )))
+}
+
+fn patch_setup_config_yaml(
+    content: &str,
+    edits: &SetupYamlEdits,
+) -> Result<(String, bool), LassoError> {
+    let mut lines: Vec<String> = content.split('\n').map(|s| s.to_string()).collect();
+    // `split('\n')` leaves a trailing empty line if the input ends with '\n'. We'll normalize to
+    // always end with one newline when writing back.
+    if lines.last().map(|s| s.is_empty()).unwrap_or(false) {
+        // Keep the trailing empty line as a sentinel and patch within it safely.
+    }
+
+    let mut changed = false;
+
+    if edits.log_root.is_some() || edits.workspace_root.is_some() {
+        let (_paths_line, paths_body_start, paths_body_end) =
+            find_block_range(&lines, 0, "paths", 0)?;
+        let paths_indent = 0usize;
+        if let Some(value) = edits.log_root.as_deref() {
+            changed |= patch_scalar_in_block(
+                &mut lines,
+                paths_body_start,
+                paths_body_end,
+                paths_indent,
+                "log_root",
+                value,
+            )?;
+        }
+        if let Some(value) = edits.workspace_root.as_deref() {
+            changed |= patch_scalar_in_block(
+                &mut lines,
+                paths_body_start,
+                paths_body_end,
+                paths_indent,
+                "workspace_root",
+                value,
+            )?;
+        }
+    }
+
+    if !edits.provider_auth_modes.is_empty() {
+        let (_providers_line, providers_body_start, providers_body_end) =
+            find_block_range(&lines, 0, "providers", 0)?;
+        let providers_indent = 0usize;
+        for (provider_name, auth_mode) in &edits.provider_auth_modes {
+            // Find provider block within providers block.
+            let mut provider_line_idx: Option<usize> = None;
+            for idx in providers_body_start..providers_body_end {
+                let line = &lines[idx];
+                let Some(indent) = match_block_key_line(line, provider_name)? else {
+                    continue;
+                };
+                if indent <= providers_indent {
+                    continue;
+                }
+                provider_line_idx = Some(idx);
+                break;
+            }
+            let Some(provider_line_idx) = provider_line_idx else {
+                return Err(LassoError::Config(format!(
+                    "could not find provider block '{}:' in config.yaml",
+                    provider_name
+                )));
+            };
+            let provider_indent = leading_space_count(&lines[provider_line_idx])?;
+            let provider_body_start = provider_line_idx + 1;
+            let mut provider_body_end = providers_body_end;
+            for j in provider_body_start..providers_body_end {
+                let candidate = &lines[j];
+                if is_blank_or_comment(candidate) {
+                    continue;
+                }
+                let ind = leading_space_count(candidate)?;
+                if ind <= provider_indent {
+                    provider_body_end = j;
+                    break;
+                }
+            }
+            changed |= patch_scalar_in_block(
+                &mut lines,
+                provider_body_start,
+                provider_body_end,
+                provider_indent,
+                "auth_mode",
+                auth_mode,
+            )?;
+        }
+    }
+
+    let mut out = lines.join("\n");
+    if !out.ends_with('\n') {
+        out.push('\n');
+    }
+    Ok((out, changed))
 }
 
 fn default_install_dir() -> PathBuf {
@@ -1562,8 +2785,8 @@ fn generate_provider_runtime_compose(
     ));
 
     let mut host_state_count = 0usize;
-    let should_mount_host_state = provider.auth_mode == AuthMode::HostState
-        || provider.mount_host_state_in_api_mode;
+    let should_mount_host_state =
+        provider.auth_mode == AuthMode::HostState || provider.mount_host_state_in_api_mode;
     if should_mount_host_state {
         for configured in &provider.auth.host_state.paths {
             let host_path = PathBuf::from(expand_path(configured));
@@ -1575,11 +2798,9 @@ fn generate_provider_runtime_compose(
                 continue;
             }
             let mount_dst = format!("/run/lasso/provider_host_state/{host_state_count}");
-            agent.volumes.push(format!(
-                "{}:{}:ro",
-                host_path.to_string_lossy(),
-                mount_dst
-            ));
+            agent
+                .volumes
+                .push(format!("{}:{}:ro", host_path.to_string_lossy(), mount_dst));
             agent.environment.push(format!(
                 "LASSO_PROVIDER_HOST_STATE_SRC_{host_state_count}={mount_dst}"
             ));
@@ -1595,9 +2816,9 @@ fn generate_provider_runtime_compose(
             ));
         }
     }
-    agent
-        .environment
-        .push(format!("LASSO_PROVIDER_HOST_STATE_COUNT={host_state_count}"));
+    agent.environment.push(format!(
+        "LASSO_PROVIDER_HOST_STATE_COUNT={host_state_count}"
+    ));
 
     if provider.auth_mode == AuthMode::ApiKey {
         let secrets_file = PathBuf::from(expand_path(&provider.auth.api_key.secrets_file));
@@ -1619,9 +2840,9 @@ fn generate_provider_runtime_compose(
             secrets_file.to_string_lossy(),
             container_secrets
         ));
-        agent.environment.push(format!(
-            "LASSO_PROVIDER_SECRETS_FILE={container_secrets}"
-        ));
+        agent
+            .environment
+            .push(format!("LASSO_PROVIDER_SECRETS_FILE={container_secrets}"));
     } else {
         agent
             .environment
@@ -1808,15 +3029,7 @@ fn collector_is_running<R: DockerRunner>(
     ui: bool,
     env_overrides: &BTreeMap<String, String>,
 ) -> Result<bool, LassoError> {
-    let running = running_services(
-        ctx,
-        runner,
-        cfg,
-        ui,
-        &[],
-        env_overrides,
-        &["collector"],
-    )?;
+    let running = running_services(ctx, runner, cfg, ui, &[], env_overrides, &["collector"])?;
     Ok(running.iter().any(|s| s == "collector"))
 }
 
@@ -1970,13 +3183,12 @@ fn handle_up<R: DockerRunner>(
         }
         LifecycleTarget::Provider(provider_name) => {
             let provider_cfg = provider_from_config(&cfg, &provider_name)?;
-            let active_run = load_active_run_state(&log_root)?
-                .ok_or_else(|| {
-                    LassoError::Process(
-                        "no active run found; start collector first with `lasso up --collector-only`"
-                            .to_string(),
-                    )
-                })?;
+            let active_run = load_active_run_state(&log_root)?.ok_or_else(|| {
+                LassoError::Process(
+                    "no active run found; start collector first with `lasso up --collector-only`"
+                        .to_string(),
+                )
+            })?;
             if !run_root(&log_root, &active_run.run_id).exists() {
                 clear_active_run_state(&log_root)?;
                 return Err(LassoError::Process(
@@ -2011,12 +3223,7 @@ fn handle_up<R: DockerRunner>(
                 eprintln!("warning: {warning}");
             }
 
-            let mut args = compose_base_args(
-                ctx,
-                &cfg,
-                ui,
-                &[runtime.override_file.clone()],
-            )?;
+            let mut args = compose_base_args(ctx, &cfg, ui, &[runtime.override_file.clone()])?;
             args.push("up".to_string());
             args.push("-d".to_string());
             if let Some(pull) = pull {
@@ -2244,7 +3451,11 @@ fn handle_run(
     Ok(())
 }
 
-fn handle_tui<R: DockerRunner>(ctx: &Context, provider: String, runner: &R) -> Result<(), LassoError> {
+fn handle_tui<R: DockerRunner>(
+    ctx: &Context,
+    provider: String,
+    runner: &R,
+) -> Result<(), LassoError> {
     let cfg = read_config(&ctx.config_path)?;
     let provider_cfg = provider_from_config(&cfg, &provider)?;
     let log_root = PathBuf::from(expand_path(&cfg.paths.log_root));
@@ -2737,14 +3948,9 @@ fn handle_uninstall<R: DockerRunner>(
                 down_args.push("--volumes".to_string());
                 down_args.push("--remove-orphans".to_string());
 
-                if let Err(err) = execute_docker(
-                    ctx,
-                    runner,
-                    &down_args,
-                    &BTreeMap::new(),
-                    true,
-                    false,
-                ) {
+                if let Err(err) =
+                    execute_docker(ctx, runner, &down_args, &BTreeMap::new(), true, false)
+                {
                     warnings.push(format!(
                         "failed to stop stack before uninstall (containers may still be running): {}",
                         err
@@ -2757,9 +3963,7 @@ fn handle_uninstall<R: DockerRunner>(
     let mut targets: Vec<PathBuf> = Vec::new();
     if all_versions {
         targets.push(versions_dir.clone());
-    } else if let Some(current_target) =
-        safe_current_target(&current_link, &versions_dir)
-    {
+    } else if let Some(current_target) = safe_current_target(&current_link, &versions_dir) {
         targets.push(current_target);
     }
     targets.push(current_link.clone());
@@ -2827,11 +4031,7 @@ fn handle_logs(ctx: &Context, command: LogsCommand) -> Result<(), LassoError> {
     }
 }
 
-fn logs_stats(
-    ctx: &Context,
-    run_id: Option<String>,
-    latest: bool,
-) -> Result<(), LassoError> {
+fn logs_stats(ctx: &Context, run_id: Option<String>, latest: bool) -> Result<(), LassoError> {
     let cfg = read_config(&ctx.config_path)?;
     let log_root = PathBuf::from(expand_path(&cfg.paths.log_root));
     let run_id = resolve_run_id_from_selector(&log_root, run_id.as_deref(), latest)?;
@@ -3103,6 +4303,51 @@ paths:
         let content = fs::read_to_string(&env_path).unwrap();
         assert!(content.contains("LASSO_VERSION="));
         assert!(content.contains("LASSO_LOG_ROOT="));
+    }
+
+    #[test]
+    fn yaml_patch_preserves_comments_and_spacing() {
+        let input = r#"# top comment
+version: 2
+
+paths:   # paths comment
+  log_root : ~/lasso-logs   # inline
+  workspace_root: "~/lasso-workspace"   # keep quotes
+
+providers:
+  codex:
+    auth_mode: api_key  # keep
+    mount_host_state_in_api_mode: false
+    commands:
+      tui: "codex"
+      run_template: "codex exec {prompt}"
+    auth:
+      api_key:
+        secrets_file: ~/.config/lasso/secrets/codex.env
+        env_key: OPENAI_API_KEY
+      host_state:
+        paths:
+          - ~/.codex/auth.json
+    ownership:
+      root_comm:
+        - codex
+"#;
+
+        let mut edits = SetupYamlEdits::default();
+        edits.log_root = Some("/tmp/new-logs".to_string());
+
+        let (patched, changed) = patch_setup_config_yaml(input, &edits).unwrap();
+        assert!(changed);
+        assert!(patched.ends_with('\n'));
+
+        // Comments must remain byte-for-byte.
+        assert!(patched.contains("# top comment"));
+        assert!(patched.contains("paths:   # paths comment"));
+        assert!(patched.contains("  log_root : /tmp/new-logs   # inline"));
+        assert!(patched.contains("  workspace_root: \"~/lasso-workspace\"   # keep quotes"));
+
+        // Unchanged provider line should remain unchanged.
+        assert!(patched.contains("    auth_mode: api_key  # keep"));
     }
 
     #[test]

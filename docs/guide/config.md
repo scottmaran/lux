@@ -2,6 +2,13 @@
 
 `config.yaml` is the canonical runtime contract for `lasso`.
 
+For most users, the recommended way to create/update this file is the setup
+wizard:
+
+```bash
+lasso setup
+```
+
 ## Default Location
 
 - `~/.config/lasso/config.yaml`
@@ -100,6 +107,8 @@ To migrate:
 ## API-Key Secrets Files
 
 Provider secrets files are only used when `auth_mode=api_key`.
+
+The setup wizard can optionally create these secrets files for you.
 
 Examples:
 

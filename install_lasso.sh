@@ -4,10 +4,11 @@ set -euo pipefail
 VERSION=""
 BUNDLE_PATH=""
 CHECKSUM_PATH=""
+RUN_SETUP="false"
 
 usage() {
   cat <<USAGE
-Usage: install_lasso.sh --version vX.Y.Z [--bundle <path>] [--checksum <path>]
+Usage: install_lasso.sh --version vX.Y.Z [--bundle <path>] [--checksum <path>] [--setup]
 
 Installs the Lasso CLI bundle without creating log/workspace directories.
 
@@ -19,6 +20,7 @@ Optional (offline / private repo flow):
                      (must be named like lasso_<ver>_<os>_<arch>.tar.gz)
   --checksum <path>  Local path to the checksum file for the tarball
                      (must be named like lasso_<ver>_<os>_<arch>.tar.gz.sha256)
+  --setup            Run `lasso setup` after install (interactive; TTY only)
 
 Environment:
   LASSO_RELEASE_BASE_URL  Base URL for release downloads
@@ -34,6 +36,8 @@ while [ $# -gt 0 ]; do
       BUNDLE_PATH="$2"; shift 2 ;;
     --checksum)
       CHECKSUM_PATH="$2"; shift 2 ;;
+    --setup)
+      RUN_SETUP="true"; shift 1 ;;
     -h|--help)
       usage; exit 0 ;;
     *)
@@ -188,8 +192,18 @@ cat <<EOFMSG
 ✅ Lasso installed.
 
 Next steps:
-1) Edit config: ${CONFIG_DIR}/config.yaml
-   - Set paths.log_root and paths.workspace_root
-2) Apply config: lasso config apply
-3) Start stack:  lasso up
+1) Run setup wizard: ${INSTALL_DIR}/current/lasso setup
+2) Start stack:
+   - lasso up --collector-only --wait
+   - lasso up --provider codex --wait
+   - lasso tui --provider codex
 EOFMSG
+
+if [ "${RUN_SETUP}" = "true" ]; then
+  if [ -t 0 ] && [ -t 1 ] && [ -t 2 ]; then
+    "${INSTALL_DIR}/current/lasso" setup
+  else
+    echo "NOTE: --setup was provided, but no TTY is available; skipping interactive setup." >&2
+    echo "Run it manually: ${INSTALL_DIR}/current/lasso setup" >&2
+  fi
+fi
