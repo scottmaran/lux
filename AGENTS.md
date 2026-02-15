@@ -1,32 +1,85 @@
-# Who we are 
-The core principles of Lasso are:
-- ease of use for the user
-- sustainable agentic design - everyhing is documented and/or recorded 
-- comprehensive automated coverage. tests guarantee correctness
+# Lasso: Agent Operating Contract
 
-something about integrating knowledge in knowledge base
+This repo is designed for AI-driven autonomous development. If you are an AI agent
+working in this repo, treat this document as normative.
 
-Our invariants are:
-- We want to log everything an agent does
-- The user can be confident that the agent can't tamper with the logs
-- Each log must be attributable to a specific agent
-- We are independent of the agent program itself 
-You can read more about them in INVARIANTS.md
+## Core Principles
+- Ease of use for the user.
+- Sustainable agentic design: work is attributable, reviewable, and reproducible.
+- Comprehensive automated coverage: tests define observable behavior.
 
-# State of the codebase
-We are currently still in stealth, so we don't have to worry about backwards compatability.
+## Non-Negotiable Product Invariants
+- We log everything an agent does.
+- The user can be confident that the agent can't tamper with the logs.
+- Each log must be attributable to a specific agent/session.
+- We are independent of the agent program itself (Codex/Claude/etc).
 
-# What we want to be 
-The go-to source for agent observability
+See `INVARIANTS.md`. If you change behavior that could affect an invariant,
+keep the invariant true and update tests/documentation so enforcement remains explicit.
+Do not change invariants (or weaken them) without explicit user approval.
+Clarifications are allowed; meaning changes require approval and a written record
+in the relevant spec/docs/tests.
 
-# What you are
-You are an agent traversing Lasso, an OS‑level observation system for third‑party agents. There are only six acceptable classes.
+## Backwards Compatibility
+- We are in stealth. Backwards compatibility is not a constraint today.
+- Behavior changes still require updating tests and documentation.
 
-## List of acceptable agents classes
-- Brainstorm: brainstorm ideas / talk through something
-- Create Spec: create a new feature spec
-- Implement Spec: implement an existing feature spec
-- Audit: clean up/audit the existing codebase
-- Explain: explain existing functionality 
-- One Off: handle one-off questions
+## Where Truth Lives (Priority Order)
+Normative (must be kept correct):
+- `AGENTS.md`: how to do work here.
+- `INVARIANTS.md`: product invariants and trust model.
+- `tests/README.md`: the test suite is the specification for observable behavior.
+- `docs/guide/*`: user-facing behavior of the `lasso` CLI and runtime.
+- Component docs: `agent/README.md`, `harness/README.md`, `collector/README.md`,
+  `ui/README.md`, `lasso/README.md`.
+- Schema contracts under `collector/*.md` (raw/filtered/timeline formats).
 
+Reference / background (useful, but not a contract):
+- `docs/history/*`: narrative and implementation log.
+- `docs/dev/EXAMPLE_FLOW.md`: illustrative walkthrough; may lag reality.
+- `docs/knowledge_base/*`: curated external notes. Use them to inform decisions,
+  then translate conclusions into repo-native contracts (specs/tests).
+
+## Choose An Agent Class
+Every task must pick exactly one class and follow its contract:
+- Brainstorm: `docs/agent_classes/brainstorm.md`
+- Create Spec: `docs/agent_classes/create_spec.md`
+- Implement Spec: `docs/agent_classes/implement_spec.md`
+- Audit: `docs/agent_classes/audit.md`
+- Explain: `docs/agent_classes/explain.md`
+- One Off: `docs/agent_classes/one_off.md`
+
+If a task changes class mid-stream, call out the transition explicitly and
+ensure any in-flight spec/docs reflect the new goal/scope.
+
+## Default Workflow (For Changes In This Repo)
+1. Read `AGENTS.md`, then the chosen class doc under `docs/agent_classes/`.
+2. Identify the contract you are changing (tests, schema docs, user docs).
+3. If the change is non-trivial, write/update a spec under `docs/specs/`.
+4. Implement in small slices.
+5. Add or update tests so the new behavior is enforced.
+6. Run the smallest gate that proves correctness, then widen as needed (see Verification Gates below).
+7. Update documentation affected by the change.
+
+## Verification Gates
+Canonical local commands:
+- `uv sync`
+- `uv run python scripts/all_tests.py --lane fast`
+- `uv run python scripts/all_tests.py --lane pr`
+- `uv run python scripts/all_tests.py --lane full`
+
+## Repo Map (Quick Orientation)
+- `lasso/`: Rust CLI source.
+- `collector/`: auditd/eBPF capture plus filter/summarize/merge pipeline.
+- `harness/`: session/job runner (PTY/TUI + API) and artifact writer.
+- `agent/`: agent container and provider auth bootstrapping.
+- `ui/`: UI and API server for log review.
+- `docs/`: user guide, developer docs, specs/audits.
+- `tests/`: specification for observable behavior.
+- `scripts/`: canonical test runners and verification helpers.
+
+## Guardrails
+- No silent behavior changes: update tests and schema/docs together.
+- Prefer deterministic evidence over natural-language assertions.
+- Never commit secrets or credentials.
+- Avoid destructive actions unless explicitly requested (data deletion, resets, force pushes).
