@@ -1,8 +1,12 @@
 # Lasso Invariants (Implementation-Agnostic)
+Layer: Invariant
 
 This document defines the non-negotiable product invariants of Lasso.
 These invariants must remain true even if the implementation changes
 (runtime, packaging, sensors, storage layout, UI, etc).
+
+Shared vocabulary lives in `docs/glossary.md`. Definitions in this file are
+canonical for the trust model.
 
 Change policy:
 - Clarifications are allowed.
@@ -73,4 +77,3 @@ Implications:
   not from agent self-reporting.
 - Provider-specific integration may affect how the agent is launched or authenticated, but must not be required for
   the core observation and attribution guarantees.
-

@@ -186,7 +186,14 @@ def main() -> int:
     changed = git_changed_files(args.base_ref, args.head_ref)
 
     failures: list[str] = []
-    runtime_changed = [path for path in changed if starts_with_any(path, RUNTIME_PREFIXES)]
+    # Guardrail intent: require tests for runtime-affecting changes.
+    # Documentation changes (even if colocated under runtime dirs like `harness/`)
+    # should not trigger test-delta enforcement.
+    runtime_changed = [
+        path
+        for path in changed
+        if starts_with_any(path, RUNTIME_PREFIXES) and not path.endswith(".md")
+    ]
     tests_changed = [path for path in changed if path.startswith("tests/")]
     regression_changed = [path for path in changed if path.startswith("tests/regression/")]
 

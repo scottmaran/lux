@@ -1,4 +1,5 @@
 # Lasso: Agent Operating Contract
+Layer: Contract
 
 This repo is designed for AI-driven autonomous development. If you are an AI agent
 working in this repo, treat this document as normative.
@@ -32,19 +33,19 @@ in the relevant spec/docs/tests.
 ## Where Truth Lives (Priority Order)
 Normative (must be kept correct):
 - `AGENTS.md`: how to do work here.
-- `docs/agent_classes/*`: agent task classes and their required workflows.
+- `docs/agents/classes/*`: agent task classes and their required workflows.
 - `docs/specs/*`: implementable change contracts for non-trivial work.
 - `INVARIANTS.md`: product invariants and trust model.
 - `tests/README.md`: the test suite is the specification for observable behavior.
-- `docs/guide/*`: user-facing behavior of the `lasso` CLI and runtime.
+- `docs/contracts/*`: user-facing behavior of the `lasso` CLI and runtime.
 - Component docs: `agent/README.md`, `harness/README.md`, `collector/README.md`,
   `ui/README.md`, `lasso/README.md`.
-- Schema contracts under `collector/*.md` (raw/filtered/timeline formats).
+- Schema contracts under `docs/contracts/schemas/*` (raw/filtered/timeline formats).
 
 Reference / background (useful, but not a contract):
 - `docs/history/*`: narrative and implementation log.
-- `docs/dev/EXAMPLE_FLOW.md`: illustrative walkthrough; may lag reality.
-- `docs/knowledge_base/*`: curated external notes. Use them to inform decisions,
+- `docs/dev/example_flow.md`: illustrative walkthrough; may lag reality.
+- `docs/research/*`: curated external notes. Use them to inform decisions,
   then translate conclusions into repo-native contracts (specs/tests).
 
 ## Abstraction Level (Doc Layers)
@@ -62,19 +63,19 @@ Implementation-layer docs instead.
 
 ## Choose An Agent Class
 Every task must pick exactly one class and follow its contract:
-- Brainstorm: `docs/agent_classes/brainstorm.md`
-- Create Spec: `docs/agent_classes/create_spec.md`
-- Implement Spec: `docs/agent_classes/implement_spec.md`
-- Audit: `docs/agent_classes/audit.md`
-- Explain: `docs/agent_classes/explain.md`
-- One Off: `docs/agent_classes/one_off.md`
+- Brainstorm: `docs/agents/classes/brainstorm.md`
+- Create Spec: `docs/agents/classes/create_spec.md`
+- Implement Spec: `docs/agents/classes/implement_spec.md`
+- Audit: `docs/agents/classes/audit.md`
+- Explain: `docs/agents/classes/explain.md`
+- One Off: `docs/agents/classes/one_off.md`
 
 Agents must state the chosen class at the top of each response; if reclassifying mid-stream, announce it.
 If a task changes class mid-stream, call out the transition explicitly and
 ensure any in-flight spec/docs reflect the new goal/scope.
 
 ## Default Workflow (For Changes In This Repo)
-1. Read `AGENTS.md`, then the chosen class doc under `docs/agent_classes/`.
+1. Read `AGENTS.md`, then the chosen class doc under `docs/agents/classes/`.
 2. Identify the contract you are changing (tests, schema docs, user docs).
 3. If the change is non-trivial, write/update a spec under `docs/specs/`.
 4. Implement in small slices.

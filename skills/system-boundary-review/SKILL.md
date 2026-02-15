@@ -77,9 +77,9 @@ If the user is trying to define repo boundary rules, also output:
 ## Deep References (Load Only If Needed)
 
 Use these repo notes when you need more detail or examples:
-- `docs/knowledge_base/system_boundaries/boundary-drawing.md` (boundaries are invented; reconsider deliberately; redrawing is costly)
-- `docs/knowledge_base/system_boundaries/system_boundariees_the_focus_of_design.md` (what makes a boundary; why rules differ at boundaries; boundaries are not free)
-- `docs/knowledge_base/system_boundaries/good-software-architectures-are-mostly-about-boundaries.md` (boundaries as contracts; information leaks; examples of "debug" surface area becoming dependency)
+- `docs/research/system_boundaries/boundary-drawing.md` (boundaries are invented; reconsider deliberately; redrawing is costly)
+- `docs/research/system_boundaries/system_boundariees_the_focus_of_design.md` (what makes a boundary; why rules differ at boundaries; boundaries are not free)
+- `docs/research/system_boundaries/good-software-architectures-are-mostly-about-boundaries.md` (boundaries as contracts; information leaks; examples of "debug" surface area becoming dependency)
 
 ## Notes
 - This skill is intended for use inside this repo; references assume the repo workspace is available.

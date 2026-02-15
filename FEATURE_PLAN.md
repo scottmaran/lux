@@ -214,7 +214,11 @@ Current `docs/orientation/overview.md` should become:
   - `rg -n "docs/guide/|docs/orientation/|docs/vm/|docs/agent_classes/|docs/knowledge_base/" -S .`
 
 ## Open Questions / Follow-ups
-- Do we want directory placement alone to imply layer for non-foundational docs, or should we require layer headers everywhere (even under `history/` and `research/`)?
+- Layer headers are required for:
+  - Foundational docs (`AGENTS.md`, `INVARIANTS.md`, and the canonical docs indexes).
+  - Contract docs (`docs/contracts/**`).
+  - Architecture docs (`docs/architecture/**`).
+  Optional elsewhere (for example `docs/history/`, `docs/research/`, `docs/specs/`).
 
 ## Verification
 - Verify no references to old doc paths remain (`rg` as above).

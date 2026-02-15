@@ -3,7 +3,7 @@
 ## Before You Start
 
 - For a documentation map, see `docs/README.md`.
-- For local development notes, see `docs/dev/DEVELOPING.md`.
+- For local development notes, see `docs/dev/developing.md`.
 
 ## Legal: CLA (Required)
 
