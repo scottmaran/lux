@@ -8,8 +8,13 @@ working in this repo, treat this document as normative.
 - Sustainable agentic design: work is attributable, reviewable, and reproducible.
 - Comprehensive automated coverage: tests define observable behavior.
 
+## Product Vision (North Star)
+- The go-to source for agent observability.
+- Users can run third-party agents and get auditable, structured evidence of what happened.
+- Observation must not depend on agent cooperation (provider-agnostic).
+
 ## Non-Negotiable Product Invariants
-- We log everything an agent does.
+- We log everything an agent does within Lasso's observable scope.
 - The user can be confident that the agent can't tamper with the logs.
 - Each log must be attributable to a specific agent/session.
 - We are independent of the agent program itself (Codex/Claude/etc).
@@ -27,6 +32,8 @@ in the relevant spec/docs/tests.
 ## Where Truth Lives (Priority Order)
 Normative (must be kept correct):
 - `AGENTS.md`: how to do work here.
+- `docs/agent_classes/*`: agent task classes and their required workflows.
+- `docs/specs/*`: implementable change contracts for non-trivial work.
 - `INVARIANTS.md`: product invariants and trust model.
 - `tests/README.md`: the test suite is the specification for observable behavior.
 - `docs/guide/*`: user-facing behavior of the `lasso` CLI and runtime.
@@ -40,6 +47,19 @@ Reference / background (useful, but not a contract):
 - `docs/knowledge_base/*`: curated external notes. Use them to inform decisions,
   then translate conclusions into repo-native contracts (specs/tests).
 
+## Abstraction Level (Doc Layers)
+Lasso is an agent observability system. Current implementation details (Docker/VM,
+specific sensors, file paths, component wiring) are not the product and may change.
+
+When writing or editing docs/specs, explicitly choose the layer:
+- Invariant: timeless product principles; must survive major architecture changes.
+- Contract: externally visible behavior (schemas/APIs/CLI); versioned but durable.
+- Implementation: how the current system achieves the contract today.
+
+Rule: `INVARIANTS.md` must be written at the Invariant layer (no hard dependency
+on Docker/VM/specific sensors/paths). Put "how we currently do it" in
+Implementation-layer docs instead.
+
 ## Choose An Agent Class
 Every task must pick exactly one class and follow its contract:
 - Brainstorm: `docs/agent_classes/brainstorm.md`
@@ -49,6 +69,7 @@ Every task must pick exactly one class and follow its contract:
 - Explain: `docs/agent_classes/explain.md`
 - One Off: `docs/agent_classes/one_off.md`
 
+Agents must state the chosen class at the top of each response; if reclassifying mid-stream, announce it.
 If a task changes class mid-stream, call out the transition explicitly and
 ensure any in-flight spec/docs reflect the new goal/scope.
 

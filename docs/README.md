@@ -7,6 +7,19 @@ docs/README.md (you are here)
 │  ├─ cli.md — CLI commands and behavior
 │  ├─ config.md — config.yaml reference and defaults
 │  └─ log_layout.md — run-scoped log directory structure
+├─ agent_classes/
+│  ├─ brainstorm.md — brainstorm options + recommendation
+│  ├─ create_spec.md — write an implementable spec
+│  ├─ implement_spec.md — implement an existing spec with tests
+│  ├─ audit.md — review/audit the codebase (read-only)
+│  ├─ explain.md — explain current behavior accurately
+│  └─ one_off.md — small, bounded fixes/changes
+├─ specs/
+│  ├─ README.md — how to write specs
+│  └─ TEMPLATE.md — spec template
+├─ audits/
+│  ├─ README.md — how to write audits
+│  └─ TEMPLATE.md — audit template
 ├─ orientation/
 │  ├─ overview.md — system summary and goals
 │  ├─ platform.md — platform assumptions and constraints
