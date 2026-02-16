@@ -39,7 +39,12 @@ def _row_is_fs_for_path(row: dict, path: str) -> bool:
     return event_type.startswith("fs_") and _details_path(row) == path
 
 
-def _run_trial(stress_stack, trial: int) -> tuple[str, str, str, str, list[dict]]:
+def _run_trial(
+    stress_stack,
+    trial: int,
+    *,
+    ready_predicate=None,
+) -> tuple[str, str, str, str, list[dict]]:
     path_a = f"/work/stress_a_{trial}_{uuid.uuid4().hex[:8]}.txt"
     path_b = f"/work/stress_b_{trial}_{uuid.uuid4().hex[:8]}.txt"
 
@@ -58,6 +63,7 @@ def _run_trial(stress_stack, trial: int) -> tuple[str, str, str, str, list[dict]
         lambda timeline_rows: (
             any(_row_is_fs_for_path(row, path_a) for row in timeline_rows)
             and any(_row_is_fs_for_path(row, path_b) for row in timeline_rows)
+            and (ready_predicate(timeline_rows, path_a, path_b) if ready_predicate else True)
         ),
         timeout_sec=120,
         message=f"trial={trial}: missing expected fs timeline rows",
@@ -110,8 +116,21 @@ def test_repeated_live_concurrent_trials_avoid_cross_attribution_wrapper_exec_ro
     """
     trials = _trial_count()
 
+    def _wrapper_rows_ready(rows: list[dict], path_a: str, path_b: str) -> bool:
+        return any(
+            row.get("event_type") == "exec" and _row_mentions_path_in_cmd(row, path_a)
+            for row in rows
+        ) and any(
+            row.get("event_type") == "exec" and _row_mentions_path_in_cmd(row, path_b)
+            for row in rows
+        )
+
     for trial in range(trials):
-        path_a, path_b, job_a, job_b, rows = _run_trial(stress_stack, trial)
+        path_a, path_b, job_a, job_b, rows = _run_trial(
+            stress_stack,
+            trial,
+            ready_predicate=_wrapper_rows_ready,
+        )
         rows_a = [
             row
             for row in rows

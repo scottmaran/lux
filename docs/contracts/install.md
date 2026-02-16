@@ -133,9 +133,10 @@ provider secrets files (API-key mode).
 2) Start stack:
 
 ```bash
-lasso up --collector-only --wait
-lasso up --provider codex --wait
-lasso tui --provider codex
+lasso runtime up
+lasso ui up --wait
+lasso shim install codex claude
+codex
 ```
 
 ### Manual config (no wizard)

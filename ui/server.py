@@ -3,6 +3,7 @@ import json
 import mimetypes
 import os
 import re
+import socket
 from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -31,6 +32,9 @@ LOG_ROOT_RW = Path(os.getenv("UI_LOG_ROOT_RW", str(LOG_ROOT)))
 RUN_PREFIX = "lasso__"
 ACTIVE_RUN_STATE_PATH = LOG_ROOT / ".active_run.json"
 RUN_ID_RE = re.compile(r"^[A-Za-z0-9._-]+$")
+RUNTIME_SOCKET_PATH = Path(
+    os.getenv("UI_RUNTIME_CONTROL_PLANE_SOCKET", "/run/lasso/runtime/control_plane.sock")
+)
 
 
 def read_json(path: Path) -> dict | None:
@@ -272,6 +276,67 @@ def resolve_run_id_with_error(filters: dict) -> tuple[str | None, str | None]:
     return load_active_run_id(), None
 
 
+def _parse_http_response(raw: bytes) -> tuple[int, dict[str, str], bytes]:
+    split = raw.find(b"\r\n\r\n")
+    if split == -1:
+        raise ValueError("runtime proxy received malformed HTTP response")
+    header_raw = raw[:split].decode("utf-8", errors="replace")
+    body = raw[split + 4 :]
+    lines = header_raw.splitlines()
+    if not lines:
+        raise ValueError("runtime proxy received empty HTTP response")
+    status_parts = lines[0].split(" ", 2)
+    if len(status_parts) < 2:
+        raise ValueError("runtime proxy received invalid status line")
+    status = int(status_parts[1])
+    headers: dict[str, str] = {}
+    for line in lines[1:]:
+        if ":" not in line:
+            continue
+        key, value = line.split(":", 1)
+        headers[key.strip().lower()] = value.strip()
+    return status, headers, body
+
+
+def runtime_request(method: str, path: str, headers: dict | None = None, body: bytes | None = None) -> tuple[int, dict[str, str], bytes]:
+    if not RUNTIME_SOCKET_PATH.exists():
+        return 503, {"content-type": "application/json"}, json.dumps(
+            {
+                "error": "runtime control-plane unavailable",
+                "socket_path": str(RUNTIME_SOCKET_PATH),
+            }
+        ).encode("utf-8")
+
+    request_headers = {"Host": "lasso-runtime", "Connection": "close"}
+    if headers:
+        request_headers.update(headers)
+
+    payload = body or b""
+    if payload:
+        request_headers["Content-Length"] = str(len(payload))
+
+    request = f"{method} {path} HTTP/1.1\r\n"
+    for key, value in request_headers.items():
+        request += f"{key}: {value}\r\n"
+    request += "\r\n"
+
+    sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    sock.connect(str(RUNTIME_SOCKET_PATH))
+    try:
+        sock.sendall(request.encode("utf-8"))
+        if payload:
+            sock.sendall(payload)
+        chunks = []
+        while True:
+            chunk = sock.recv(4096)
+            if not chunk:
+                break
+            chunks.append(chunk)
+    finally:
+        sock.close()
+    return _parse_http_response(b"".join(chunks))
+
+
 class UIHandler(BaseHTTPRequestHandler):
     def _json(self, payload: dict, status: int = 200) -> None:
         body = json.dumps(payload).encode("utf-8")
@@ -324,6 +389,8 @@ class UIHandler(BaseHTTPRequestHandler):
 
     def handle_api(self, parsed) -> None:
         filters = parse_qs(parsed.query)
+        if parsed.path.startswith("/api/runtime/"):
+            return self.handle_runtime_api(parsed)
         if parsed.path == "/api/sessions":
             run_id, run_err = resolve_run_id_with_error(filters)
             if run_err:
@@ -356,6 +423,108 @@ class UIHandler(BaseHTTPRequestHandler):
             total = sum(counts.values())
             return self._json({"run_id": resolved_run_id, "counts": counts, "total": total})
         return self._json({"error": "not found"}, 404)
+
+    def handle_runtime_api(self, parsed) -> None:
+        route_map = {
+            "/api/runtime/stack-status": "/v1/stack/status",
+            "/api/runtime/run-status": "/v1/run/status",
+            "/api/runtime/session-job-status": "/v1/session-job/status",
+            "/api/runtime/collector-pipeline-status": "/v1/collector/pipeline/status",
+            "/api/runtime/warnings": "/v1/warnings",
+        }
+        if parsed.path == "/api/runtime/events":
+            return self._proxy_runtime_sse(parsed)
+        upstream = route_map.get(parsed.path)
+        if upstream is None:
+            return self._json({"error": "not found"}, 404)
+        try:
+            status, headers, body = runtime_request("GET", upstream)
+        except OSError as exc:
+            return self._json(
+                {
+                    "error": "runtime control-plane request failed",
+                    "details": str(exc),
+                    "socket_path": str(RUNTIME_SOCKET_PATH),
+                },
+                503,
+            )
+        content_type = headers.get("content-type", "application/json")
+        self.send_response(status)
+        self.send_header("Content-Type", content_type)
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def _proxy_runtime_sse(self, parsed) -> None:
+        if not RUNTIME_SOCKET_PATH.exists():
+            return self._json(
+                {
+                    "error": "runtime control-plane unavailable",
+                    "socket_path": str(RUNTIME_SOCKET_PATH),
+                },
+                503,
+            )
+        last_event_id = self.headers.get("Last-Event-ID", "").strip()
+        target = "/v1/events"
+        query = []
+        if parsed.query:
+            query.append(parsed.query)
+        if last_event_id:
+            query.append(f"last_event_id={last_event_id}")
+        if query:
+            target = f"{target}?{'&'.join(query)}"
+
+        request = (
+            f"GET {target} HTTP/1.1\r\n"
+            "Host: lasso-runtime\r\n"
+            "Accept: text/event-stream\r\n"
+            "Connection: close\r\n"
+        )
+        if last_event_id:
+            request += f"Last-Event-ID: {last_event_id}\r\n"
+        request += "\r\n"
+
+        sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        try:
+            sock.connect(str(RUNTIME_SOCKET_PATH))
+            sock.sendall(request.encode("utf-8"))
+            buffer = b""
+            while b"\r\n\r\n" not in buffer:
+                chunk = sock.recv(4096)
+                if not chunk:
+                    break
+                buffer += chunk
+            split = buffer.find(b"\r\n\r\n")
+            if split == -1:
+                return self._json({"error": "invalid runtime SSE response"}, 502)
+            status, headers, body = _parse_http_response(buffer)
+            self.send_response(status)
+            self.send_header("Content-Type", headers.get("content-type", "text/event-stream"))
+            self.send_header("Cache-Control", "no-cache")
+            self.end_headers()
+            if body:
+                self.wfile.write(body)
+                self.wfile.flush()
+            while True:
+                chunk = sock.recv(4096)
+                if not chunk:
+                    break
+                try:
+                    self.wfile.write(chunk)
+                    self.wfile.flush()
+                except (BrokenPipeError, ConnectionResetError):
+                    break
+        except OSError as exc:
+            return self._json(
+                {
+                    "error": "runtime control-plane SSE proxy failed",
+                    "details": str(exc),
+                    "socket_path": str(RUNTIME_SOCKET_PATH),
+                },
+                503,
+            )
+        finally:
+            sock.close()
 
     def handle_api_patch(self, parsed) -> None:
         filters = parse_qs(parsed.query)
