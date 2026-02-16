@@ -33,13 +33,20 @@ This section records the consistency review against current repo contracts and i
 - Rotation field fixed to `collector.rotate_every_min` with default `1440`.
 - Control-plane transport/auth finalized:
 - Privileged runtime control-plane operations use a local Unix domain socket.
-- Socket access is enforced by filesystem permissions (owner-only).
+- Socket access is enforced by uid/gid filesystem permissions.
 - UI integration finalized (Option A):
 - Browser stays same-origin via `ui/server.py` proxy routes to control-plane.
 - No direct browser-to-control-plane cross-origin access in v1.
+- UI socket transport wiring finalized:
+- Runtime socket directory is mounted into UI container at `/run/lasso/runtime`.
+- `ui/server.py` uses `UI_RUNTIME_CONTROL_PLANE_SOCKET` to reach control-plane.
+- Proxy namespace is explicit: `/api/runtime/*` and `/api/runtime/events` (SSE).
 - Runtime ownership finalized:
 - Control-plane runs as a long-lived scheduler/orchestrator process.
 - CLI auto-starts it when needed, with explicit `lasso runtime up|down|status`.
+- Daemon lifecycle semantics finalized:
+- single-instance lock + pid state, stale socket recovery, and deterministic restart behavior.
+- After `lasso runtime down`, next CLI/shim command auto-starts runtime by default.
 
 ## Locked Product Decisions
 - UI lifecycle is independent from collector/provider lifecycle.
@@ -50,7 +57,12 @@ This section records the consistency review against current repo contracts and i
 - `collector.idle_timeout_min: 10080` by default.
 - `collector.rotate_every_min: 1440` by default.
 - `runtime_control_plane.socket_path` is top-level config and defaults under
-  `LASSO_CONFIG_DIR` (owner-only permission model).
+  `LASSO_CONFIG_DIR` (uid/gid permission model).
+- `runtime_control_plane.socket_gid` defaults to invoking user primary gid.
+- `compose.env` includes:
+- `LASSO_RUNTIME_DIR`
+- `LASSO_RUNTIME_GID`
+- `compose.ui.yml` mounts `${LASSO_RUNTIME_DIR}` and adds `${LASSO_RUNTIME_GID}` for socket access.
 - Rotation safety rules:
 1. Never rotate while a provider session/job is active.
 2. Defer rotation until provider plane is idle/down.
@@ -77,6 +89,7 @@ This section records the consistency review against current repo contracts and i
   over Unix socket transport for privileged runtime APIs.
 - CLI lifecycle/status commands become clients of this control plane.
 - UI stays same-origin and accesses control-plane via `ui/server.py` proxy routes.
+- UI proxy forwards read-only runtime routes in v1; mutating lifecycle routes remain CLI-only.
 - Existing evidence ingestion and storage paths remain run-scoped under `<log_root>/<run_id>/...`.
 
 ## Workstreams
@@ -90,6 +103,7 @@ Deliverables:
 - `docs/contracts/config.md`
 - `docs/contracts/install.md`
 - `docs/contracts/ui_api.md` (same-origin proxy integration guidance with runtime control-plane contract)
+- `compose.ui.yml` contract notes (runtime socket mount + group mapping)
 
 Exit Criteria:
 - Endpoint/event contracts are unambiguous and testable.
@@ -125,6 +139,8 @@ Deliverables:
 - Supported only when invoked from within configured workspace root.
 - No argv path rewriting.
 - Absolute host-path arguments are unsupported in v1 and fail fast with actionable messaging.
+- Runtime dependency:
+- Shim commands require runtime control-plane; auto-start applies when unavailable.
 
 Exit Criteria:
 - `codex <args...>` and `claude <args...>` behave with preserved arguments.
@@ -176,8 +192,15 @@ Deliverables:
 - `lasso runtime up`
 - `lasso runtime down`
 - `lasso runtime status`
+- Lifecycle semantics:
+- `runtime up` is idempotent and enforces single-instance lock.
+- `runtime up` removes stale socket/pid artifacts before restart when safe.
+- `runtime down` stops daemon and clears runtime artifacts.
+- Next normal CLI/shim command auto-starts runtime (default UX path).
 - UI proxy surface:
-- `ui/server.py` same-origin proxy routes for runtime control-plane operations used by browser UI.
+- `ui/server.py` same-origin proxy routes:
+- `/api/runtime/*` (read-only status/health/evidence-state)
+- `/api/runtime/events` (SSE pass-through with `Last-Event-ID` forwarding)
 
 Exit Criteria:
 - CLI and UI consume consistent state from one API contract.
@@ -215,20 +238,24 @@ Exit Criteria:
 ### Unit
 - Config defaults and validation for new `collector.*` fields.
 - Config defaults and validation for `runtime_control_plane.socket_path`.
+- Config defaults and validation for `runtime_control_plane.socket_gid`.
 - Shim argument passthrough and command construction.
 - Shim cwd/path validation and fail-fast behavior.
 - Rotation eligibility and deferred scheduling logic.
 - Rotation drain/flush and forced-cutover degraded-path behavior.
 - Atomic state-file write/replace behaviors.
 - Control-plane payload and event serialization.
+- Daemon lock/pid/stale-socket lifecycle behavior.
 
 ### Integration
 - `lasso ui up/down/status/url` end-to-end.
 - `lasso runtime up/down/status` lifecycle behavior.
+- `runtime down` followed by normal CLI/shim command auto-start behavior.
 - Shimmed `codex` and `claude` passthrough with representative arg patterns.
 - Collector auto-start and idle timeout behavior.
 - Rotation defers during active sessions/jobs and executes after idle/down.
 - UI reads runtime state/event stream correctly through same-origin proxy paths.
+- UI proxy forwards SSE and `Last-Event-ID` semantics correctly.
 
 ### Regression
 - Rotation boundary attribution integrity.
@@ -256,7 +283,9 @@ Exit Criteria:
 - Risk: control-plane state drifts from Docker actual state.
 - Mitigation: reconcile-on-read checks and degraded-state warnings.
 - Risk: local unauthorized control-plane access.
-- Mitigation: Unix socket transport + owner-only filesystem permissions.
+- Mitigation: Unix socket transport + strict uid/gid filesystem permissions.
+- Risk: UI container cannot access Unix socket due gid mismatch.
+- Mitigation: explicit socket group mapping via `LASSO_RUNTIME_GID` + integration coverage.
 - Risk: expanded doctor checks become noisy.
 - Mitigation: severity levels (`error`, `warn`, `info`) and strict-mode gating.
 

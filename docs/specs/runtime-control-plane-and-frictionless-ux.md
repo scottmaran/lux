@@ -76,9 +76,11 @@ Implementation note:
 Introduce a local runtime control-plane service using Unix-socket transport
 with explicit config defaults and config location:
 - `runtime_control_plane.socket_path: <config_dir>/runtime/control_plane.sock`
+- `runtime_control_plane.socket_gid: <invoking_user_primary_gid>`
 - Config location: top-level `runtime_control_plane` block in `config.yaml`.
 - `<config_dir>` resolves from `LASSO_CONFIG_DIR` or default `~/.config/lasso`.
-- Socket permissions are owner-only and enforced as part of startup checks.
+- Socket permissions are `0660`; parent runtime dir is `0770`.
+- Owner is invoking user uid; group is `socket_gid`.
 
 Responsibilities:
 - Source of truth for runtime lifecycle state.
@@ -94,11 +96,26 @@ CLI model:
 - `lasso runtime down`
 - `lasso runtime status`
 - CLI auto-starts runtime control-plane if not already running.
+- `runtime up` is idempotent and enforces single-instance lock/pid semantics.
+- `runtime up` handles stale socket/pid artifact cleanup safely.
+- After `runtime down`, next normal CLI/shim command auto-starts runtime by default.
 
 UI model:
 - Browser remains same-origin.
 - `ui/server.py` proxies runtime-control-plane routes to the Unix-socket API.
+- Proxy route namespace is explicit:
+- `/api/runtime/*` for read-only runtime status/health/evidence-state.
+- `/api/runtime/events` for SSE pass-through.
 - Browser UI does not call control-plane cross-origin directly in v1.
+- Mutating lifecycle routes are not proxied for browser clients in v1.
+
+Deployment wiring:
+- `compose.env` exports:
+- `LASSO_RUNTIME_DIR=<config_dir>/runtime`
+- `LASSO_RUNTIME_GID=<socket_gid>`
+- `compose.ui.yml` mounts `${LASSO_RUNTIME_DIR}` at `/run/lasso/runtime`.
+- UI service receives `UI_RUNTIME_CONTROL_PLANE_SOCKET=/run/lasso/runtime/control_plane.sock`.
+- UI service includes `${LASSO_RUNTIME_GID}` group mapping so proxy can open the socket.
 
 ### 2) API Surface (Contract-Level)
 Create `docs/contracts/runtime_control_plane.md` with explicit request/response
@@ -133,6 +150,9 @@ Reconnect behavior:
 Transport/auth requirements:
 - Privileged runtime APIs are served over Unix-socket HTTP.
 - Caller authorization is enforced by socket filesystem permissions.
+- Proxy route contract:
+- `ui/server.py` forwards selected read-only runtime routes only.
+- SSE forwarding preserves stream semantics and forwards `Last-Event-ID`.
 
 ### 3) UI Command Family
 Add dedicated subcommand tree in CLI:
@@ -163,6 +183,8 @@ Shim requirements:
 - Supported only when invoked from within configured workspace root.
 - No argv path rewriting.
 - Absolute host-path arguments are unsupported in v1 and fail fast with clear guidance.
+- Runtime dependency:
+- Shim commands depend on runtime control-plane; auto-start behavior applies.
 
 ### 5) Collector Runtime Policy
 Add config section:
@@ -218,6 +240,7 @@ Output model:
 ```yaml
 runtime_control_plane:
   socket_path: <config_dir>/runtime/control_plane.sock
+  socket_gid: <invoking_user_primary_gid>
 ```
 - No schema version bump required if fields are optional with stable defaults.
 
@@ -231,7 +254,7 @@ runtime_control_plane:
 
 ## Security / Trust Model
 - Control-plane service is local-only via Unix socket.
-- Socket path parent directory and socket file are owner-only permissioned.
+- Socket path parent directory and socket file are uid/gid permissioned (`0770` dir, `0660` socket).
 - Runtime operations remain outside agent trust boundary.
 - No write access to evidence sink is granted to agent.
 - Rotation and lifecycle operations must preserve attribution integrity and avoid
@@ -243,6 +266,8 @@ runtime_control_plane:
 - UI shows degraded runtime-state banner and retries.
 - Control-plane socket permission/path errors:
 - Runtime start fails fast with actionable remediation (`chmod/chown` + path details).
+- UI proxy socket access mismatch:
+- UI returns explicit degraded runtime-state error with gid/path remediation.
 - Rotation due but provider active:
 - Mark pending rotation and emit deferred warning event.
 - Rotation cutover failure:
@@ -268,6 +293,7 @@ runtime_control_plane:
 - `rotate_every_min=1440`
 - Control-plane defaults are:
 - `runtime_control_plane.socket_path=<config_dir>/runtime/control_plane.sock`
+- `runtime_control_plane.socket_gid=<invoking_user_primary_gid>`
 - Config location is top-level `runtime_control_plane` in `config.yaml`.
 - Rotation never occurs during active session/job.
 - Deferred rotations execute when provider is idle/down.
@@ -276,6 +302,7 @@ runtime_control_plane:
 - CLI and UI consume same runtime control-plane contract for lifecycle and
   health/evidence-state operations.
 - UI runtime calls use same-origin proxy routes via `ui/server.py`.
+- UI proxy route namespace and SSE forwarding behavior are explicitly contracted.
 - Event stream emits required lifecycle/degradation/attribution-warning events.
 - `lasso doctor` surfaces the expanded readiness checks with machine-readable output.
 
@@ -283,21 +310,25 @@ runtime_control_plane:
 - Unit tests:
 - config default/parse/validate for `collector.*`.
 - config default/parse/validate for `runtime_control_plane.socket_path`.
+- config default/parse/validate for `runtime_control_plane.socket_gid`.
 - shim argv passthrough and launch construction.
 - shim cwd/path validation and fail-fast behavior.
 - rotation scheduler and deferred cutover logic.
 - rotation drain/flush and forced-cutover degraded path.
 - atomic active-run state updates.
 - control-plane endpoint/event serialization.
+- runtime lock/pid/stale-socket lifecycle behavior.
 - Fixture cases:
 - Not required unless collector pipeline transformations are changed.
 - Integration coverage:
 - CLI UI lifecycle commands.
 - `lasso runtime up/down/status` lifecycle commands.
+- `runtime down` then normal CLI/shim command auto-start behavior.
 - shim workflow for codex/claude with passthrough args.
 - collector auto-start and idle timeout.
 - rotation defer/execute semantics.
 - UI runtime-state integration via same-origin proxy to control-plane.
+- UI proxy route namespace and `Last-Event-ID` SSE forwarding behavior.
 - Regression tests:
 - rotation boundary attribution integrity.
 - no stale active-run pointers after failed/successful cutover.
