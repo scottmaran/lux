@@ -12,7 +12,7 @@ Blocks of Work
 - Implemented Rust/aya eBPF program + loader (tracepoints for connect/sendto/recvfrom) emitting JSONL events via ring buffer.
 - Updated collector image build to compile and ship the eBPF artifacts, with entrypoint running auditd plus the loader.
 - Added test automation in `collector/scripts/run_test.sh` and activity generation in `collector/scripts/ebpf_activity.sh` to validate logs.
-- Aligned log output to `/logs` and kept schema/testing docs current in `collector/README.md` and `collector/ebpf_raw_data.md`.
+- Aligned log output to `/logs` and kept schema/testing docs current in `collector/README.md` and `docs/contracts/schemas/ebpf.raw.md`.
 
 ### Details 
 
@@ -38,7 +38,7 @@ msghdr/iovec in `collector/ebpf/ebpf/src/lib.rs`.
 `/proc/<pid>/net/unix`, feeding those fields into net/unix event JSON in `collector/ebpf/loader/src/main.rs`.
 - DNS parsing now detects TCP length-prefixed payloads and uses socket info for transport/server fields; zero-address handling was added to
 trigger `/proc` fallback in `collector/ebpf/loader/src/main.rs`.
-- Updated documentation notes in `collector/ebpf_raw_data.md` and refreshed the To Do section in `dev_log.md` to reflect current behavior.
+- Updated documentation notes in `docs/contracts/schemas/ebpf.raw.md` and refreshed the To Do section in `dev_log.md` to reflect current behavior.
 
 ## Block 3:
 - Implemented an auditd filtering pipeline that emits compact JSONL exec/fs events with session/job attribution.
@@ -48,7 +48,7 @@ trigger `/proc` fallback in `collector/ebpf/loader/src/main.rs`.
 - Added `collector/scripts/filter_audit_logs.py` to parse auditd sequences, apply ownership rules, and emit filtered JSONL, including optional
 session/job mapping and live-tail buffering.
 - Wired the filter into the collector image and entrypoint; added `python3-yaml` dependency and config at `collector/config/audit_filtering.yaml`.
-- Documented filtered output schema and rules in `collector/auditd_filtered_data.md` and `collector/config/audit_filtering.md`, and added `docs/dev/TESTING.md`.
+- Documented filtered output schema and rules in `docs/contracts/schemas/auditd.filtered.v1.md` and `docs/contracts/collector_config/audit_filtering.md`, and added `docs/dev/TESTING.md`.
 - Created audit-filter integration scripts for no-harness, job, and TUI flows under `scripts/`.
 
 ## Block 4:
@@ -78,7 +78,7 @@ session/job mapping and live-tail buffering.
 - Created `collector/scripts/summarize_ebpf_logs.py` to emit `net_summary` rows from filtered eBPF logs.
 - Added `collector/scripts/merge_filtered_logs.py` plus configs in `collector/config/ebpf_summary.yaml` and
   `collector/config/merge_filtering.yaml`.
-- Updated `collector/timeline_filtered_data.md` to describe `timeline.filtered.v1` and the normalized `details` payload.
+- Updated `docs/contracts/schemas/timeline.filtered.v1.md` to describe `timeline.filtered.v1` and the normalized `details` payload.
 - Updated `collector/entrypoint.sh` to run summary + merge loops on an interval.
 
 ## Block 7:
@@ -88,7 +88,7 @@ session/job mapping and live-tail buffering.
 ### Details
 - Replaced the summary logic to split bursts by idle gaps, track `connect_count`, and emit `ts_first/ts_last`.
 - Added `dns_lookback_sec`, `min_send_count`, and `min_bytes_sent_total` handling in the summary config.
-- Updated `collector/tests/test_ebpf_summary.py`, `collector/timeline_filtered_data.md`, and example/fixture logs under `example_logs/`.
+- Updated `collector/tests/test_ebpf_summary.py`, `docs/contracts/schemas/timeline.filtered.v1.md`, and example/fixture logs under `example_logs/`.
 
 # Agent 
 
@@ -109,7 +109,7 @@ Blocks of Work
 ### Details
 - Introduced `ui/server.py`, `ui/index.html`, `ui/app.js`, and `ui/styles.css` for a static UI served with an
   embedded JSON API.
-- Added `docs/ui/UI_API.md`, `docs/ui/UI_DESIGN.md`, and `compose.ui.yml` to document and run the UI service.
+- Added `docs/contracts/ui_api.md`, `docs/architecture/ui_design.md`, and `compose.ui.yml` to document and run the UI service.
 
 ## Block 2:
 - Iterated on the zero-build UI with clearer naming and better formatting.
@@ -117,7 +117,7 @@ Blocks of Work
 ### Details
 - Simplified labels and layout in `ui/app.js`, `ui/index.html`, and `ui/styles.css`.
 - Formatted process metadata and surfaced domains ahead of IPs for network rows.
-- Updated `docs/ui/UI_DESIGN.md`/`docs/ui/UI_API.md` to align with the filtered timeline pipeline.
+- Updated `docs/architecture/ui_design.md`/`docs/contracts/ui_api.md` to align with the filtered timeline pipeline.
 
 ## Block 3:
 - Rebuilt the UI from the Figma export as a React + Vite app with reusable components.
@@ -127,7 +127,7 @@ Blocks of Work
 - Added `ui/src` with `App.tsx`, timeline/runs/filters/metrics components, and a shared UI component library.
 - Added `ui/package.json`, `ui/vite.config.ts`, `ui/src/index.css`, and `ui/src/styles/globals.css`.
 - Updated `ui/Dockerfile` and `ui/README.md` to build the Vite app and serve it through the Python API server.
-- Updated `docs/ui/UI_DESIGN.md` to describe the new layout and behavior.
+- Updated `docs/architecture/ui_design.md` to describe the new layout and behavior.
 
 # To Do:
 - DNS parsing now covers UDP/TCP port 53 via sendto/recvfrom/sendmsg/recvmsg and detects TCP by length prefix, but DoH/DoT traffic is
@@ -162,7 +162,7 @@ host-side logs.
 - Added an end-to-end example flow doc and stable fixtures for validating the merged timeline output.
 
 ### Details
-- Created `docs/dev/EXAMPLE_FLOW.md` with TUI + server-mode scenarios, expected commands, and UI outputs.
+- Created `docs/dev/example_flow.md` with TUI + server-mode scenarios, expected commands, and UI outputs.
 - Added `example_logs/` fixtures and YAML configs for summary + merge filtering examples.
 
 ## Block 4:
@@ -173,7 +173,7 @@ host-side logs.
 - Added `scripts/run_integration_concurrent_sessions_jobs.sh` (historical script; later retired when pytest integration coverage replaced legacy scripts).
 - Updated `harness/harness.py` to capture and persist namespaced `root_pid` for both jobs and TUI sessions.
 - Updated `collector/scripts/filter_audit_logs.py` and `collector/scripts/filter_ebpf_logs.py` to index runs by root PID and propagate ownership through PID ancestry, including namespace PID handling.
-- Updated docs in `collector/ownership_and_attribution.md` to describe root-PID-based session/job mapping semantics.
+- Updated docs in `docs/contracts/attribution.md` to describe root-PID-based session/job mapping semantics.
 
 # Lasso CLI + Release
 
@@ -207,7 +207,7 @@ host-side logs.
 
 ### Details
 - `install_lasso.sh` installs release bundles under `~/.lasso/` and links `~/.local/bin/lasso`.
-- `docs/guide/install.md`, `docs/guide/cli.md`, and `lasso/README.md` document installation and CLI usage.
+- `docs/contracts/install.md`, `docs/contracts/cli.md`, and `lasso/README.md` document installation and CLI usage.
 - `.github/workflows/release.yml` builds bundles, optionally pushes GHCR images, and optionally publishes a GitHub Release.
 - Added `.github/workflows/README.md` to document the release workflow.
 
@@ -276,7 +276,7 @@ host-side logs.
 - Added per-session and per-job filtered timeline copies in harness artifacts.
 
 ### Details
-- Updated `compose.yml` to route collector/harness outputs through `LASSO_RUN_ID` into `/logs/<run_id>/...`.
+- Updated `compose.yml` to route collector/harness outputs through `LASSO_RUN_ID` into `<log_root>/<run_id>/...`.
 - Restored agent immutability controls in compose (`cap_drop: SYS_ADMIN`, `security_opt: no-new-privileges:true`).
 - Updated `lasso/src/main.rs` to create/track active run state, fail `up` when already running, and add `--run-id/--latest` selection for `logs` and `jobs`.
 - Updated `harness/harness.py` to write artifacts under run-scoped paths and materialize `filtered_timeline.jsonl` per session/job.

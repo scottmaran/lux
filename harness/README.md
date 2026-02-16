@@ -52,7 +52,7 @@ Jobs:
 
 Attribution integration:
 - Harness writes and persists `root_pid`/`root_sid`; collector uses those + audit
-  exec lineage. See `collector/ownership_and_attribution.md`.
+  exec lineage. See `docs/contracts/attribution.md`.
 
 ## Stage Map (Code + Tests)
 | Concern | Code | Primary tests |
@@ -73,7 +73,7 @@ Sessions live under `.../sessions/<session_id>/...`, jobs under
 `.../jobs/<job_id>/...`, and labels under `.../labels/...`.
 
 Full on-disk contract:
-- `harness/artifacts.md`
+- `docs/contracts/harness_artifacts.md`
 
 ## HTTP API (Server Mode)
 Auth:
@@ -88,7 +88,7 @@ Important limitation:
 - `/jobs/<id>` does not load historical jobs from disk after a harness restart.
 
 Full API contract:
-- `harness/api.md`
+- `docs/contracts/harness_api.md`
 
 ## Root Markers and Attribution Integration
 Markers written by the harness:
@@ -102,7 +102,7 @@ Mechanics:
   into job/session JSON.
 
 Collector integration:
-- See `collector/ownership_and_attribution.md`.
+- See `docs/contracts/attribution.md`.
 
 ## Timeline Copy Materialization (Per Job/Session)
 Input:
@@ -119,7 +119,7 @@ Semantics:
 - Treat per-owner copies as derived snapshot files, not append-only tails.
 
 Related:
-- `collector/timeline_filtered_data.md` (timeline file semantics)
+- `docs/contracts/schemas/timeline.filtered.v1.md` (timeline file semantics)
 
 ## Configuration (Env Vars)
 Entrypoint (used by `harness/entrypoint.sh`):
@@ -140,7 +140,7 @@ Runtime (used by `harness/harness.py`):
 
 Provider note:
 - `HARNESS_TUI_CMD` and `HARNESS_RUN_CMD_TEMPLATE` are typically set by `lasso`
-  provider runtime overrides (see `docs/guide/config.md`).
+  provider runtime overrides (see `docs/contracts/config.md`).
 
 ## Troubleshooting
 - Server won't start: `HARNESS_API_TOKEN` missing.
@@ -153,9 +153,9 @@ Provider note:
   hasn't attributed rows yet, or reconcile window too short.
 
 ## Change Checklist (For PRs)
-- If you change job/session JSON shapes: update `harness/artifacts.md` and the
+- If you change job/session JSON shapes: update `docs/contracts/harness_artifacts.md` and the
   corresponding integration assertions.
 - If you change marker logic: update `tests/unit/test_harness_markers.py` and
   any attribution-sensitive integration/regression tests.
-- If you change API behavior: update `harness/api.md` and add/update integration
+- If you change API behavior: update `docs/contracts/harness_api.md` and add/update integration
   coverage.

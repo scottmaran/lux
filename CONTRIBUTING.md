@@ -3,15 +3,7 @@
 ## Before You Start
 
 - For a documentation map, see `docs/README.md`.
-- For local development notes, see `docs/dev/DEVELOPING.md`.
-
-## Pull Requests
-
-- Keep PRs focused and small when possible.
-- Include tests when changing behavior. The repo has:
-  - Rust unit tests (`cargo test` in `lasso/` and `collector/ebpf/`)
-  - Python tests (`uv run pytest`)
-- If you change log schemas or filtering behavior, please update the relevant docs in `collector/*_data.md` and/or `docs/guide/*`.
+- For local development notes, see `docs/dev/developing.md`.
 
 ## Legal: CLA (Required)
 

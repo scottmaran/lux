@@ -9,6 +9,7 @@ versioned Docker images from GHCR and manages config + compose wiring.
 Temporary support note (February 2026): 
 - Linux host runtime support is temporarily not guaranteed while bind-mount permission compatibility work is in progress. The currently recommended host is macOS with Docker Desktop.
 - On MacOS for subscription-based Claude Code sessions on MacOS, you need to log in upon starting the TUI
+See platform support/caveats: `docs/contracts/platform.md`.
 
 ### Install (beta)
 Run the versioned installer:
@@ -38,7 +39,7 @@ lasso tui --provider codex
 Provider selection is explicit for agent-facing actions (`--provider codex|claude`).
 Collector lifecycle is separate (`--collector-only`).
 
-To view more info about user configs, see `docs/guide/config.md`.
+To view more info about user configs, see `docs/contracts/config.md`.
 
 ## Run-scoped logs
 Each `lasso up` creates a new run directory under `paths.log_root`, for example:
@@ -57,7 +58,7 @@ Each `lasso up` creates a new run directory under `paths.log_root`, for example:
 active, use `--run-id <id>` or `--latest`.
 
 ## Docs
-Start with the user guide in `docs/guide/`.
+Start with the user guide in `docs/contracts/`.
 Developers/contributors: see `docs/README.md` for the full documentation map.
 
 ## License
