@@ -46,6 +46,7 @@ collector:
 
 runtime_control_plane:
   # empty means "<config_dir>/runtime/control_plane.sock"
+  # (with automatic short-path fallback when Unix socket length limits require it)
   socket_path: ""
   # optional; defaults to invoking user's primary gid
   socket_gid: null
@@ -117,6 +118,7 @@ To migrate:
   - `rotate_every_min: 1440`
 - `runtime_control_plane` is optional and defaults to:
   - `socket_path: <config_dir>/runtime/control_plane.sock`
+    - if too long for Unix socket limits, runtime uses a deterministic short fallback path
   - `socket_gid: <invoking_user_primary_gid>`
 - `providers.<name>.auth_mode` must be explicit:
   - `api_key`

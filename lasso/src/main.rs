@@ -14,6 +14,8 @@ use std::io;
 use std::io::IsTerminal;
 use std::io::{Read, Write};
 #[cfg(unix)]
+use std::os::unix::ffi::OsStrExt;
+#[cfg(unix)]
 use std::os::unix::fs::symlink;
 #[cfg(unix)]
 use std::os::unix::net::{UnixListener, UnixStream};
@@ -26,6 +28,8 @@ use thiserror::Error;
 
 const DEFAULT_CONFIG_YAML: &str = include_str!("../config/default.yaml");
 const RUNTIME_BYPASS_ENV: &str = "LASSO_RUNTIME_BYPASS";
+#[cfg(unix)]
+const UNIX_SOCKET_PATH_LIMIT_BYTES: usize = 100;
 
 #[derive(Parser, Debug)]
 #[command(name = "lasso", version, about = "Lasso CLI")]
@@ -990,7 +994,7 @@ fn runtime_control_plane_request(
 }
 
 fn runtime_ping(ctx: &Context) -> Result<(), LassoError> {
-    let response = runtime_control_plane_request(ctx, "GET", "/v1/stack/status", &[], None)?;
+    let response = runtime_control_plane_request(ctx, "GET", "/v1/healthz", &[], None)?;
     if response.status >= 400 {
         return Err(LassoError::Process(format!(
             "runtime control plane ping failed with status {}",
@@ -1092,6 +1096,19 @@ fn validate_config(cfg: &Config) -> Result<(), LassoError> {
             "runtime_control_plane.socket_path contains an invalid newline".to_string(),
         ));
     }
+    #[cfg(unix)]
+    {
+        let configured = cfg.runtime_control_plane.socket_path.trim();
+        if !configured.is_empty() {
+            let expanded = PathBuf::from(expand_path(configured));
+            if unix_socket_path_too_long(&expanded) {
+                return Err(LassoError::Config(format!(
+                    "runtime_control_plane.socket_path is too long for unix sockets ({} bytes); set a shorter path",
+                    expanded.as_os_str().as_bytes().len()
+                )));
+            }
+        }
+    }
     if cfg.providers.is_empty() {
         return Err(LassoError::Config(
             "config.providers must contain at least one provider".to_string(),
@@ -1163,12 +1180,74 @@ fn current_primary_gid() -> u32 {
     0
 }
 
+fn current_uid() -> u32 {
+    #[cfg(unix)]
+    {
+        let output = Command::new("id").arg("-u").output();
+        if let Ok(output) = output {
+            if output.status.success() {
+                let text = String::from_utf8_lossy(&output.stdout);
+                if let Ok(value) = text.trim().parse::<u32>() {
+                    return value;
+                }
+            }
+        }
+    }
+    0
+}
+
+#[cfg(unix)]
+fn unix_socket_path_too_long(path: &Path) -> bool {
+    path.as_os_str().as_bytes().len() >= UNIX_SOCKET_PATH_LIMIT_BYTES
+}
+
+#[cfg(unix)]
+fn stable_path_hash(path: &Path) -> u64 {
+    // Deterministic FNV-1a so fallback runtime socket paths remain stable per config dir.
+    const OFFSET: u64 = 0xcbf29ce484222325;
+    const PRIME: u64 = 0x0000_0100_0000_01b3;
+
+    let mut hash = OFFSET;
+    for byte in path.as_os_str().as_bytes() {
+        hash ^= u64::from(*byte);
+        hash = hash.wrapping_mul(PRIME);
+    }
+    hash
+}
+
+#[cfg(unix)]
+fn runtime_socket_fallback_path(config_dir: &Path) -> PathBuf {
+    let hash = stable_path_hash(config_dir);
+    let uid = current_uid();
+    let candidates = vec![
+        env::temp_dir()
+            .join(format!("lasso-runtime-u{uid}"))
+            .join(format!("{hash:016x}"))
+            .join("control_plane.sock"),
+        PathBuf::from(format!("/tmp/lasso-runtime-u{uid}/{hash:016x}/control_plane.sock")),
+        PathBuf::from(format!("/tmp/lasso-{hash:016x}/control_plane.sock")),
+    ];
+    for candidate in candidates {
+        if !unix_socket_path_too_long(&candidate) {
+            return candidate;
+        }
+    }
+    PathBuf::from("/tmp/lasso.sock")
+}
+
 fn effective_runtime_socket_path(cfg: &Config, config_dir: &Path) -> PathBuf {
     let configured = cfg.runtime_control_plane.socket_path.trim();
-    if configured.is_empty() {
-        return config_dir.join("runtime").join("control_plane.sock");
+    if !configured.is_empty() {
+        return PathBuf::from(expand_path(configured));
     }
-    PathBuf::from(expand_path(configured))
+    let preferred = config_dir.join("runtime").join("control_plane.sock");
+    #[cfg(unix)]
+    {
+        if unix_socket_path_too_long(&preferred) {
+            return runtime_socket_fallback_path(config_dir);
+        }
+    }
+    preferred
 }
 
 fn effective_runtime_socket_gid(cfg: &Config) -> u32 {
@@ -4372,6 +4451,16 @@ fn runtime_handle_connection(
         return Ok(());
     };
     match (request.method.as_str(), request.path.as_str()) {
+        ("GET", "/v1/healthz") => {
+            runtime_write_json_response(
+                &mut stream,
+                200,
+                &json!({
+                    "ok": true,
+                    "ts": Utc::now().to_rfc3339(),
+                }),
+            )?;
+        }
         ("GET", "/v1/stack/status") => {
             let payload = runtime_collect_stack_status(&ctx, &shared)?;
             runtime_write_json_response(&mut stream, 200, &payload)?;
@@ -4579,16 +4668,22 @@ fn runtime_up_internal(ctx: &Context, emit_output: bool) -> Result<(), LassoErro
         cmd.stdin(Stdio::null());
         cmd.stdout(Stdio::null());
         cmd.stderr(Stdio::null());
-        cmd.spawn().map_err(|err| {
+        let mut child = cmd.spawn().map_err(|err| {
             LassoError::Process(format!("failed to start runtime control plane: {err}"))
         })?;
 
         let mut started = false;
-        for _ in 0..60 {
+        for _ in 0..300 {
             thread::sleep(Duration::from_millis(100));
             if runtime_ping(ctx).is_ok() {
                 started = true;
                 break;
+            }
+            if let Some(status) = child.try_wait()? {
+                return Err(LassoError::Process(format!(
+                    "runtime control plane exited before ready (status: {}); try `lasso runtime serve` for direct diagnostics",
+                    status
+                )));
             }
         }
         if !started {
@@ -5454,9 +5549,9 @@ fn collect_doctor_checks(ctx: &Context, cfg: &Config) -> Result<Vec<DoctorCheck>
         "error",
         true,
         if log_writable {
-            "log sink path is writable"
+            "log root is writable"
         } else {
-            "log sink path is not writable"
+            "log root is not writable"
         },
         format!(
             "Ensure {} exists and is writable by your user.",
@@ -5578,16 +5673,18 @@ fn handle_doctor(ctx: &Context, strict: bool) -> Result<(), LassoError> {
         .any(|check| !check.ok && check.severity == "error");
     let has_strict_warning = checks.iter().any(|check| !check.ok && check.strict_fail);
     let ok = !has_error && (!strict || !has_strict_warning);
+    let primary_error = checks
+        .iter()
+        .find(|check| !check.ok && check.severity == "error")
+        .or_else(|| checks.iter().find(|check| !check.ok && strict && check.strict_fail))
+        .or_else(|| checks.iter().find(|check| !check.ok))
+        .map(|check| check.message.clone());
 
     if ctx.json {
         let payload = JsonResult {
             ok,
             result: Some(json!({ "checks": checks, "strict": strict })),
-            error: if ok {
-                None
-            } else {
-                Some("one or more readiness checks failed".to_string())
-            },
+            error: if ok { None } else { primary_error },
         };
         print_json(&payload)?;
         return Ok(());
@@ -5610,7 +5707,12 @@ fn handle_doctor(ctx: &Context, strict: bool) -> Result<(), LassoError> {
         return Err(LassoError::Process("doctor strict mode failed".to_string()));
     }
     Err(LassoError::Process(
-        "one or more readiness checks failed".to_string(),
+        checks
+            .iter()
+            .find(|check| !check.ok && check.severity == "error")
+            .or_else(|| checks.iter().find(|check| !check.ok))
+            .map(|check| check.message.clone())
+            .unwrap_or_else(|| "one or more readiness checks failed".to_string()),
     ))
 }
 
@@ -6316,6 +6418,31 @@ paths:
         assert_eq!(cfg.collector.idle_timeout_min, 10_080);
         assert_eq!(cfg.collector.rotate_every_min, 1_440);
         assert_eq!(cfg.runtime_control_plane.socket_path, "");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn runtime_socket_path_falls_back_when_default_is_too_long() {
+        let cfg: Config = serde_yaml::from_str("version: 2").expect("config");
+        let deep_config_dir = PathBuf::from(format!("/tmp/{}", "a".repeat(180)));
+        let preferred = deep_config_dir.join("runtime").join("control_plane.sock");
+        assert!(unix_socket_path_too_long(&preferred));
+        let effective = effective_runtime_socket_path(&cfg, &deep_config_dir);
+        assert!(!unix_socket_path_too_long(&effective));
+        assert_ne!(effective, preferred);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn config_validate_rejects_overlong_runtime_socket_path() {
+        let yaml = format!(
+            "version: 2\nruntime_control_plane:\n  socket_path: \"/tmp/{}\"\n",
+            "b".repeat(180)
+        );
+        let err = read_config_from_str(&yaml).expect_err("long socket path should fail");
+        assert!(err
+            .to_string()
+            .contains("runtime_control_plane.socket_path is too long"));
     }
 
     #[test]

@@ -8,6 +8,8 @@ UI for lifecycle, health, and evidence-state visibility.
 
 - Transport: HTTP over Unix domain socket.
 - Default socket path: `<config_dir>/runtime/control_plane.sock`.
+  - If that path exceeds Unix socket length limits on the host, runtime falls
+    back to a deterministic shorter path under the system temp directory.
 - Auth model: filesystem permissions on runtime dir/socket.
   - Runtime dir: `0770`
   - Socket file: `0660`
@@ -22,6 +24,17 @@ UI for lifecycle, health, and evidence-state visibility.
 - Normal CLI lifecycle commands auto-start runtime when unavailable.
 
 ## Endpoints
+
+### GET `/v1/healthz`
+
+Lightweight daemon readiness probe.
+
+```json
+{
+  "ok": true,
+  "ts": "2026-02-16T17:24:20.235Z"
+}
+```
 
 ### GET `/v1/stack/status`
 

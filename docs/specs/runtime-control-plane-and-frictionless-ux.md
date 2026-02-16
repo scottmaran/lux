@@ -76,6 +76,7 @@ Implementation note:
 Introduce a local runtime control-plane service using Unix-socket transport
 with explicit config defaults and config location:
 - `runtime_control_plane.socket_path: <config_dir>/runtime/control_plane.sock`
+  - If default path exceeds Unix socket length limits, runtime uses a deterministic short fallback path.
 - `runtime_control_plane.socket_gid: <invoking_user_primary_gid>`
 - Config location: top-level `runtime_control_plane` block in `config.yaml`.
 - `<config_dir>` resolves from `LASSO_CONFIG_DIR` or default `~/.config/lasso`.
@@ -122,6 +123,7 @@ Create `docs/contracts/runtime_control_plane.md` with explicit request/response
 schema and failure semantics.
 
 Required endpoint groups:
+- Health/readiness status (`/v1/healthz`)
 - Stack status
 - Run status
 - Session/job status
@@ -293,6 +295,7 @@ runtime_control_plane:
 - `rotate_every_min=1440`
 - Control-plane defaults are:
 - `runtime_control_plane.socket_path=<config_dir>/runtime/control_plane.sock`
+  - with deterministic short-path fallback when Unix socket length limits require it
 - `runtime_control_plane.socket_gid=<invoking_user_primary_gid>`
 - Config location is top-level `runtime_control_plane` in `config.yaml`.
 - Rotation never occurs during active session/job.
@@ -323,6 +326,7 @@ runtime_control_plane:
 - Integration coverage:
 - CLI UI lifecycle commands.
 - `lasso runtime up/down/status` lifecycle commands.
+- runtime readiness probe endpoint (`/v1/healthz`).
 - `runtime down` then normal CLI/shim command auto-start behavior.
 - shim workflow for codex/claude with passthrough args.
 - collector auto-start and idle timeout.

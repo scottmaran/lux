@@ -402,8 +402,6 @@ class FilterState:
     ) -> tuple[str | None, str | None]:
         if pid is None and sid is None:
             return None, None
-        if pid is not None and (pid in self.pid_to_session or pid in self.pid_to_job):
-            return self.pid_to_session.get(pid), self.pid_to_job.get(pid)
         run_index.maybe_refresh()
         if pid is not None:
             session_id = run_index.session_roots.get(pid)
@@ -416,6 +414,21 @@ class FilterState:
                 self.pid_to_session[pid] = None
                 self.pid_to_job[pid] = job_id
                 return None, job_id
+        if sid is not None:
+            session_id = run_index.session_sids.get(sid)
+            if session_id:
+                if pid is not None:
+                    self.pid_to_session[pid] = session_id
+                    self.pid_to_job[pid] = None
+                return session_id, None
+            job_id = run_index.job_sids.get(sid)
+            if job_id:
+                if pid is not None:
+                    self.pid_to_session[pid] = None
+                    self.pid_to_job[pid] = job_id
+                return None, job_id
+        if pid is not None and (pid in self.pid_to_session or pid in self.pid_to_job):
+            return self.pid_to_session.get(pid), self.pid_to_job.get(pid)
         if ppid is not None:
             if ppid in self.pid_to_session or ppid in self.pid_to_job:
                 session_id = self.pid_to_session.get(ppid)
@@ -436,19 +449,6 @@ class FilterState:
             if job_id:
                 self.pid_to_session[ppid] = None
                 self.pid_to_job[ppid] = job_id
-                if pid is not None:
-                    self.pid_to_session[pid] = None
-                    self.pid_to_job[pid] = job_id
-                return None, job_id
-        if sid is not None:
-            session_id = run_index.session_sids.get(sid)
-            if session_id:
-                if pid is not None:
-                    self.pid_to_session[pid] = session_id
-                    self.pid_to_job[pid] = None
-                return session_id, None
-            job_id = run_index.job_sids.get(sid)
-            if job_id:
                 if pid is not None:
                     self.pid_to_session[pid] = None
                     self.pid_to_job[pid] = job_id
