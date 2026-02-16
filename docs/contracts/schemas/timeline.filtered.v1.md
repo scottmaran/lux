@@ -10,7 +10,7 @@ Upstream contracts:
 
 Where it shows up:
 - In a run-scoped deployment, this file is typically
-  `logs/<run_id>/collector/filtered/filtered_timeline.jsonl`.
+  `<log_root>/<run_id>/collector/filtered/filtered_timeline.jsonl`.
 - The exact path is controlled by `COLLECTOR_MERGE_FILTER_OUTPUT`.
 
 File semantics (important):

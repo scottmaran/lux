@@ -7,7 +7,7 @@ owner and optionally links events back to the originating command.
 
 Where it shows up:
 - In a run-scoped deployment, this file is typically
-  `logs/<run_id>/collector/filtered/filtered_ebpf.jsonl`.
+  `<log_root>/<run_id>/collector/filtered/filtered_ebpf.jsonl`.
 - The exact path is controlled by `COLLECTOR_EBPF_FILTER_OUTPUT`.
 
 Upstream and downstream:
@@ -115,4 +115,3 @@ Payload fields match the raw schema:
   }
 }
 ```
-

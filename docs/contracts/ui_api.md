@@ -15,7 +15,7 @@ the local-only UI.
 
 ## GET /api/timeline
 Returns filtered timeline rows from
-`logs/<run_id>/collector/filtered/filtered_timeline.jsonl`.
+`<log_root>/<run_id>/collector/filtered/filtered_timeline.jsonl`.
 Defaults to the active run when `run_id` is not provided.
 
 ### Query params (all optional)
@@ -60,7 +60,7 @@ Defaults to the active run when `run_id` is not provided.
 ```
 
 ## GET /api/sessions
-Returns session metadata from `logs/<run_id>/harness/sessions/*/meta.json`.
+Returns session metadata from `<log_root>/<run_id>/harness/sessions/*/meta.json`.
 Defaults to active run; supports `?run_id=<id>`.
 
 ### Response
@@ -82,7 +82,7 @@ Defaults to active run; supports `?run_id=<id>`.
 ```
 
 ## GET /api/jobs
-Returns job metadata from `logs/<run_id>/harness/jobs/*/input.json` and
+Returns job metadata from `<log_root>/<run_id>/harness/jobs/*/input.json` and
 `status.json`. Defaults to active run; supports `?run_id=<id>`.
 
 ### Response
@@ -119,7 +119,7 @@ Returns discovered run directories and the active run id.
 
 ## PATCH /api/sessions/<id>
 Updates the display name for a session using label files under
-`logs/<run_id>/harness/labels/sessions/`.
+`<log_root>/<run_id>/harness/labels/sessions/`.
 Defaults to active run; supports `?run_id=<id>`.
 
 ### Request body
@@ -139,7 +139,7 @@ Defaults to active run; supports `?run_id=<id>`.
 
 ## PATCH /api/jobs/<id>
 Updates the display name for a job using label files under
-`logs/<run_id>/harness/labels/jobs/`.
+`<log_root>/<run_id>/harness/labels/jobs/`.
 Defaults to active run; supports `?run_id=<id>`.
 
 ### Request body

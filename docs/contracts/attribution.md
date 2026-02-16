@@ -11,11 +11,11 @@ It applies to:
 
 ## Vocabulary
 - **Run**: one `lasso up` lifecycle. Logs are run-scoped under
-  `logs/<run_id>/...`.
+  `<log_root>/<run_id>/...`.
 - **Session**: one interactive TUI session. Metadata lives under
-  `logs/<run_id>/harness/sessions/<session_id>/meta.json`.
+  `<log_root>/<run_id>/harness/sessions/<session_id>/meta.json`.
 - **Job**: one non-interactive `/run` invocation. Metadata lives under
-  `logs/<run_id>/harness/jobs/<job_id>/input.json` and `status.json`.
+  `<log_root>/<run_id>/harness/jobs/<job_id>/input.json` and `status.json`.
 - **Agent-owned**: an OS event that is attributable to the agent process tree
   for a given session/job (as opposed to background VM/container noise).
 
@@ -80,12 +80,11 @@ timeline rows.
 ## Debugging misattribution
 When attribution looks wrong:
 1. Confirm harness markers exist for the run:
-   - `logs/<run_id>/harness/sessions/*/meta.json` includes `root_pid` + `root_sid`
-   - `logs/<run_id>/harness/jobs/*/input.json` and `status.json` include markers
+   - `<log_root>/<run_id>/harness/sessions/*/meta.json` includes `root_pid` + `root_sid`
+   - `<log_root>/<run_id>/harness/jobs/*/input.json` and `status.json` include markers
 2. Inspect raw exec lineage:
-   - `logs/<run_id>/collector/raw/audit.log` for `key="exec"` events
+   - `<log_root>/<run_id>/collector/raw/audit.log` for `key="exec"` events
 3. Inspect filtered stage outputs:
    - `filtered_audit.jsonl` and `filtered_ebpf.jsonl` for `"session_id":"unknown"`
 4. If issues are concurrency-related, verify `root_sid` fallback is active and
    that SIDs are being resolved correctly for the relevant PIDs.
-

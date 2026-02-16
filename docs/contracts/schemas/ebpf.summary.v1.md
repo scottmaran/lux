@@ -7,7 +7,7 @@ UI-friendly `net_summary` rows.
 
 Where it shows up:
 - In a run-scoped deployment, this file is typically
-  `logs/<run_id>/collector/filtered/filtered_ebpf_summary.jsonl`.
+  `<log_root>/<run_id>/collector/filtered/filtered_ebpf_summary.jsonl`.
 - The exact path is controlled by `COLLECTOR_EBPF_SUMMARY_OUTPUT`.
 
 Upstream and downstream:
@@ -103,4 +103,3 @@ field list.
   "ts_last": "2026-01-22T00:16:30.847Z"
 }
 ```
-

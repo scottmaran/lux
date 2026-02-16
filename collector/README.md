@@ -10,7 +10,7 @@ UI-friendly timeline.
 
 ## Pipeline (run-scoped files)
 In normal `lasso up` usage, outputs are run-scoped under:
-`/logs/<run_id>/collector/...`.
+`<log_root>/<run_id>/collector/...`.
 
 Stages and files:
 1) Raw auditd

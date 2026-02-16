@@ -17,7 +17,7 @@ contract clarity, then propose prioritized improvements.
 - Findings prioritized by severity and impact.
 - Evidence for findings: file paths, commands, failing tests, or concrete observations.
 - Recommended remediations, including test coverage gaps.
-- Audits are read-only: do not change repo state while auditing.
+- Audits are read-only except for writing the audit report itself under `docs/audits/`.
 - If the user wants changes, switch classes and follow that class's workflow:
   - One Off: for small, bounded fixes
   - Implement Spec: for larger changes or anything that needs a spec
@@ -27,4 +27,4 @@ contract clarity, then propose prioritized improvements.
 
 ## Prohibited
 - Large refactors without a spec.
-- Any repo changes (code, tests, docs, config) while in the Audit class.
+- Any repo changes outside `docs/audits/` (code, tests, docs, config, contracts).

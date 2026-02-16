@@ -7,7 +7,7 @@ one JSON object per logical event.
 
 Where it shows up:
 - In a run-scoped deployment, this file is typically
-  `logs/<run_id>/collector/filtered/filtered_audit.jsonl`.
+  `<log_root>/<run_id>/collector/filtered/filtered_audit.jsonl`.
 - The exact path is controlled by `COLLECTOR_FILTER_OUTPUT`.
 
 For the raw audit log format, see `docs/contracts/schemas/auditd.raw.md`.
@@ -132,4 +132,3 @@ Notes:
   "agent_owned": true
 }
 ```
-

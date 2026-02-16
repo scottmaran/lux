@@ -7,7 +7,7 @@ line).
 
 Where it shows up:
 - In a run-scoped deployment, this file is typically
-  `logs/<run_id>/collector/raw/ebpf.jsonl`.
+  `<log_root>/<run_id>/collector/raw/ebpf.jsonl`.
 - The exact path is controlled by `COLLECTOR_EBPF_OUTPUT`.
 
 Downstream stages:

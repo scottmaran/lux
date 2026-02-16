@@ -82,11 +82,10 @@ Example response (`200`):
   "ended_at": "2026-02-14T15:57:37.200000+00:00",
   "exit_code": 0,
   "error": null,
-  "output_path": "/logs/<run_id>/harness/jobs/<job_id>/stdout.log",
-  "error_path": "/logs/<run_id>/harness/jobs/<job_id>/stderr.log",
-  "filtered_timeline_path": "/logs/<run_id>/harness/jobs/<job_id>/filtered_timeline.jsonl",
+  "output_path": "<log_root>/<run_id>/harness/jobs/<job_id>/stdout.log",
+  "error_path": "<log_root>/<run_id>/harness/jobs/<job_id>/stderr.log",
+  "filtered_timeline_path": "<log_root>/<run_id>/harness/jobs/<job_id>/filtered_timeline.jsonl",
   "root_pid": 1234,
   "root_sid": 1234
 }
 ```
-

@@ -21,11 +21,11 @@ Schema:
 - Output schema version written into each row (default `ebpf.summary.v1`).
 
 `input.jsonl`
-- Input filtered eBPF file (default `/logs/filtered_ebpf.jsonl`).
+- Input filtered eBPF file (default `<log_root>/filtered_ebpf.jsonl`).
 - Often overridden by `COLLECTOR_EBPF_FILTER_OUTPUT`.
 
 `output.jsonl`
-- Output summary file (default `/logs/filtered_ebpf_summary.jsonl`).
+- Output summary file (default `<log_root>/filtered_ebpf_summary.jsonl`).
 - Often overridden by `COLLECTOR_EBPF_SUMMARY_OUTPUT`.
 
 `burst_gap_sec`

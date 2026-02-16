@@ -9,7 +9,7 @@ JSONL. For the filtered JSONL contract, see `docs/contracts/schemas/auditd.filte
 
 Where it shows up:
 - In a run-scoped deployment, the raw audit file is typically
-  `logs/<run_id>/collector/raw/audit.log`.
+  `<log_root>/<run_id>/collector/raw/audit.log`.
 - The exact path is controlled by `COLLECTOR_AUDIT_LOG` and the collector
   entrypoint rewrites `auditd.conf` at runtime to point `log_file` at that path.
 

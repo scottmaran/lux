@@ -4,7 +4,7 @@
 This document is a fully self-contained, procedural example of what the Lasso stack should do end to end. It shows two distinct scenarios (TUI and server-mode job), the user prompts, the underlying commands, the expected workspace changes, the log rows across all log files, and the final UI output derived from filtered logs. All timestamps are UTC.
 
 Run-layout note (Feb 2026): all collector/harness artifacts are run-scoped
-under `logs/<run_id>/...` where `<run_id>` is typically
+under `<log_root>/<run_id>/...` where `<run_id>` is typically
 `lasso__YYYY_MM_DD_HH_MM_SS`.
 
 ## Setup and entry commands
@@ -127,12 +127,12 @@ Expected workspace result:
 ## Harness container logs
 ### Scenario A (TUI)
 Log row counts:
-- `logs/<run_id>/harness/sessions/session_20260128_200000_ab12/meta.json`: 1 JSON object
-- `logs/<run_id>/harness/sessions/session_20260128_200000_ab12/stdin.log`: 2 lines
-- `logs/<run_id>/harness/sessions/session_20260128_200000_ab12/stdout.log`: 2 lines
+- `<log_root>/<run_id>/harness/sessions/session_20260128_200000_ab12/meta.json`: 1 JSON object
+- `<log_root>/<run_id>/harness/sessions/session_20260128_200000_ab12/stdin.log`: 2 lines
+- `<log_root>/<run_id>/harness/sessions/session_20260128_200000_ab12/stdout.log`: 2 lines
 
 Example snippets:
-`logs/<run_id>/harness/sessions/session_20260128_200000_ab12/meta.json`
+`<log_root>/<run_id>/harness/sessions/session_20260128_200000_ab12/meta.json`
 ```json
 {
   "command": "codex -C /work -s danger-full-access",
@@ -141,18 +141,18 @@ Example snippets:
   "mode": "tui",
   "session_id": "session_20260128_200000_ab12",
   "started_at": "2026-01-28T20:00:00.100Z",
-  "stdin_path": "/logs/<run_id>/harness/sessions/session_20260128_200000_ab12/stdin.log",
-  "stdout_path": "/logs/<run_id>/harness/sessions/session_20260128_200000_ab12/stdout.log"
+  "stdin_path": "<log_root>/<run_id>/harness/sessions/session_20260128_200000_ab12/stdin.log",
+  "stdout_path": "<log_root>/<run_id>/harness/sessions/session_20260128_200000_ab12/stdout.log"
 }
 ```
 
-`logs/<run_id>/harness/sessions/session_20260128_200000_ab12/stdin.log`
+`<log_root>/<run_id>/harness/sessions/session_20260128_200000_ab12/stdin.log`
 ```
 Confirm the current working directory.
 Create a new notes.txt file in a new directory personal_files.
 ```
 
-`logs/<run_id>/harness/sessions/session_20260128_200000_ab12/stdout.log`
+`<log_root>/<run_id>/harness/sessions/session_20260128_200000_ab12/stdout.log`
 ```
 /work
 Created /work/personal_files/notes.txt
@@ -160,13 +160,13 @@ Created /work/personal_files/notes.txt
 
 ### Scenario B (server mode)
 Log row counts:
-- `logs/<run_id>/harness/jobs/job_20260128_200500_cd34/input.json`: 1 JSON object
-- `logs/<run_id>/harness/jobs/job_20260128_200500_cd34/stdout.log`: 2 lines
-- `logs/<run_id>/harness/jobs/job_20260128_200500_cd34/stderr.log`: 0 lines
-- `logs/<run_id>/harness/jobs/job_20260128_200500_cd34/status.json`: 1 JSON object
+- `<log_root>/<run_id>/harness/jobs/job_20260128_200500_cd34/input.json`: 1 JSON object
+- `<log_root>/<run_id>/harness/jobs/job_20260128_200500_cd34/stdout.log`: 2 lines
+- `<log_root>/<run_id>/harness/jobs/job_20260128_200500_cd34/stderr.log`: 0 lines
+- `<log_root>/<run_id>/harness/jobs/job_20260128_200500_cd34/status.json`: 1 JSON object
 
 Example snippets:
-`logs/<run_id>/harness/jobs/job_20260128_200500_cd34/input.json`
+`<log_root>/<run_id>/harness/jobs/job_20260128_200500_cd34/input.json`
 ```json
 {
   "job_id": "job_20260128_200500_cd34",
@@ -179,25 +179,25 @@ Example snippets:
 }
 ```
 
-`logs/<run_id>/harness/jobs/job_20260128_200500_cd34/stdout.log`
+`<log_root>/<run_id>/harness/jobs/job_20260128_200500_cd34/stdout.log`
 ```
 /work
 Created /work/personal_files/notes.txt
 ```
 
-`logs/<run_id>/harness/jobs/job_20260128_200500_cd34/stderr.log`
+`<log_root>/<run_id>/harness/jobs/job_20260128_200500_cd34/stderr.log`
 ```
 ```
 
-`logs/<run_id>/harness/jobs/job_20260128_200500_cd34/status.json`
+`<log_root>/<run_id>/harness/jobs/job_20260128_200500_cd34/status.json`
 ```json
 {
   "ended_at": "2026-01-28T20:05:02.050Z",
   "error": null,
-  "error_path": "/logs/<run_id>/harness/jobs/job_20260128_200500_cd34/stderr.log",
+  "error_path": "<log_root>/<run_id>/harness/jobs/job_20260128_200500_cd34/stderr.log",
   "exit_code": 0,
   "job_id": "job_20260128_200500_cd34",
-  "output_path": "/logs/<run_id>/harness/jobs/job_20260128_200500_cd34/stdout.log",
+  "output_path": "<log_root>/<run_id>/harness/jobs/job_20260128_200500_cd34/stdout.log",
   "started_at": "2026-01-28T20:05:00.520Z",
   "status": "complete",
   "submitted_at": "2026-01-28T20:05:00.500Z"
@@ -210,44 +210,44 @@ Note: when the summary stage is enabled, `filtered_ebpf_summary.jsonl` provides
 `filtered_ebpf.jsonl` still exists for lower-level inspection.
 ### Scenario A (TUI)
 Agent-owned row counts (all rows in these files are agent-owned for this scenario):
-- `logs/<run_id>/collector/filtered/filtered_audit.jsonl`: 5 rows
-- `logs/<run_id>/collector/filtered/filtered_ebpf.jsonl`: 1 row
-- `logs/<run_id>/collector/filtered/filtered_timeline.jsonl`: 6 rows
+- `<log_root>/<run_id>/collector/filtered/filtered_audit.jsonl`: 5 rows
+- `<log_root>/<run_id>/collector/filtered/filtered_ebpf.jsonl`: 1 row
+- `<log_root>/<run_id>/collector/filtered/filtered_timeline.jsonl`: 6 rows
 
 Example snippets:
-`logs/<run_id>/collector/filtered/filtered_audit.jsonl`
+`<log_root>/<run_id>/collector/filtered/filtered_audit.jsonl`
 ```jsonl
 {"schema_version":"auditd.filtered.v1","session_id":"session_20260128_200000_ab12","ts":"2026-01-28T20:00:02.100Z","source":"audit","event_type":"exec","cmd":"pwd","cwd":"/work","comm":"bash","exe":"/usr/bin/bash","pid":5101,"ppid":5090,"uid":1001,"gid":1001,"audit_seq":2001,"audit_key":"exec","agent_owned":true}
 ```
 
-`logs/<run_id>/collector/filtered/filtered_ebpf.jsonl`
+`<log_root>/<run_id>/collector/filtered/filtered_ebpf.jsonl`
 ```jsonl
 {"schema_version":"ebpf.filtered.v1","session_id":"session_20260128_200000_ab12","ts":"2026-01-28T20:00:01.500000000Z","source":"ebpf","event_type":"unix_connect","pid":5090,"ppid":5080,"uid":1001,"gid":1001,"comm":"codex","cgroup_id":"0x0000000000000abc","syscall_result":0,"unix":{"path":"/run/dbus/system_bus_socket","abstract":false,"sock_type":"stream"},"cmd":"codex -C /work -s danger-full-access"}
 ```
 
-`logs/<run_id>/collector/filtered/filtered_timeline.jsonl`
+`<log_root>/<run_id>/collector/filtered/filtered_timeline.jsonl`
 ```jsonl
 {"schema_version":"timeline.filtered.v1","session_id":"session_20260128_200000_ab12","ts":"2026-01-28T20:00:01.500000000Z","source":"ebpf","event_type":"unix_connect","pid":5090,"ppid":5080,"uid":1001,"gid":1001,"comm":"codex","details":{"cgroup_id":"0x0000000000000abc","syscall_result":0,"unix":{"path":"/run/dbus/system_bus_socket","abstract":false,"sock_type":"stream"},"cmd":"codex -C /work -s danger-full-access"}}
 ```
 
 ### Scenario B (server mode)
 Agent-owned row counts (all rows in these files are agent-owned for this scenario):
-- `logs/<run_id>/collector/filtered/filtered_audit.jsonl`: 5 rows
-- `logs/<run_id>/collector/filtered/filtered_ebpf.jsonl`: 1 row
-- `logs/<run_id>/collector/filtered/filtered_timeline.jsonl`: 6 rows
+- `<log_root>/<run_id>/collector/filtered/filtered_audit.jsonl`: 5 rows
+- `<log_root>/<run_id>/collector/filtered/filtered_ebpf.jsonl`: 1 row
+- `<log_root>/<run_id>/collector/filtered/filtered_timeline.jsonl`: 6 rows
 
 Example snippets:
-`logs/<run_id>/collector/filtered/filtered_audit.jsonl`
+`<log_root>/<run_id>/collector/filtered/filtered_audit.jsonl`
 ```jsonl
 {"schema_version":"auditd.filtered.v1","session_id":"unknown","job_id":"job_20260128_200500_cd34","ts":"2026-01-28T20:05:02.100Z","source":"audit","event_type":"exec","cmd":"pwd","cwd":"/work","comm":"bash","exe":"/usr/bin/bash","pid":6101,"ppid":6090,"uid":1001,"gid":1001,"audit_seq":3001,"audit_key":"exec","agent_owned":true}
 ```
 
-`logs/<run_id>/collector/filtered/filtered_ebpf.jsonl`
+`<log_root>/<run_id>/collector/filtered/filtered_ebpf.jsonl`
 ```jsonl
 {"schema_version":"ebpf.filtered.v1","session_id":"unknown","job_id":"job_20260128_200500_cd34","ts":"2026-01-28T20:05:01.200000000Z","source":"ebpf","event_type":"dns_query","pid":6090,"ppid":6080,"uid":1001,"gid":1001,"comm":"codex","cgroup_id":"0x0000000000000def","syscall_result":0,"dns":{"transport":"udp","query_name":"example.com","query_type":"A","server_ip":"127.0.0.11","server_port":53},"cmd":"codex -C /work -s danger-full-access exec"}
 ```
 
-`logs/<run_id>/collector/filtered/filtered_timeline.jsonl`
+`<log_root>/<run_id>/collector/filtered/filtered_timeline.jsonl`
 ```jsonl
 {"schema_version":"timeline.filtered.v1","session_id":"unknown","job_id":"job_20260128_200500_cd34","ts":"2026-01-28T20:05:01.200000000Z","source":"ebpf","event_type":"dns_query","pid":6090,"ppid":6080,"uid":1001,"gid":1001,"comm":"codex","details":{"cgroup_id":"0x0000000000000def","syscall_result":0,"dns":{"transport":"udp","query_name":"example.com","query_type":"A","server_ip":"127.0.0.11","server_port":53},"cmd":"codex -C /work -s danger-full-access exec"}}
 ```
@@ -255,37 +255,37 @@ Example snippets:
 ## Collector container logs
 ### Scenario A (TUI)
 Log row counts:
-- `logs/<run_id>/collector/raw/audit.log`: 15 lines (5 logical events, 3 lines each)
-- `logs/<run_id>/collector/filtered/filtered_audit.jsonl`: 5 rows
-- `logs/<run_id>/collector/raw/ebpf.jsonl`: 1 row
-- `logs/<run_id>/collector/filtered/filtered_ebpf.jsonl`: 1 row
-- `logs/<run_id>/collector/filtered/filtered_timeline.jsonl`: 6 rows
+- `<log_root>/<run_id>/collector/raw/audit.log`: 15 lines (5 logical events, 3 lines each)
+- `<log_root>/<run_id>/collector/filtered/filtered_audit.jsonl`: 5 rows
+- `<log_root>/<run_id>/collector/raw/ebpf.jsonl`: 1 row
+- `<log_root>/<run_id>/collector/filtered/filtered_ebpf.jsonl`: 1 row
+- `<log_root>/<run_id>/collector/filtered/filtered_timeline.jsonl`: 6 rows
 
 Example snippets:
-`logs/<run_id>/collector/raw/audit.log` (single logical event with multiple lines)
+`<log_root>/<run_id>/collector/raw/audit.log` (single logical event with multiple lines)
 ```text
 type=SYSCALL msg=audit(1769630402.100:2001): arch=c00000b7 syscall=221 success=yes exit=0 ppid=5090 pid=5101 uid=1001 gid=1001 comm="bash" exe="/usr/bin/bash" key="exec"
 type=EXECVE msg=audit(1769630402.100:2001): argc=3 a0="bash" a1="-lc" a2="pwd"
 type=CWD msg=audit(1769630402.100:2001): cwd="/work"
 ```
 
-`logs/<run_id>/collector/filtered/filtered_audit.jsonl`
+`<log_root>/<run_id>/collector/filtered/filtered_audit.jsonl`
 ```jsonl
 {"schema_version":"auditd.filtered.v1","session_id":"session_20260128_200000_ab12","ts":"2026-01-28T20:00:02.100Z","source":"audit","event_type":"exec","cmd":"pwd","cwd":"/work","comm":"bash","exe":"/usr/bin/bash","pid":5101,"ppid":5090,"uid":1001,"gid":1001,"audit_seq":2001,"audit_key":"exec","agent_owned":true}
 {"schema_version":"auditd.filtered.v1","session_id":"session_20260128_200000_ab12","ts":"2026-01-28T20:00:03.050Z","source":"audit","event_type":"fs_create","path":"/work/personal_files","cwd":"/work","comm":"mkdir","exe":"/usr/bin/mkdir","pid":5102,"ppid":5090,"uid":1001,"gid":1001,"audit_seq":2003,"audit_key":"fs_watch","agent_owned":true,"cmd":"mkdir -p /work/personal_files"}
 ```
 
-`logs/<run_id>/collector/raw/ebpf.jsonl`
+`<log_root>/<run_id>/collector/raw/ebpf.jsonl`
 ```jsonl
 {"schema_version":"ebpf.v1","ts":"2026-01-28T20:00:01.500000000Z","event_type":"unix_connect","pid":5090,"ppid":5080,"uid":1001,"gid":1001,"comm":"codex","cgroup_id":"0x0000000000000abc","syscall_result":0,"unix":{"path":"/run/dbus/system_bus_socket","abstract":false,"sock_type":"stream"}}
 ```
 
-`logs/<run_id>/collector/filtered/filtered_ebpf.jsonl`
+`<log_root>/<run_id>/collector/filtered/filtered_ebpf.jsonl`
 ```jsonl
 {"schema_version":"ebpf.filtered.v1","session_id":"session_20260128_200000_ab12","ts":"2026-01-28T20:00:01.500000000Z","source":"ebpf","event_type":"unix_connect","pid":5090,"ppid":5080,"uid":1001,"gid":1001,"comm":"codex","cgroup_id":"0x0000000000000abc","syscall_result":0,"unix":{"path":"/run/dbus/system_bus_socket","abstract":false,"sock_type":"stream"},"cmd":"codex -C /work -s danger-full-access"}
 ```
 
-`logs/<run_id>/collector/filtered/filtered_timeline.jsonl`
+`<log_root>/<run_id>/collector/filtered/filtered_timeline.jsonl`
 ```jsonl
 {"schema_version":"timeline.filtered.v1","session_id":"session_20260128_200000_ab12","ts":"2026-01-28T20:00:01.500000000Z","source":"ebpf","event_type":"unix_connect","pid":5090,"ppid":5080,"uid":1001,"gid":1001,"comm":"codex","details":{"cgroup_id":"0x0000000000000abc","syscall_result":0,"unix":{"path":"/run/dbus/system_bus_socket","abstract":false,"sock_type":"stream"},"cmd":"codex -C /work -s danger-full-access"}}
 {"schema_version":"timeline.filtered.v1","session_id":"session_20260128_200000_ab12","ts":"2026-01-28T20:00:02.100Z","source":"audit","event_type":"exec","pid":5101,"ppid":5090,"uid":1001,"gid":1001,"comm":"bash","exe":"/usr/bin/bash","details":{"cmd":"pwd","cwd":"/work","audit_seq":2001,"audit_key":"exec"}}
@@ -293,37 +293,37 @@ type=CWD msg=audit(1769630402.100:2001): cwd="/work"
 
 ### Scenario B (server mode)
 Log row counts:
-- `logs/<run_id>/collector/raw/audit.log`: 15 lines (5 logical events, 3 lines each)
-- `logs/<run_id>/collector/filtered/filtered_audit.jsonl`: 5 rows
-- `logs/<run_id>/collector/raw/ebpf.jsonl`: 1 row
-- `logs/<run_id>/collector/filtered/filtered_ebpf.jsonl`: 1 row
-- `logs/<run_id>/collector/filtered/filtered_timeline.jsonl`: 6 rows
+- `<log_root>/<run_id>/collector/raw/audit.log`: 15 lines (5 logical events, 3 lines each)
+- `<log_root>/<run_id>/collector/filtered/filtered_audit.jsonl`: 5 rows
+- `<log_root>/<run_id>/collector/raw/ebpf.jsonl`: 1 row
+- `<log_root>/<run_id>/collector/filtered/filtered_ebpf.jsonl`: 1 row
+- `<log_root>/<run_id>/collector/filtered/filtered_timeline.jsonl`: 6 rows
 
 Example snippets:
-`logs/<run_id>/collector/raw/audit.log` (single logical event with multiple lines)
+`<log_root>/<run_id>/collector/raw/audit.log` (single logical event with multiple lines)
 ```text
 type=SYSCALL msg=audit(1769630702.900:3002): arch=c00000b7 syscall=221 success=yes exit=0 ppid=6090 pid=6102 uid=1001 gid=1001 comm="mkdir" exe="/usr/bin/mkdir" key="exec"
 type=EXECVE msg=audit(1769630702.900:3002): argc=4 a0="mkdir" a1="-p" a2="/work/personal_files" a3=""
 type=CWD msg=audit(1769630702.900:3002): cwd="/work"
 ```
 
-`logs/<run_id>/collector/filtered/filtered_audit.jsonl`
+`<log_root>/<run_id>/collector/filtered/filtered_audit.jsonl`
 ```jsonl
 {"schema_version":"auditd.filtered.v1","session_id":"unknown","job_id":"job_20260128_200500_cd34","ts":"2026-01-28T20:05:02.100Z","source":"audit","event_type":"exec","cmd":"pwd","cwd":"/work","comm":"bash","exe":"/usr/bin/bash","pid":6101,"ppid":6090,"uid":1001,"gid":1001,"audit_seq":3001,"audit_key":"exec","agent_owned":true}
 {"schema_version":"auditd.filtered.v1","session_id":"unknown","job_id":"job_20260128_200500_cd34","ts":"2026-01-28T20:05:02.950Z","source":"audit","event_type":"fs_create","path":"/work/personal_files/notes.txt","cwd":"/work","comm":"touch","exe":"/usr/bin/touch","pid":6103,"ppid":6090,"uid":1001,"gid":1001,"audit_seq":3005,"audit_key":"fs_watch","agent_owned":true,"cmd":"touch /work/personal_files/notes.txt"}
 ```
 
-`logs/<run_id>/collector/raw/ebpf.jsonl`
+`<log_root>/<run_id>/collector/raw/ebpf.jsonl`
 ```jsonl
 {"schema_version":"ebpf.v1","ts":"2026-01-28T20:05:01.200000000Z","event_type":"dns_query","pid":6090,"ppid":6080,"uid":1001,"gid":1001,"comm":"codex","cgroup_id":"0x0000000000000def","syscall_result":0,"dns":{"transport":"udp","query_name":"example.com","query_type":"A","server_ip":"127.0.0.11","server_port":53}}
 ```
 
-`logs/<run_id>/collector/filtered/filtered_ebpf.jsonl`
+`<log_root>/<run_id>/collector/filtered/filtered_ebpf.jsonl`
 ```jsonl
 {"schema_version":"ebpf.filtered.v1","session_id":"unknown","job_id":"job_20260128_200500_cd34","ts":"2026-01-28T20:05:01.200000000Z","source":"ebpf","event_type":"dns_query","pid":6090,"ppid":6080,"uid":1001,"gid":1001,"comm":"codex","cgroup_id":"0x0000000000000def","syscall_result":0,"dns":{"transport":"udp","query_name":"example.com","query_type":"A","server_ip":"127.0.0.11","server_port":53},"cmd":"codex -C /work -s danger-full-access exec"}
 ```
 
-`logs/<run_id>/collector/filtered/filtered_timeline.jsonl`
+`<log_root>/<run_id>/collector/filtered/filtered_timeline.jsonl`
 ```jsonl
 {"schema_version":"timeline.filtered.v1","session_id":"unknown","job_id":"job_20260128_200500_cd34","ts":"2026-01-28T20:05:01.200000000Z","source":"ebpf","event_type":"dns_query","pid":6090,"ppid":6080,"uid":1001,"gid":1001,"comm":"codex","details":{"cgroup_id":"0x0000000000000def","syscall_result":0,"dns":{"transport":"udp","query_name":"example.com","query_type":"A","server_ip":"127.0.0.11","server_port":53},"cmd":"codex -C /work -s danger-full-access exec"}}
 {"schema_version":"timeline.filtered.v1","session_id":"unknown","job_id":"job_20260128_200500_cd34","ts":"2026-01-28T20:05:02.100Z","source":"audit","event_type":"exec","pid":6101,"ppid":6090,"uid":1001,"gid":1001,"comm":"bash","exe":"/usr/bin/bash","details":{"cmd":"pwd","cwd":"/work","audit_seq":3001,"audit_key":"exec"}}
@@ -331,7 +331,7 @@ type=CWD msg=audit(1769630702.900:3002): cwd="/work"
 
 ## Final UI output from filtered logs
 ### Scenario A (TUI)
-`logs/<run_id>/collector/filtered/filtered_timeline.jsonl` (full file for this scenario)
+`<log_root>/<run_id>/collector/filtered/filtered_timeline.jsonl` (full file for this scenario)
 ```jsonl
 {"schema_version":"timeline.filtered.v1","session_id":"session_20260128_200000_ab12","ts":"2026-01-28T20:00:01.500000000Z","source":"ebpf","event_type":"unix_connect","pid":5090,"ppid":5080,"uid":1001,"gid":1001,"comm":"codex","details":{"cgroup_id":"0x0000000000000abc","syscall_result":0,"unix":{"path":"/run/dbus/system_bus_socket","abstract":false,"sock_type":"stream"},"cmd":"codex -C /work -s danger-full-access"}}
 {"schema_version":"timeline.filtered.v1","session_id":"session_20260128_200000_ab12","ts":"2026-01-28T20:00:02.100Z","source":"audit","event_type":"exec","pid":5101,"ppid":5090,"uid":1001,"gid":1001,"comm":"bash","exe":"/usr/bin/bash","details":{"cmd":"pwd","cwd":"/work","audit_seq":2001,"audit_key":"exec"}}
@@ -353,7 +353,7 @@ UI-style filtered logs table mock (Scenario A)
 ```
 
 ### Scenario B (server mode)
-`logs/<run_id>/collector/filtered/filtered_timeline.jsonl` (full file for this scenario)
+`<log_root>/<run_id>/collector/filtered/filtered_timeline.jsonl` (full file for this scenario)
 ```jsonl
 {"schema_version":"timeline.filtered.v1","session_id":"unknown","job_id":"job_20260128_200500_cd34","ts":"2026-01-28T20:05:01.200000000Z","source":"ebpf","event_type":"dns_query","pid":6090,"ppid":6080,"uid":1001,"gid":1001,"comm":"codex","details":{"cgroup_id":"0x0000000000000def","syscall_result":0,"dns":{"transport":"udp","query_name":"example.com","query_type":"A","server_ip":"127.0.0.11","server_port":53},"cmd":"codex -C /work -s danger-full-access exec"}}
 {"schema_version":"timeline.filtered.v1","session_id":"unknown","job_id":"job_20260128_200500_cd34","ts":"2026-01-28T20:05:02.100Z","source":"audit","event_type":"exec","pid":6101,"ppid":6090,"uid":1001,"gid":1001,"comm":"bash","exe":"/usr/bin/bash","details":{"cmd":"pwd","cwd":"/work","audit_seq":3001,"audit_key":"exec"}}
@@ -383,7 +383,7 @@ It is grounded in the collector-only raw smoke integration test:
 - `tests/integration/test_collector_raw_smoke.py`
 
 In a run-scoped deployment, raw audit output lives at:
-- `logs/<run_id>/collector/raw/audit.log`
+- `<log_root>/<run_id>/collector/raw/audit.log`
 
 Sequence numbers, PIDs, and timestamps vary per run, but the pattern is
 consistent. Each logical event shares the same `msg=audit(...:<seq>)` value.
@@ -397,7 +397,7 @@ mv /work/a.txt /work/b.txt
 chmod 600 /work/b.txt
 rm /work/b.txt
 ```
-Below are matching raw audit records from `logs/<run_id>/collector/raw/audit.log`.
+Below are matching raw audit records from `<log_root>/<run_id>/collector/raw/audit.log`.
 
 ### echo hi > /work/a.txt (create/write)
 Exec of the shell that runs the compound command:

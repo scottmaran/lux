@@ -10,7 +10,7 @@ File:
 ## Key behavior
 - `log_format = RAW`
   - We want raw, line-oriented audit records for deterministic parsing.
-- `log_file = /logs/audit.log`
+- `log_file = <log_root>/audit.log`
   - This is the base default, but **the collector entrypoint rewrites this**
     at runtime to match `COLLECTOR_AUDIT_LOG` (or `COLLECTOR_AUDIT_OUTPUT`).
   - See `collector/entrypoint.sh` for the exact `sed` behavior.
@@ -27,4 +27,3 @@ File:
 ## Related docs
 - Raw audit log format: `docs/contracts/schemas/auditd.raw.md`
 - Audit rules (what gets logged): `docs/contracts/collector_config/auditd_rules.md`
-

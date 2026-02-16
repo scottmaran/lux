@@ -276,7 +276,7 @@ host-side logs.
 - Added per-session and per-job filtered timeline copies in harness artifacts.
 
 ### Details
-- Updated `compose.yml` to route collector/harness outputs through `LASSO_RUN_ID` into `/logs/<run_id>/...`.
+- Updated `compose.yml` to route collector/harness outputs through `LASSO_RUN_ID` into `<log_root>/<run_id>/...`.
 - Restored agent immutability controls in compose (`cap_drop: SYS_ADMIN`, `security_opt: no-new-privileges:true`).
 - Updated `lasso/src/main.rs` to create/track active run state, fail `up` when already running, and add `--run-id/--latest` selection for `logs` and `jobs`.
 - Updated `harness/harness.py` to write artifacts under run-scoped paths and materialize `filtered_timeline.jsonl` per session/job.
