@@ -1,6 +1,6 @@
 # Lasso UX + Runtime Control Plane Implementation Plan
 
-Status: draft
+Status: implemented
 Owner: codex
 Created: 2026-02-16
 Last updated: 2026-02-16

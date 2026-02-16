@@ -6,6 +6,7 @@ This directory contains the Rust source for the `lasso` CLI.
 
 - Reads the canonical config (`~/.config/lasso/config.yaml`).
 - Writes a compose env file (`~/.config/lasso/compose.env`).
+- Runs a local runtime control-plane daemon over Unix socket.
 - Wraps `docker compose` for stack lifecycle commands.
 - Calls the harness HTTP API for non‑interactive runs.
 - Creates a run id on `up` and scopes logs under `<log_root>/lasso__.../`.
@@ -28,8 +29,9 @@ cargo build
 export LASSO_BUNDLE_DIR=$(cd .. && pwd)
 ./target/debug/lasso config init
 ./target/debug/lasso config apply
-./target/debug/lasso up --collector-only
-./target/debug/lasso up --provider codex
+./target/debug/lasso runtime up
+./target/debug/lasso ui up
+./target/debug/lasso shim install codex
 ```
 
 ## Tests

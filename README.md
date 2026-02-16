@@ -31,9 +31,10 @@ This installs the CLI bundle but does **not** create log/workspace directories. 
 Quick start (after install):
 ```bash
 lasso setup
-lasso up --collector-only --wait
-lasso up --provider codex --wait
-lasso tui --provider codex
+lasso runtime up
+lasso ui up --wait
+lasso shim install codex claude
+codex
 ```
 
 Provider selection is explicit for agent-facing actions (`--provider codex|claude`).

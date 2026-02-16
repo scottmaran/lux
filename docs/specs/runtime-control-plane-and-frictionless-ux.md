@@ -1,6 +1,6 @@
 # Spec: Runtime Control Plane And Frictionless Agent UX
 
-Status: draft
+Status: implemented
 Owner: codex
 Created: 2026-02-16
 Last updated: 2026-02-16
@@ -350,3 +350,33 @@ Rollout sequence:
 6. UI same-origin proxy integration + event stream consumers.
 7. Setup/doctor readiness expansion.
 8. Remove legacy `--ui` code paths and finalize CLI error messaging.
+
+## Implementation Notes (2026-02-16)
+- Implemented command families:
+  - `lasso ui up|down|status|url`
+  - `lasso runtime up|down|status`
+  - `lasso shim install|uninstall|list|exec`
+- Removed deprecated `--ui` flags from `up/down/status`.
+- Added config defaults:
+  - `collector.auto_start=true`
+  - `collector.idle_timeout_min=10080`
+  - `collector.rotate_every_min=1440`
+  - `runtime_control_plane.socket_path` defaulting to `<config_dir>/runtime/control_plane.sock`
+  - `runtime_control_plane.socket_gid` defaulting to invoking primary gid.
+- Added runtime control-plane contract and implementation over Unix socket with:
+  - status/evidence endpoints
+  - warnings endpoint
+  - SSE event stream with replay by id
+  - CLI execution endpoint used by lifecycle commands.
+- Added same-origin UI runtime proxy routes in `ui/server.py`:
+  - `/api/runtime/stack-status`
+  - `/api/runtime/run-status`
+  - `/api/runtime/session-job-status`
+  - `/api/runtime/collector-pipeline-status`
+  - `/api/runtime/warnings`
+  - `/api/runtime/events` (SSE passthrough).
+- Added compose/UI runtime socket wiring:
+  - `LASSO_RUNTIME_DIR`
+  - `LASSO_RUNTIME_GID`
+  - UI socket mount and group mapping.
+- Expanded `lasso doctor` to structured readiness checks with `--strict`.
