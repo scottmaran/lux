@@ -16,6 +16,14 @@ harness:
   api_port: 8081
   api_token: ""
 
+collector:
+  auto_start: true
+  idle_timeout_min: 10080
+  rotate_every_min: 1440
+
+runtime_control_plane:
+  socket_path: ""
+
 providers:
   codex:
     auth_mode: api_key

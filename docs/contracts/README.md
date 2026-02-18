@@ -11,6 +11,7 @@ contract docs together.
 - Install: `docs/contracts/install.md`
 - CLI behavior: `docs/contracts/cli.md`
 - Config contract: `docs/contracts/config.md`
+- Runtime control-plane: `docs/contracts/runtime_control_plane.md`
 - Platform support: `docs/contracts/platform.md`
 - Log layout: `docs/contracts/log_layout.md`
 - Harness API: `docs/contracts/harness_api.md`

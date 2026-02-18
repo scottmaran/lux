@@ -7,19 +7,29 @@ use dialoguer::{Confirm, Input, Password, Select};
 use dirs::home_dir;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, VecDeque};
 use std::env;
 use std::fs;
 use std::io;
 use std::io::IsTerminal;
+use std::io::{Read, Write};
+#[cfg(unix)]
+use std::os::unix::ffi::OsStrExt;
 #[cfg(unix)]
 use std::os::unix::fs::symlink;
+#[cfg(unix)]
+use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::sync::{Arc, Condvar, Mutex};
+use std::thread;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use thiserror::Error;
 
 const DEFAULT_CONFIG_YAML: &str = include_str!("../config/default.yaml");
+const RUNTIME_BYPASS_ENV: &str = "LASSO_RUNTIME_BYPASS";
+#[cfg(unix)]
+const UNIX_SOCKET_PATH_LIMIT_BYTES: usize = 100;
 
 #[derive(Parser, Debug)]
 #[command(name = "lasso", version, about = "Lasso CLI")]
@@ -61,8 +71,6 @@ enum Commands {
         collector_only: bool,
         #[arg(long)]
         workspace: Option<String>,
-        #[arg(long)]
-        ui: bool,
         #[arg(long, value_parser = ["always", "never", "missing"]) ]
         pull: Option<String>,
         #[arg(long)]
@@ -75,16 +83,24 @@ enum Commands {
         provider: Option<String>,
         #[arg(long, default_value_t = false, conflicts_with = "provider")]
         collector_only: bool,
-        #[arg(long)]
-        ui: bool,
     },
     Status {
         #[arg(long, conflicts_with = "collector_only")]
         provider: Option<String>,
         #[arg(long, default_value_t = false, conflicts_with = "provider")]
         collector_only: bool,
-        #[arg(long)]
-        ui: bool,
+    },
+    Ui {
+        #[command(subcommand)]
+        command: UiCommand,
+    },
+    Runtime {
+        #[command(subcommand)]
+        command: RuntimeCommand,
+    },
+    Shim {
+        #[command(subcommand)]
+        command: ShimCommand,
     },
     Run {
         #[arg(long)]
@@ -109,7 +125,10 @@ enum Commands {
         #[command(subcommand)]
         command: JobsCommand,
     },
-    Doctor,
+    Doctor {
+        #[arg(long, default_value_t = false)]
+        strict: bool,
+    },
     Paths,
     Update {
         #[command(subcommand)]
@@ -184,6 +203,46 @@ enum JobsCommand {
 }
 
 #[derive(Subcommand, Debug)]
+enum UiCommand {
+    Up {
+        #[arg(long)]
+        wait: bool,
+        #[arg(long)]
+        timeout_sec: Option<u64>,
+        #[arg(long, value_parser = ["always", "never", "missing"]) ]
+        pull: Option<String>,
+    },
+    Down,
+    Status,
+    Url,
+}
+
+#[derive(Subcommand, Debug)]
+enum RuntimeCommand {
+    Up,
+    Down,
+    Status,
+    #[command(hide = true)]
+    Serve,
+}
+
+#[derive(Subcommand, Debug)]
+enum ShimCommand {
+    Install {
+        providers: Vec<String>,
+    },
+    Uninstall {
+        providers: Vec<String>,
+    },
+    List,
+    Exec {
+        provider: String,
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        argv: Vec<String>,
+    },
+}
+
+#[derive(Subcommand, Debug)]
 enum LogsCommand {
     Stats {
         #[arg(long, conflicts_with = "latest")]
@@ -234,6 +293,8 @@ struct Config {
     release: Release,
     docker: Docker,
     harness: Harness,
+    collector: CollectorConfig,
+    runtime_control_plane: RuntimeControlPlaneConfig,
     providers: BTreeMap<String, Provider>,
 }
 
@@ -262,6 +323,21 @@ struct Harness {
     api_host: String,
     api_port: u16,
     api_token: String,
+}
+
+#[derive(Debug, Deserialize, Serialize, Clone)]
+#[serde(default, deny_unknown_fields)]
+struct CollectorConfig {
+    auto_start: bool,
+    idle_timeout_min: u64,
+    rotate_every_min: u64,
+}
+
+#[derive(Debug, Deserialize, Serialize, Clone)]
+#[serde(default, deny_unknown_fields)]
+struct RuntimeControlPlaneConfig {
+    socket_path: String,
+    socket_gid: Option<u32>,
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone, PartialEq, Eq)]
@@ -331,6 +407,8 @@ impl Default for Config {
             release: Release::default(),
             docker: Docker::default(),
             harness: Harness::default(),
+            collector: CollectorConfig::default(),
+            runtime_control_plane: RuntimeControlPlaneConfig::default(),
             providers: default_providers(),
         }
     }
@@ -379,6 +457,25 @@ impl Default for Harness {
             api_host: "127.0.0.1".to_string(),
             api_port: 8081,
             api_token: "".to_string(),
+        }
+    }
+}
+
+impl Default for CollectorConfig {
+    fn default() -> Self {
+        Self {
+            auto_start: true,
+            idle_timeout_min: 10_080,
+            rotate_every_min: 1_440,
+        }
+    }
+}
+
+impl Default for RuntimeControlPlaneConfig {
+    fn default() -> Self {
+        Self {
+            socket_path: String::new(),
+            socket_gid: None,
         }
     }
 }
@@ -520,7 +617,7 @@ struct ProcessErrorDetails {
     raw_stderr: Option<String>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 struct Context {
     config_path: PathBuf,
     env_file: PathBuf,
@@ -543,6 +640,36 @@ struct ActiveProviderState {
     auth_mode: String,
     run_id: String,
     started_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct RuntimeEvent {
+    id: u64,
+    ts: String,
+    event_type: String,
+    severity: String,
+    payload: serde_json::Value,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct RuntimeWarning {
+    ts: String,
+    message: String,
+}
+
+#[derive(Debug, Default)]
+struct RuntimeSharedState {
+    next_event_id: u64,
+    events: VecDeque<RuntimeEvent>,
+    warnings: VecDeque<RuntimeWarning>,
+    shutdown: bool,
+    rotation_pending: bool,
+    last_provider_activity_at: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct RuntimeExecuteRequest {
+    argv: Vec<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -610,87 +737,91 @@ impl DockerRunner for RealDockerRunner {
 }
 
 fn main() -> Result<(), LassoError> {
+    let raw_args: Vec<String> = env::args().skip(1).collect();
     let cli = Cli::parse();
     let ctx = build_context(&cli)?;
     let runner = RealDockerRunner;
 
-    let result = match cli.command {
-        Commands::Config { command } => handle_config(&ctx, command),
-        Commands::Setup {
-            defaults,
-            yes,
-            no_apply,
-            dry_run,
-        } => handle_setup(&ctx, defaults, yes, no_apply, dry_run),
-        Commands::Up {
-            provider,
-            collector_only,
-            workspace,
-            ui,
-            pull,
-            wait,
-            timeout_sec,
-        } => handle_up(
-            &ctx,
-            provider,
-            collector_only,
-            workspace,
-            ui,
-            pull,
-            wait,
-            timeout_sec,
-            &runner,
-        ),
-        Commands::Down {
-            provider,
-            collector_only,
-            ui,
-        } => handle_down(&ctx, provider, collector_only, ui, &runner),
-        Commands::Status {
-            provider,
-            collector_only,
-            ui,
-        } => handle_status(&ctx, provider, collector_only, ui, &runner),
-        Commands::Run {
-            provider,
-            prompt,
-            capture_input,
-            start_dir,
-            timeout_sec,
-            env,
-        } => handle_run(
-            &ctx,
-            provider,
-            prompt,
-            capture_input,
-            start_dir,
-            timeout_sec,
-            env,
-        ),
-        Commands::Tui {
-            provider,
-            start_dir,
-        } => handle_tui(&ctx, provider, start_dir, &runner),
-        Commands::Jobs { command } => handle_jobs(&ctx, command),
-        Commands::Doctor => handle_doctor(&ctx),
-        Commands::Paths => handle_paths(&ctx),
-        Commands::Update { command } => handle_update(&ctx, command),
-        Commands::Uninstall {
-            remove_config,
-            all_versions,
-            yes,
-            dry_run,
-            force,
-        } => handle_uninstall(
-            &ctx,
-            remove_config,
-            all_versions,
-            yes,
-            dry_run,
-            force,
-            &runner,
-        ),
-        Commands::Logs { command } => handle_logs(&ctx, command),
+    let result = if should_route_through_runtime(&cli.command) && !runtime_bypass_enabled() {
+        handle_runtime_execute_proxy(&ctx, &raw_args)
+    } else {
+        match cli.command {
+            Commands::Config { command } => handle_config(&ctx, command),
+            Commands::Setup {
+                defaults,
+                yes,
+                no_apply,
+                dry_run,
+            } => handle_setup(&ctx, defaults, yes, no_apply, dry_run),
+            Commands::Up {
+                provider,
+                collector_only,
+                workspace,
+                pull,
+                wait,
+                timeout_sec,
+            } => handle_up(
+                &ctx,
+                provider,
+                collector_only,
+                workspace,
+                pull,
+                wait,
+                timeout_sec,
+                &runner,
+            ),
+            Commands::Down {
+                provider,
+                collector_only,
+            } => handle_down(&ctx, provider, collector_only, &runner),
+            Commands::Status {
+                provider,
+                collector_only,
+            } => handle_status(&ctx, provider, collector_only, &runner),
+            Commands::Ui { command } => handle_ui(&ctx, command, &runner),
+            Commands::Runtime { command } => handle_runtime(&ctx, command),
+            Commands::Shim { command } => handle_shim(&ctx, command, &runner),
+            Commands::Run {
+                provider,
+                prompt,
+                capture_input,
+                start_dir,
+                timeout_sec,
+                env,
+            } => handle_run(
+                &ctx,
+                provider,
+                prompt,
+                capture_input,
+                start_dir,
+                timeout_sec,
+                env,
+            ),
+            Commands::Tui {
+                provider,
+                start_dir,
+            } => handle_tui(&ctx, provider, start_dir, &runner),
+            Commands::Jobs { command } => handle_jobs(&ctx, command),
+            Commands::Doctor { strict } => handle_doctor(&ctx, strict),
+            Commands::Paths => handle_paths(&ctx),
+            Commands::Update { command } => handle_update(&ctx, command),
+            Commands::Uninstall {
+                remove_config,
+                all_versions,
+                yes,
+                dry_run,
+                force,
+            } => handle_uninstall(
+                &ctx,
+                remove_config,
+                all_versions,
+                yes,
+                dry_run,
+                force,
+                &runner,
+            ),
+            Commands::Logs { command } => handle_logs(&ctx, command),
+        }
     };
 
     if let Err(err) = result {
@@ -986,6 +1117,174 @@ fn ensure_parent(path: &Path) -> Result<(), LassoError> {
     Ok(())
 }
 
+#[derive(Debug)]
+struct RuntimeHttpResponse {
+    status: u16,
+    body: Vec<u8>,
+}
+
+fn runtime_bypass_enabled() -> bool {
+    match env::var(RUNTIME_BYPASS_ENV) {
+        Ok(value) => matches!(value.as_str(), "1" | "true" | "yes"),
+        Err(_) => false,
+    }
+}
+
+fn should_route_through_runtime(command: &Commands) -> bool {
+    matches!(
+        command,
+        Commands::Up { .. }
+            | Commands::Down { .. }
+            | Commands::Status { .. }
+            | Commands::Ui { .. }
+            | Commands::Run { .. }
+    )
+}
+
+#[cfg(unix)]
+fn runtime_control_plane_request(
+    ctx: &Context,
+    method: &str,
+    path: &str,
+    headers: &[(String, String)],
+    body: Option<&[u8]>,
+) -> Result<RuntimeHttpResponse, LassoError> {
+    let (paths, _) = resolve_runtime_paths(ctx)?;
+    let socket_path = &paths.runtime_socket_path;
+    let mut stream = UnixStream::connect(socket_path).map_err(|err| {
+        LassoError::Process(format!(
+            "failed to connect runtime control plane socket {}: {}",
+            socket_path.display(),
+            err
+        ))
+    })?;
+    let mut request = format!(
+        "{} {} HTTP/1.1\r\nHost: lasso-runtime\r\nConnection: close\r\n",
+        method, path
+    );
+    for (key, value) in headers {
+        request.push_str(key);
+        request.push_str(": ");
+        request.push_str(value);
+        request.push_str("\r\n");
+    }
+    if let Some(body) = body {
+        request.push_str("Content-Length: ");
+        request.push_str(&body.len().to_string());
+        request.push_str("\r\n");
+    }
+    request.push_str("\r\n");
+    stream.write_all(request.as_bytes())?;
+    if let Some(body) = body {
+        stream.write_all(body)?;
+    }
+
+    let mut raw = Vec::new();
+    stream.read_to_end(&mut raw)?;
+    let split = raw
+        .windows(4)
+        .position(|w| w == b"\r\n\r\n")
+        .ok_or_else(|| {
+            LassoError::Process("runtime response missing header delimiter".to_string())
+        })?;
+    let header_bytes = &raw[..split];
+    let body_bytes = raw[split + 4..].to_vec();
+    let header_text = String::from_utf8_lossy(header_bytes);
+    let mut lines = header_text.lines();
+    let status_line = lines
+        .next()
+        .ok_or_else(|| LassoError::Process("runtime response missing status line".to_string()))?;
+    let status = status_line
+        .split_whitespace()
+        .nth(1)
+        .and_then(|s| s.parse::<u16>().ok())
+        .ok_or_else(|| LassoError::Process("runtime response has invalid status".to_string()))?;
+    let _parsed_headers: BTreeMap<String, String> = lines
+        .filter_map(|line| line.split_once(':'))
+        .map(|(key, value)| (key.trim().to_ascii_lowercase(), value.trim().to_string()))
+        .collect();
+    Ok(RuntimeHttpResponse {
+        status,
+        body: body_bytes,
+    })
+}
+
+#[cfg(not(unix))]
+fn runtime_control_plane_request(
+    _ctx: &Context,
+    _method: &str,
+    _path: &str,
+    _headers: &[(String, String)],
+    _body: Option<&[u8]>,
+) -> Result<RuntimeHttpResponse, LassoError> {
+    Err(LassoError::Config(
+        "runtime control plane is only supported on unix hosts".to_string(),
+    ))
+}
+
+fn runtime_ping(ctx: &Context) -> Result<(), LassoError> {
+    let response = runtime_control_plane_request(ctx, "GET", "/v1/healthz", &[], None)?;
+    if response.status >= 400 {
+        return Err(LassoError::Process(format!(
+            "runtime control plane ping failed with status {}",
+            response.status
+        )));
+    }
+    Ok(())
+}
+
+fn ensure_runtime_running(ctx: &Context) -> Result<(), LassoError> {
+    if runtime_ping(ctx).is_ok() {
+        return Ok(());
+    }
+    runtime_up_internal(ctx, false)?;
+    runtime_ping(ctx)
+}
+
+fn handle_runtime_execute_proxy(ctx: &Context, raw_args: &[String]) -> Result<(), LassoError> {
+    ensure_runtime_running(ctx)?;
+    let body = serde_json::to_vec(&json!({ "argv": raw_args }))?;
+    let response = runtime_control_plane_request(
+        ctx,
+        "POST",
+        "/v1/execute",
+        &[("Content-Type".to_string(), "application/json".to_string())],
+        Some(&body),
+    )?;
+    if response.status >= 400 {
+        let text = String::from_utf8_lossy(&response.body).to_string();
+        return Err(LassoError::Process(format!(
+            "runtime execute request failed (HTTP {}): {}",
+            response.status, text
+        )));
+    }
+    let payload: serde_json::Value = serde_json::from_slice(&response.body).map_err(|err| {
+        LassoError::Process(format!("runtime execute returned invalid JSON: {err}"))
+    })?;
+    let status_code = payload
+        .get("status_code")
+        .and_then(|v| v.as_i64())
+        .unwrap_or(1);
+    let stdout = payload
+        .get("stdout")
+        .and_then(|v| v.as_str())
+        .unwrap_or_default();
+    let stderr = payload
+        .get("stderr")
+        .and_then(|v| v.as_str())
+        .unwrap_or_default();
+    if !stdout.is_empty() {
+        print!("{stdout}");
+    }
+    if !stderr.is_empty() {
+        eprint!("{stderr}");
+    }
+    if status_code != 0 {
+        std::process::exit(status_code as i32);
+    }
+    Ok(())
+}
+
 fn read_config_from_str(content: &str) -> Result<Config, LassoError> {
     let cfg: Config = serde_yaml::from_str(content)?;
     if cfg.version != 2 {
@@ -1011,7 +1310,41 @@ fn validate_config(cfg: &Config) -> Result<(), LassoError> {
         )));
     }
     let _ = resolve_config_policy_paths(cfg)?;
-
+    if cfg.collector.idle_timeout_min == 0 {
+        return Err(LassoError::Config(
+            "collector.idle_timeout_min must be greater than 0".to_string(),
+        ));
+    }
+    if cfg.collector.rotate_every_min == 0 {
+        return Err(LassoError::Config(
+            "collector.rotate_every_min must be greater than 0".to_string(),
+        ));
+    }
+    if cfg.harness.api_port == 0 {
+        return Err(LassoError::Config(
+            "harness.api_port must be greater than 0".to_string(),
+        ));
+    }
+    if cfg.runtime_control_plane.socket_path.contains('\n')
+        || cfg.runtime_control_plane.socket_path.contains('\r')
+    {
+        return Err(LassoError::Config(
+            "runtime_control_plane.socket_path contains an invalid newline".to_string(),
+        ));
+    }
+    #[cfg(unix)]
+    {
+        let configured = cfg.runtime_control_plane.socket_path.trim();
+        if !configured.is_empty() {
+            let expanded = PathBuf::from(expand_path(configured));
+            if unix_socket_path_too_long(&expanded) {
+                return Err(LassoError::Config(format!(
+                    "runtime_control_plane.socket_path is too long for unix sockets ({} bytes); set a shorter path",
+                    expanded.as_os_str().as_bytes().len()
+                )));
+            }
+        }
+    }
     if cfg.providers.is_empty() {
         return Err(LassoError::Config(
             "config.providers must contain at least one provider".to_string(),
@@ -1061,7 +1394,107 @@ fn expand_path(input: &str) -> String {
     input.to_string()
 }
 
-fn config_to_env(cfg: &Config) -> BTreeMap<String, String> {
+fn config_dir_from_path(config_path: &Path) -> PathBuf {
+    config_path
+        .parent()
+        .map_or_else(default_config_dir, PathBuf::from)
+}
+
+fn current_primary_gid() -> u32 {
+    #[cfg(unix)]
+    {
+        let output = Command::new("id").arg("-g").output();
+        if let Ok(output) = output {
+            if output.status.success() {
+                let text = String::from_utf8_lossy(&output.stdout);
+                if let Ok(value) = text.trim().parse::<u32>() {
+                    return value;
+                }
+            }
+        }
+    }
+    0
+}
+
+fn current_uid() -> u32 {
+    #[cfg(unix)]
+    {
+        let output = Command::new("id").arg("-u").output();
+        if let Ok(output) = output {
+            if output.status.success() {
+                let text = String::from_utf8_lossy(&output.stdout);
+                if let Ok(value) = text.trim().parse::<u32>() {
+                    return value;
+                }
+            }
+        }
+    }
+    0
+}
+
+#[cfg(unix)]
+fn unix_socket_path_too_long(path: &Path) -> bool {
+    path.as_os_str().as_bytes().len() >= UNIX_SOCKET_PATH_LIMIT_BYTES
+}
+
+#[cfg(unix)]
+fn stable_path_hash(path: &Path) -> u64 {
+    // Deterministic FNV-1a so fallback runtime socket paths remain stable per config dir.
+    const OFFSET: u64 = 0xcbf29ce484222325;
+    const PRIME: u64 = 0x0000_0100_0000_01b3;
+
+    let mut hash = OFFSET;
+    for byte in path.as_os_str().as_bytes() {
+        hash ^= u64::from(*byte);
+        hash = hash.wrapping_mul(PRIME);
+    }
+    hash
+}
+
+#[cfg(unix)]
+fn runtime_socket_fallback_path(config_dir: &Path) -> PathBuf {
+    let hash = stable_path_hash(config_dir);
+    let uid = current_uid();
+    let candidates = vec![
+        env::temp_dir()
+            .join(format!("lasso-runtime-u{uid}"))
+            .join(format!("{hash:016x}"))
+            .join("control_plane.sock"),
+        PathBuf::from(format!(
+            "/tmp/lasso-runtime-u{uid}/{hash:016x}/control_plane.sock"
+        )),
+        PathBuf::from(format!("/tmp/lasso-{hash:016x}/control_plane.sock")),
+    ];
+    for candidate in candidates {
+        if !unix_socket_path_too_long(&candidate) {
+            return candidate;
+        }
+    }
+    PathBuf::from("/tmp/lasso.sock")
+}
+
+fn effective_runtime_socket_path(cfg: &Config, config_dir: &Path) -> PathBuf {
+    let configured = cfg.runtime_control_plane.socket_path.trim();
+    if !configured.is_empty() {
+        return PathBuf::from(expand_path(configured));
+    }
+    let preferred = config_dir.join("runtime").join("control_plane.sock");
+    #[cfg(unix)]
+    {
+        if unix_socket_path_too_long(&preferred) {
+            return runtime_socket_fallback_path(config_dir);
+        }
+    }
+    preferred
+}
+
+fn effective_runtime_socket_gid(cfg: &Config) -> u32 {
+    cfg.runtime_control_plane
+        .socket_gid
+        .unwrap_or_else(current_primary_gid)
+}
+
+fn config_to_env(cfg: &Config, config_path: &Path) -> BTreeMap<String, String> {
     let mut envs = BTreeMap::new();
     let tag = if cfg.release.tag.trim().is_empty() {
         format!("v{}", env!("CARGO_PKG_VERSION"))
@@ -1091,6 +1524,18 @@ fn config_to_env(cfg: &Config) -> BTreeMap<String, String> {
     if !root_comm.is_empty() {
         envs.insert("COLLECTOR_ROOT_COMM".to_string(), root_comm.join(","));
     }
+    let config_dir = config_dir_from_path(config_path);
+    let runtime_socket = effective_runtime_socket_path(cfg, &config_dir);
+    if let Some(runtime_dir) = runtime_socket.parent() {
+        envs.insert(
+            "LASSO_RUNTIME_DIR".to_string(),
+            runtime_dir.to_string_lossy().to_string(),
+        );
+    }
+    envs.insert(
+        "LASSO_RUNTIME_GID".to_string(),
+        effective_runtime_socket_gid(cfg).to_string(),
+    );
     envs
 }
 
@@ -1228,6 +1673,11 @@ fn handle_setup(
 
         if apply && !dry_run {
             let _ = apply_config(ctx, &base_cfg)?;
+        }
+        if let Ok(doctor_checks) = collect_doctor_checks(ctx, &base_cfg) {
+            for check in doctor_checks.into_iter().filter(|check| !check.ok) {
+                warnings.push(format!("doctor:{}: {}", check.id, check.message));
+            }
         }
 
         let plan = SetupActionPlan {
@@ -1815,6 +2265,20 @@ if you're using an API key or a subscription-based plan"
         println!("{}", style("Applying config...").cyan().bold());
         let _ = apply_config(ctx, &cfg_after_yaml)?;
     }
+    if let Ok(doctor_checks) = collect_doctor_checks(ctx, &cfg_after_yaml) {
+        let failed: Vec<DoctorCheck> = doctor_checks
+            .into_iter()
+            .filter(|check| !check.ok)
+            .collect();
+        if !failed.is_empty() {
+            println!();
+            println!("{}", style("Readiness findings").bold().yellow());
+            for check in failed {
+                println!("  - {} ({}) {}", check.id, check.severity, check.message);
+                println!("    remediation: {}", check.remediation);
+            }
+        }
+    }
     println!();
     println!("{}", style("That's it!"));
     println!(
@@ -1823,11 +2287,7 @@ if you're using an API key or a subscription-based plan"
     );
     println!(
         "{}",
-        style("Start the collector and it will run in the background.").dim()
-    );
-    println!(
-        "{}",
-        style("Run codex or claude through our ```lasso tui ``` command.").dim()
+        style("Install shims once, then keep using codex/claude as usual.").dim()
     );
 
     println!();
@@ -1835,13 +2295,13 @@ if you're using an API key or a subscription-based plan"
     if !apply {
         println!("  lasso config apply");
     }
-    println!("  lasso up --collector-only --wait");
-    if let Some(example) = cfg_after_yaml.providers.keys().next() {
-        println!("  lasso up --provider {example} --wait");
-        println!("  lasso tui --provider {example}");
-    } else {
-        println!("  lasso up --provider <provider> --wait");
-        println!("  lasso tui --provider <provider>");
+    println!("  lasso runtime up");
+    println!("  lasso ui up --wait");
+    println!("  lasso shim install codex claude");
+    if cfg_after_yaml.providers.contains_key("codex") {
+        println!("  codex");
+    } else if let Some(example) = cfg_after_yaml.providers.keys().next() {
+        println!("  {example}");
     }
     println!(
         "  Available providers: {}",
@@ -1936,7 +2396,7 @@ Choose a writable log root outside $HOME or create this directory with sufficien
     }
 
     let policy_paths = resolve_config_policy_paths(cfg)?;
-    let mut envs = config_to_env(cfg);
+    let mut envs = config_to_env(cfg, &ctx.config_path);
     envs.insert(
         "LASSO_LOG_ROOT".to_string(),
         policy_paths.log_root.to_string_lossy().to_string(),
@@ -2483,6 +2943,10 @@ struct RuntimePaths {
     config_path: PathBuf,
     env_file: PathBuf,
     bundle_dir: PathBuf,
+    runtime_dir: PathBuf,
+    runtime_socket_path: PathBuf,
+    runtime_pid_path: PathBuf,
+    runtime_events_path: PathBuf,
     log_root: PathBuf,
     workspace_root: PathBuf,
     install_dir: PathBuf,
@@ -2506,6 +2970,11 @@ fn resolve_runtime_paths(ctx: &Context) -> Result<(RuntimePaths, bool), LassoErr
         .config_path
         .parent()
         .map_or_else(default_config_dir, PathBuf::from);
+    let runtime_socket_path = effective_runtime_socket_path(&cfg, &config_dir);
+    let runtime_dir = runtime_socket_path
+        .parent()
+        .map(PathBuf::from)
+        .unwrap_or_else(|| config_dir.join("runtime"));
     let install_dir = default_install_dir();
     let versions_dir = install_dir.join("versions");
     let current_link = install_dir.join("current");
@@ -2517,6 +2986,10 @@ fn resolve_runtime_paths(ctx: &Context) -> Result<(RuntimePaths, bool), LassoErr
             config_path: ctx.config_path.clone(),
             env_file: ctx.env_file.clone(),
             bundle_dir: ctx.bundle_dir.clone(),
+            runtime_dir: runtime_dir.clone(),
+            runtime_socket_path: runtime_socket_path.clone(),
+            runtime_pid_path: runtime_dir.join("control_plane.pid"),
+            runtime_events_path: runtime_dir.join("events.jsonl"),
             log_root: policy_paths.log_root,
             workspace_root: policy_paths.workspace_root,
             install_dir,
@@ -2951,7 +3424,7 @@ fn compose_base_args(
     let files = compose_files(ctx, ui, runtime_overrides)?;
     if !ctx.env_file.exists() {
         let policy_paths = resolve_config_policy_paths(cfg)?;
-        let mut envs = config_to_env(cfg);
+        let mut envs = config_to_env(cfg, &ctx.config_path);
         envs.insert(
             "LASSO_LOG_ROOT".to_string(),
             policy_paths.log_root.to_string_lossy().to_string(),
@@ -3072,6 +3545,7 @@ fn generate_provider_runtime_compose(
     ctx: &Context,
     provider_name: &str,
     provider: &Provider,
+    tui_cmd_override: Option<&str>,
 ) -> Result<ProviderRuntimeCompose, LassoError> {
     let runtime_dir = ctx
         .config_path
@@ -3087,9 +3561,10 @@ fn generate_provider_runtime_compose(
     let mut agent = ComposeServiceOverride::default();
     let mut harness = ComposeServiceOverride::default();
 
-    harness
-        .environment
-        .push(format!("HARNESS_TUI_CMD={}", provider.commands.tui));
+    harness.environment.push(format!(
+        "HARNESS_TUI_CMD={}",
+        tui_cmd_override.unwrap_or(provider.commands.tui.as_str())
+    ));
     harness.environment.push(format!(
         "HARNESS_RUN_CMD_TEMPLATE={}",
         provider.commands.run_template
@@ -3701,12 +4176,1458 @@ fn run_docker_command<R: DockerRunner>(
     output(ctx, json_payload)
 }
 
+fn handle_ui<R: DockerRunner>(
+    ctx: &Context,
+    command: UiCommand,
+    runner: &R,
+) -> Result<(), LassoError> {
+    let cfg = read_config(&ctx.config_path)?;
+    match command {
+        UiCommand::Up {
+            wait,
+            timeout_sec,
+            pull,
+        } => {
+            if timeout_sec.is_some() && !wait {
+                return Err(LassoError::Config(
+                    "--timeout-sec requires --wait".to_string(),
+                ));
+            }
+            let mut args = compose_base_args(ctx, &cfg, true, &[])?;
+            args.push("up".to_string());
+            args.push("-d".to_string());
+            if let Some(pull) = pull {
+                args.push("--pull".to_string());
+                args.push(pull);
+            }
+            if wait {
+                args.push("--wait".to_string());
+                if let Some(timeout_sec) = timeout_sec {
+                    args.push("--wait-timeout".to_string());
+                    args.push(timeout_sec.to_string());
+                }
+            }
+            args.push("ui".to_string());
+            run_docker_command(
+                ctx,
+                runner,
+                &args,
+                &BTreeMap::new(),
+                json!({"action":"ui_up"}),
+                true,
+            )
+        }
+        UiCommand::Down => {
+            let mut args = compose_base_args(ctx, &cfg, true, &[])?;
+            args.push("stop".to_string());
+            args.push("ui".to_string());
+            run_docker_command(
+                ctx,
+                runner,
+                &args,
+                &BTreeMap::new(),
+                json!({"action":"ui_down"}),
+                true,
+            )
+        }
+        UiCommand::Status => {
+            let mut args = compose_base_args(ctx, &cfg, true, &[])?;
+            args.push("ps".to_string());
+            args.push("--format".to_string());
+            args.push("json".to_string());
+            args.push("ui".to_string());
+            let cmd_output = execute_docker(ctx, runner, &args, &BTreeMap::new(), true, false)?;
+            let text = String::from_utf8_lossy(&cmd_output.stdout);
+            let rows = parse_compose_ps_output(&text);
+            if ctx.json {
+                let payload = JsonResult {
+                    ok: true,
+                    result: Some(rows),
+                    error: None,
+                    error_details: None,
+                };
+                print_json(&payload)?;
+                return Ok(());
+            }
+            if rows.as_array().map(|a| a.is_empty()).unwrap_or(true) {
+                println!("No containers running.");
+            } else {
+                println!("{}", text.trim());
+            }
+            Ok(())
+        }
+        UiCommand::Url => {
+            let payload = json!({"url":"http://127.0.0.1:8090"});
+            output(ctx, payload)
+        }
+    }
+}
+
+#[cfg(unix)]
+fn set_path_group(path: &Path, gid: u32) -> Result<(), LassoError> {
+    let status = Command::new("chgrp")
+        .arg(gid.to_string())
+        .arg(path)
+        .status()
+        .map_err(|err| {
+            LassoError::Process(format!(
+                "failed to run chgrp for {}: {}",
+                path.display(),
+                err
+            ))
+        })?;
+    if !status.success() {
+        return Err(LassoError::Process(format!(
+            "failed to set group {} on {}; check runtime_control_plane.socket_gid and filesystem permissions",
+            gid,
+            path.display()
+        )));
+    }
+    Ok(())
+}
+
+#[cfg(unix)]
+fn ensure_runtime_permissions(
+    cfg: &Config,
+    runtime_dir: &Path,
+    socket_path: Option<&Path>,
+) -> Result<(), LassoError> {
+    use std::os::unix::fs::PermissionsExt;
+
+    fs::create_dir_all(runtime_dir)?;
+    fs::set_permissions(runtime_dir, fs::Permissions::from_mode(0o770))?;
+    let gid = effective_runtime_socket_gid(cfg);
+    if cfg.runtime_control_plane.socket_gid.is_some() {
+        set_path_group(runtime_dir, gid)?;
+    } else {
+        let _ = set_path_group(runtime_dir, gid);
+    }
+    if let Some(socket_path) = socket_path {
+        fs::set_permissions(socket_path, fs::Permissions::from_mode(0o660))?;
+        if cfg.runtime_control_plane.socket_gid.is_some() {
+            set_path_group(socket_path, gid)?;
+        } else {
+            let _ = set_path_group(socket_path, gid);
+        }
+    }
+    Ok(())
+}
+
+fn process_is_alive(pid: u32) -> bool {
+    if pid == 0 {
+        return false;
+    }
+    Command::new("kill")
+        .arg("-0")
+        .arg(pid.to_string())
+        .status()
+        .map(|status| status.success())
+        .unwrap_or(false)
+}
+
+fn read_pid_file(path: &Path) -> Option<u32> {
+    let text = fs::read_to_string(path).ok()?;
+    text.trim().parse::<u32>().ok()
+}
+
+fn runtime_cleanup_artifacts(paths: &RuntimePaths) {
+    let _ = fs::remove_file(&paths.runtime_socket_path);
+    let _ = fs::remove_file(&paths.runtime_pid_path);
+}
+
+fn runtime_emit_event(
+    shared: &Arc<(Mutex<RuntimeSharedState>, Condvar)>,
+    events_path: &Path,
+    event_type: &str,
+    severity: &str,
+    payload: serde_json::Value,
+) -> Result<RuntimeEvent, LassoError> {
+    let (lock, condvar) = &**shared;
+    let mut state = lock
+        .lock()
+        .map_err(|_| LassoError::Process("runtime state lock poisoned".to_string()))?;
+    state.next_event_id = state.next_event_id.saturating_add(1);
+    let event = RuntimeEvent {
+        id: state.next_event_id,
+        ts: Utc::now().to_rfc3339(),
+        event_type: event_type.to_string(),
+        severity: severity.to_string(),
+        payload,
+    };
+    state.events.push_back(event.clone());
+    while state.events.len() > 512 {
+        let _ = state.events.pop_front();
+    }
+    condvar.notify_all();
+    drop(state);
+
+    ensure_parent(events_path)?;
+    let line = serde_json::to_string(&event)?;
+    let mut content = line;
+    content.push('\n');
+    let mut file = fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(events_path)?;
+    file.write_all(content.as_bytes())?;
+    Ok(event)
+}
+
+fn runtime_emit_warning(
+    shared: &Arc<(Mutex<RuntimeSharedState>, Condvar)>,
+    events_path: &Path,
+    message: &str,
+) -> Result<(), LassoError> {
+    let warning = RuntimeWarning {
+        ts: Utc::now().to_rfc3339(),
+        message: message.to_string(),
+    };
+    {
+        let (lock, _) = &**shared;
+        let mut state = lock
+            .lock()
+            .map_err(|_| LassoError::Process("runtime state lock poisoned".to_string()))?;
+        state.warnings.push_back(warning);
+        while state.warnings.len() > 128 {
+            let _ = state.warnings.pop_front();
+        }
+    }
+    let _ = runtime_emit_event(
+        shared,
+        events_path,
+        "collector.lag.degradation",
+        "warn",
+        json!({ "message": message }),
+    )?;
+    Ok(())
+}
+
+fn runtime_command_event_type(
+    argv: &[String],
+    status_code: i32,
+) -> Option<(&'static str, &'static str)> {
+    let ok = status_code == 0;
+    let has = |flag: &str| argv.iter().any(|item| item == flag);
+    let cmd = argv
+        .iter()
+        .find(|item| !item.starts_with('-'))
+        .map(|s| s.as_str())
+        .unwrap_or("");
+    match cmd {
+        "up" if has("--collector-only") => Some(("run.started", if ok { "info" } else { "error" })),
+        "down" if has("--collector-only") => {
+            Some(("run.stopped", if ok { "info" } else { "error" }))
+        }
+        "up" if has("--provider") => Some(("session.started", if ok { "info" } else { "error" })),
+        "down" if has("--provider") => Some(("session.ended", if ok { "info" } else { "error" })),
+        "run" => Some(("job.completed", if ok { "info" } else { "error" })),
+        _ => None,
+    }
+}
+
+fn runtime_record_command_events(
+    shared: &Arc<(Mutex<RuntimeSharedState>, Condvar)>,
+    events_path: &Path,
+    argv: &[String],
+    status_code: i32,
+) -> Result<(), LassoError> {
+    if argv.iter().any(|item| item == "run") {
+        let _ = runtime_emit_event(
+            shared,
+            events_path,
+            "job.submitted",
+            "info",
+            json!({"argv": argv}),
+        )?;
+    }
+    if let Some((event_type, severity)) = runtime_command_event_type(argv, status_code) {
+        let _ = runtime_emit_event(
+            shared,
+            events_path,
+            event_type,
+            severity,
+            json!({"argv": argv, "status_code": status_code}),
+        )?;
+    }
+    Ok(())
+}
+
+fn runtime_run_cli_subprocess(ctx: &Context, argv: &[String]) -> Result<CommandOutput, LassoError> {
+    let exe = env::current_exe()?;
+    let mut cmd = Command::new(exe);
+    cmd.args(argv);
+    cmd.env(RUNTIME_BYPASS_ENV, "1");
+    cmd.env(
+        "LASSO_CONFIG",
+        ctx.config_path.to_string_lossy().to_string(),
+    );
+    cmd.env("LASSO_ENV_FILE", ctx.env_file.to_string_lossy().to_string());
+    cmd.env(
+        "LASSO_BUNDLE_DIR",
+        ctx.bundle_dir.to_string_lossy().to_string(),
+    );
+    let output = cmd
+        .output()
+        .map_err(|err| LassoError::Process(format!("failed to run delegated command: {err}")))?;
+    let status_code = output
+        .status
+        .code()
+        .unwrap_or(if output.status.success() { 0 } else { 1 });
+    Ok(CommandOutput {
+        status_code,
+        stdout: output.stdout,
+        stderr: output.stderr,
+    })
+}
+
+#[derive(Debug)]
+struct RuntimeIncomingRequest {
+    method: String,
+    path: String,
+    query: BTreeMap<String, String>,
+    headers: BTreeMap<String, String>,
+    body: Vec<u8>,
+}
+
+fn parse_query_map(query: &str) -> BTreeMap<String, String> {
+    let mut result = BTreeMap::new();
+    for pair in query.split('&') {
+        if pair.trim().is_empty() {
+            continue;
+        }
+        if let Some((key, value)) = pair.split_once('=') {
+            result.insert(key.to_string(), value.to_string());
+        } else {
+            result.insert(pair.to_string(), String::new());
+        }
+    }
+    result
+}
+
+#[cfg(unix)]
+fn runtime_read_http_request(
+    stream: &mut UnixStream,
+) -> Result<Option<RuntimeIncomingRequest>, LassoError> {
+    stream
+        .set_read_timeout(Some(Duration::from_secs(10)))
+        .map_err(LassoError::Io)?;
+    let mut buf = Vec::new();
+    let mut header_end: Option<usize> = None;
+    let mut chunk = [0u8; 1024];
+    while header_end.is_none() {
+        let read = stream.read(&mut chunk)?;
+        if read == 0 {
+            if buf.is_empty() {
+                return Ok(None);
+            }
+            break;
+        }
+        buf.extend_from_slice(&chunk[..read]);
+        if let Some(pos) = buf.windows(4).position(|window| window == b"\r\n\r\n") {
+            header_end = Some(pos);
+        }
+        if buf.len() > 1024 * 1024 {
+            return Err(LassoError::Process(
+                "runtime request headers too large".to_string(),
+            ));
+        }
+    }
+    let header_end = header_end.ok_or_else(|| {
+        LassoError::Process("runtime request missing header delimiter".to_string())
+    })?;
+    let header_text = String::from_utf8_lossy(&buf[..header_end]);
+    let mut lines = header_text.lines();
+    let request_line = lines
+        .next()
+        .ok_or_else(|| LassoError::Process("runtime request missing request line".to_string()))?;
+    let mut request_parts = request_line.split_whitespace();
+    let method = request_parts
+        .next()
+        .ok_or_else(|| LassoError::Process("runtime request missing method".to_string()))?
+        .to_string();
+    let target = request_parts
+        .next()
+        .ok_or_else(|| LassoError::Process("runtime request missing target".to_string()))?;
+    let (path, query) = if let Some((path, query)) = target.split_once('?') {
+        (path.to_string(), parse_query_map(query))
+    } else {
+        (target.to_string(), BTreeMap::new())
+    };
+    let mut headers = BTreeMap::new();
+    for line in lines {
+        if let Some((key, value)) = line.split_once(':') {
+            headers.insert(key.trim().to_ascii_lowercase(), value.trim().to_string());
+        }
+    }
+    let content_length = headers
+        .get("content-length")
+        .and_then(|value| value.parse::<usize>().ok())
+        .unwrap_or(0);
+    let body_start = header_end + 4;
+    while buf.len() < body_start + content_length {
+        let read = stream.read(&mut chunk)?;
+        if read == 0 {
+            break;
+        }
+        buf.extend_from_slice(&chunk[..read]);
+    }
+    if buf.len() < body_start + content_length {
+        return Err(LassoError::Process(
+            "runtime request ended before full body was received".to_string(),
+        ));
+    }
+    let body = buf[body_start..body_start + content_length].to_vec();
+    Ok(Some(RuntimeIncomingRequest {
+        method,
+        path,
+        query,
+        headers,
+        body,
+    }))
+}
+
+#[cfg(unix)]
+fn runtime_write_json_response(
+    stream: &mut UnixStream,
+    status: u16,
+    payload: &serde_json::Value,
+) -> Result<(), LassoError> {
+    let status_text = match status {
+        200 => "OK",
+        400 => "Bad Request",
+        404 => "Not Found",
+        405 => "Method Not Allowed",
+        500 => "Internal Server Error",
+        503 => "Service Unavailable",
+        _ => "OK",
+    };
+    let body = serde_json::to_vec(payload)?;
+    let header = format!(
+        "HTTP/1.1 {} {}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+        status,
+        status_text,
+        body.len()
+    );
+    stream.write_all(header.as_bytes())?;
+    stream.write_all(&body)?;
+    Ok(())
+}
+
+#[cfg(unix)]
+fn runtime_write_text_response(
+    stream: &mut UnixStream,
+    status: u16,
+    content_type: &str,
+    body: &str,
+) -> Result<(), LassoError> {
+    let status_text = match status {
+        200 => "OK",
+        400 => "Bad Request",
+        404 => "Not Found",
+        405 => "Method Not Allowed",
+        500 => "Internal Server Error",
+        503 => "Service Unavailable",
+        _ => "OK",
+    };
+    let bytes = body.as_bytes();
+    let header = format!(
+        "HTTP/1.1 {} {}\r\nContent-Type: {}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+        status,
+        status_text,
+        content_type,
+        bytes.len()
+    );
+    stream.write_all(header.as_bytes())?;
+    stream.write_all(bytes)?;
+    Ok(())
+}
+
+#[cfg(unix)]
+fn runtime_send_sse_event(stream: &mut UnixStream, event: &RuntimeEvent) -> Result<(), LassoError> {
+    let data = serde_json::to_string(event)?;
+    let frame = format!(
+        "id: {}\nevent: {}\ndata: {}\n\n",
+        event.id, event.event_type, data
+    );
+    stream.write_all(frame.as_bytes())?;
+    stream.flush()?;
+    Ok(())
+}
+
+fn runtime_collect_stack_status(
+    ctx: &Context,
+    shared: &Arc<(Mutex<RuntimeSharedState>, Condvar)>,
+) -> Result<serde_json::Value, LassoError> {
+    let cfg = read_config(&ctx.config_path)?;
+    let runner = RealDockerRunner;
+    let log_root = PathBuf::from(expand_path(&cfg.paths.log_root));
+    let active_run = load_active_run_state(&log_root)?;
+    let active_run_id = active_run.as_ref().map(|state| state.run_id.clone());
+    let active_workspace = active_run
+        .as_ref()
+        .map(|state| resolve_active_run_workspace_root(&cfg, state))
+        .transpose()?;
+    let run_env = compose_env_for_run(active_run_id.as_deref(), active_workspace.as_deref());
+    let collector_running =
+        collector_is_running(ctx, &runner, &cfg, false, &run_env).unwrap_or(false);
+    let provider_running =
+        provider_plane_is_running(ctx, &runner, &cfg, false, &run_env).unwrap_or(false);
+    let ui_running = running_services(ctx, &runner, &cfg, true, &[], &BTreeMap::new(), &["ui"])
+        .map(|rows| rows.iter().any(|item| item == "ui"))
+        .unwrap_or(false);
+    let rotation_pending = {
+        let (lock, _) = &**shared;
+        let state = lock
+            .lock()
+            .map_err(|_| LassoError::Process("runtime state lock poisoned".to_string()))?;
+        state.rotation_pending
+    };
+    Ok(json!({
+        "runtime": {
+            "socket_path": effective_runtime_socket_path(&cfg, &config_dir_from_path(&ctx.config_path)),
+            "auto_started": true
+        },
+        "stack": {
+            "collector_running": collector_running,
+            "provider_running": provider_running,
+            "ui_running": ui_running,
+            "rotation_pending": rotation_pending,
+            "active_run_id": active_run_id
+        }
+    }))
+}
+
+fn runtime_collect_run_status(
+    ctx: &Context,
+    shared: &Arc<(Mutex<RuntimeSharedState>, Condvar)>,
+) -> Result<serde_json::Value, LassoError> {
+    let cfg = read_config(&ctx.config_path)?;
+    let log_root = PathBuf::from(expand_path(&cfg.paths.log_root));
+    let active = load_active_run_state(&log_root)?;
+    let pending_rotation = {
+        let (lock, _) = &**shared;
+        let state = lock
+            .lock()
+            .map_err(|_| LassoError::Process("runtime state lock poisoned".to_string()))?;
+        state.rotation_pending
+    };
+    if let Some(active) = active {
+        return Ok(json!({
+            "active_run": active,
+            "pending_rotation": pending_rotation,
+            "rotate_every_min": cfg.collector.rotate_every_min
+        }));
+    }
+    Ok(json!({
+        "active_run": null,
+        "pending_rotation": pending_rotation,
+        "rotate_every_min": cfg.collector.rotate_every_min
+    }))
+}
+
+fn runtime_collect_session_job_status(ctx: &Context) -> Result<serde_json::Value, LassoError> {
+    let cfg = read_config(&ctx.config_path)?;
+    let log_root = PathBuf::from(expand_path(&cfg.paths.log_root));
+    let active = load_active_run_state(&log_root)?;
+    let Some(active) = active else {
+        return Ok(json!({
+            "active_run_id": null,
+            "sessions": {"count": 0},
+            "jobs": {"count": 0, "running": 0, "finished": 0}
+        }));
+    };
+    let run_root = run_root(&log_root, &active.run_id);
+    let sessions_dir = run_root.join("harness").join("sessions");
+    let jobs_dir = run_root.join("harness").join("jobs");
+    let session_count = fs::read_dir(&sessions_dir)
+        .ok()
+        .map(|entries| {
+            entries
+                .filter_map(Result::ok)
+                .filter(|entry| entry.file_type().map(|t| t.is_dir()).unwrap_or(false))
+                .count()
+        })
+        .unwrap_or(0);
+    let mut job_count = 0usize;
+    let mut running = 0usize;
+    let mut finished = 0usize;
+    if let Ok(entries) = fs::read_dir(&jobs_dir) {
+        for entry in entries.flatten() {
+            if !entry.file_type().map(|t| t.is_dir()).unwrap_or(false) {
+                continue;
+            }
+            job_count += 1;
+            let status_path = entry.path().join("status.json");
+            let status_value = read_json_value(&status_path);
+            let state = status_value
+                .as_ref()
+                .and_then(|value| value.get("status"))
+                .and_then(|value| value.as_str())
+                .unwrap_or_default()
+                .to_string();
+            if state.eq_ignore_ascii_case("running") || state.eq_ignore_ascii_case("submitted") {
+                running += 1;
+            } else if !state.is_empty() {
+                finished += 1;
+            }
+        }
+    }
+    Ok(json!({
+        "active_run_id": active.run_id,
+        "sessions": {"count": session_count},
+        "jobs": {"count": job_count, "running": running, "finished": finished}
+    }))
+}
+
+fn runtime_collect_collector_pipeline(ctx: &Context) -> Result<serde_json::Value, LassoError> {
+    let cfg = read_config(&ctx.config_path)?;
+    let log_root = PathBuf::from(expand_path(&cfg.paths.log_root));
+    let active = load_active_run_state(&log_root)?;
+    let Some(active) = active else {
+        return Ok(json!({"active_run_id": null, "pipeline": []}));
+    };
+    let run_root = run_root(&log_root, &active.run_id);
+    let pipeline_files = vec![
+        (
+            "raw.audit",
+            run_root.join("collector").join("raw").join("audit.log"),
+        ),
+        (
+            "raw.ebpf",
+            run_root.join("collector").join("raw").join("ebpf.jsonl"),
+        ),
+        (
+            "filtered.timeline",
+            run_root
+                .join("collector")
+                .join("filtered")
+                .join("filtered_timeline.jsonl"),
+        ),
+    ];
+    let mut rows = Vec::new();
+    for (name, path) in pipeline_files {
+        let meta = fs::metadata(&path).ok();
+        let size_bytes = meta.as_ref().map(|m| m.len()).unwrap_or(0);
+        let modified = meta
+            .and_then(|m| m.modified().ok())
+            .map(DateTime::<Utc>::from)
+            .map(|dt| dt.to_rfc3339());
+        rows.push(json!({
+            "name": name,
+            "path": path,
+            "present": path.exists(),
+            "size_bytes": size_bytes,
+            "modified_at": modified
+        }));
+    }
+    Ok(json!({
+        "active_run_id": active.run_id,
+        "pipeline": rows
+    }))
+}
+
+fn runtime_collect_warnings(
+    shared: &Arc<(Mutex<RuntimeSharedState>, Condvar)>,
+) -> Result<serde_json::Value, LassoError> {
+    let (lock, _) = &**shared;
+    let state = lock
+        .lock()
+        .map_err(|_| LassoError::Process("runtime state lock poisoned".to_string()))?;
+    Ok(json!({
+        "warnings": state.warnings,
+        "recent_errors": state.events.iter().rev().filter(|event| event.severity == "error").take(20).cloned().collect::<Vec<RuntimeEvent>>()
+    }))
+}
+
+fn read_json_value(path: &Path) -> Option<serde_json::Value> {
+    let content = fs::read_to_string(path).ok()?;
+    serde_json::from_str(&content).ok()
+}
+
+fn parse_rfc3339_utc(value: &str) -> Option<DateTime<Utc>> {
+    DateTime::parse_from_rfc3339(value)
+        .ok()
+        .map(|dt| dt.with_timezone(&Utc))
+}
+
+fn runtime_scheduler_tick(
+    ctx: &Context,
+    shared: &Arc<(Mutex<RuntimeSharedState>, Condvar)>,
+    events_path: &Path,
+) -> Result<(), LassoError> {
+    let cfg = read_config(&ctx.config_path)?;
+    let runner = RealDockerRunner;
+    let log_root = PathBuf::from(expand_path(&cfg.paths.log_root));
+    let active = load_active_run_state(&log_root)?;
+    let Some(active) = active else {
+        return Ok(());
+    };
+    let active_workspace = resolve_active_run_workspace_root(&cfg, &active)?;
+    let run_env = compose_env_for_run(Some(&active.run_id), Some(&active_workspace));
+    let provider_running =
+        provider_plane_is_running(ctx, &runner, &cfg, false, &run_env).unwrap_or(false);
+    let collector_running =
+        collector_is_running(ctx, &runner, &cfg, false, &run_env).unwrap_or(false);
+
+    {
+        let (lock, _) = &**shared;
+        let mut state = lock
+            .lock()
+            .map_err(|_| LassoError::Process("runtime state lock poisoned".to_string()))?;
+        if provider_running {
+            state.last_provider_activity_at = Some(Utc::now().to_rfc3339());
+        }
+    }
+
+    if collector_running && !provider_running {
+        let idle_ref = {
+            let (lock, _) = &**shared;
+            let state = lock
+                .lock()
+                .map_err(|_| LassoError::Process("runtime state lock poisoned".to_string()))?;
+            state
+                .last_provider_activity_at
+                .as_ref()
+                .and_then(|value| parse_rfc3339_utc(value))
+        }
+        .or_else(|| parse_rfc3339_utc(&active.started_at));
+        if let Some(idle_since) = idle_ref {
+            let idle_age = Utc::now() - idle_since;
+            if idle_age.num_minutes() >= cfg.collector.idle_timeout_min as i64 {
+                let output = runtime_run_cli_subprocess(
+                    ctx,
+                    &["down".to_string(), "--collector-only".to_string()],
+                )?;
+                if output.status_code == 0 {
+                    let _ = runtime_emit_event(
+                        shared,
+                        events_path,
+                        "run.stopped",
+                        "info",
+                        json!({"reason":"idle_timeout", "idle_timeout_min": cfg.collector.idle_timeout_min}),
+                    );
+                } else {
+                    let _ = runtime_emit_warning(
+                        shared,
+                        events_path,
+                        "collector idle-timeout stop failed; collector left running",
+                    );
+                }
+            }
+        }
+    }
+
+    let active_started = parse_rfc3339_utc(&active.started_at);
+    if let Some(started_at) = active_started {
+        let run_age = Utc::now() - started_at;
+        if run_age.num_minutes() >= cfg.collector.rotate_every_min as i64 {
+            if provider_running {
+                let should_emit = {
+                    let (lock, _) = &**shared;
+                    let mut state = lock.lock().map_err(|_| {
+                        LassoError::Process("runtime state lock poisoned".to_string())
+                    })?;
+                    let already_pending = state.rotation_pending;
+                    state.rotation_pending = true;
+                    !already_pending
+                };
+                if should_emit {
+                    let _ = runtime_emit_event(
+                        shared,
+                        events_path,
+                        "collector.lag.degradation",
+                        "warn",
+                        json!({"reason":"rotation_deferred_provider_active"}),
+                    );
+                }
+            } else if collector_running {
+                let _ = runtime_emit_event(
+                    shared,
+                    events_path,
+                    "run.stopped",
+                    "info",
+                    json!({"reason":"rotation_cutover_start", "run_id": active.run_id}),
+                );
+                let stop_out = runtime_run_cli_subprocess(
+                    ctx,
+                    &["down".to_string(), "--collector-only".to_string()],
+                )?;
+                thread::sleep(Duration::from_secs(2));
+                let start_out = runtime_run_cli_subprocess(
+                    ctx,
+                    &[
+                        "up".to_string(),
+                        "--collector-only".to_string(),
+                        "--wait".to_string(),
+                    ],
+                )?;
+                if stop_out.status_code == 0 && start_out.status_code == 0 {
+                    {
+                        let (lock, _) = &**shared;
+                        let mut state = lock.lock().map_err(|_| {
+                            LassoError::Process("runtime state lock poisoned".to_string())
+                        })?;
+                        state.rotation_pending = false;
+                    }
+                    let _ = runtime_emit_event(
+                        shared,
+                        events_path,
+                        "run.started",
+                        "info",
+                        json!({"reason":"rotation_cutover_complete"}),
+                    );
+                } else {
+                    let _ = runtime_emit_event(
+                        shared,
+                        events_path,
+                        "attribution.uncertainty.warning",
+                        "error",
+                        json!({"reason":"rotation_cutover_failed"}),
+                    );
+                    let _ = runtime_emit_warning(
+                        shared,
+                        events_path,
+                        "rotation cutover failed; active run may require manual recovery",
+                    );
+                }
+            }
+        }
+    }
+
+    Ok(())
+}
+
+fn runtime_scheduler_loop(
+    ctx: Context,
+    shared: Arc<(Mutex<RuntimeSharedState>, Condvar)>,
+    events_path: PathBuf,
+) {
+    loop {
+        {
+            let (lock, _) = &*shared;
+            let state = match lock.lock() {
+                Ok(state) => state,
+                Err(_) => return,
+            };
+            if state.shutdown {
+                return;
+            }
+        }
+        if let Err(err) = runtime_scheduler_tick(&ctx, &shared, &events_path) {
+            let _ = runtime_emit_warning(
+                &shared,
+                &events_path,
+                &format!("runtime scheduler tick failed: {err}"),
+            );
+        }
+        thread::sleep(Duration::from_secs(30));
+    }
+}
+
+#[cfg(unix)]
+fn runtime_handle_connection(
+    mut stream: UnixStream,
+    ctx: Context,
+    shared: Arc<(Mutex<RuntimeSharedState>, Condvar)>,
+    events_path: PathBuf,
+) -> Result<(), LassoError> {
+    let request = runtime_read_http_request(&mut stream)?;
+    let Some(request) = request else {
+        return Ok(());
+    };
+    match (request.method.as_str(), request.path.as_str()) {
+        ("GET", "/v1/healthz") => {
+            runtime_write_json_response(
+                &mut stream,
+                200,
+                &json!({
+                    "ok": true,
+                    "ts": Utc::now().to_rfc3339(),
+                }),
+            )?;
+        }
+        ("GET", "/v1/stack/status") => {
+            let payload = runtime_collect_stack_status(&ctx, &shared)?;
+            runtime_write_json_response(&mut stream, 200, &payload)?;
+        }
+        ("GET", "/v1/run/status") => {
+            let payload = runtime_collect_run_status(&ctx, &shared)?;
+            runtime_write_json_response(&mut stream, 200, &payload)?;
+        }
+        ("GET", "/v1/session-job/status") => {
+            let payload = runtime_collect_session_job_status(&ctx)?;
+            runtime_write_json_response(&mut stream, 200, &payload)?;
+        }
+        ("GET", "/v1/collector/pipeline/status") => {
+            let payload = runtime_collect_collector_pipeline(&ctx)?;
+            runtime_write_json_response(&mut stream, 200, &payload)?;
+        }
+        ("GET", "/v1/warnings") => {
+            let payload = runtime_collect_warnings(&shared)?;
+            runtime_write_json_response(&mut stream, 200, &payload)?;
+        }
+        ("GET", "/v1/events") => {
+            let mut last_event_id = request
+                .headers
+                .get("last-event-id")
+                .and_then(|value| value.parse::<u64>().ok())
+                .unwrap_or(0);
+            if let Some(value) = request.query.get("last_event_id") {
+                if let Ok(parsed) = value.parse::<u64>() {
+                    last_event_id = parsed;
+                }
+            }
+            let header = "HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nCache-Control: no-cache\r\nConnection: keep-alive\r\n\r\n";
+            stream.write_all(header.as_bytes())?;
+            loop {
+                let (pending, shutdown) = {
+                    let (lock, condvar) = &*shared;
+                    let mut state = lock.lock().map_err(|_| {
+                        LassoError::Process("runtime state lock poisoned".to_string())
+                    })?;
+                    let available: Vec<RuntimeEvent> = state
+                        .events
+                        .iter()
+                        .filter(|event| event.id > last_event_id)
+                        .cloned()
+                        .collect();
+                    if available.is_empty() && !state.shutdown {
+                        let (guard, _) = condvar
+                            .wait_timeout(state, Duration::from_secs(15))
+                            .map_err(|_| {
+                                LassoError::Process("runtime condition wait failed".to_string())
+                            })?;
+                        state = guard;
+                    }
+                    let events: Vec<RuntimeEvent> = state
+                        .events
+                        .iter()
+                        .filter(|event| event.id > last_event_id)
+                        .cloned()
+                        .collect();
+                    (events, state.shutdown)
+                };
+                if pending.is_empty() {
+                    if shutdown {
+                        break;
+                    }
+                    stream.write_all(b": keepalive\n\n")?;
+                    stream.flush()?;
+                    continue;
+                }
+                for event in pending {
+                    last_event_id = event.id;
+                    runtime_send_sse_event(&mut stream, &event)?;
+                }
+                if shutdown {
+                    break;
+                }
+            }
+        }
+        ("POST", "/v1/execute") => {
+            let request_body: RuntimeExecuteRequest = serde_json::from_slice(&request.body)
+                .map_err(|err| {
+                    LassoError::Process(format!("invalid runtime execute request body: {err}"))
+                })?;
+            if request_body.argv.is_empty() {
+                return runtime_write_json_response(
+                    &mut stream,
+                    400,
+                    &json!({"error":"argv must not be empty"}),
+                );
+            }
+            let output = runtime_run_cli_subprocess(&ctx, &request_body.argv)?;
+            let _ = runtime_record_command_events(
+                &shared,
+                &events_path,
+                &request_body.argv,
+                output.status_code,
+            );
+            if request_body.argv.iter().any(|item| item == "--provider")
+                || request_body.argv.iter().any(|item| item == "run")
+            {
+                let (lock, _) = &*shared;
+                let mut state = lock
+                    .lock()
+                    .map_err(|_| LassoError::Process("runtime state lock poisoned".to_string()))?;
+                state.last_provider_activity_at = Some(Utc::now().to_rfc3339());
+            }
+            runtime_write_json_response(
+                &mut stream,
+                200,
+                &json!({
+                    "status_code": output.status_code,
+                    "stdout": String::from_utf8_lossy(&output.stdout),
+                    "stderr": String::from_utf8_lossy(&output.stderr)
+                }),
+            )?;
+        }
+        ("POST", "/v1/runtime/down") => {
+            {
+                let (lock, condvar) = &*shared;
+                let mut state = lock
+                    .lock()
+                    .map_err(|_| LassoError::Process("runtime state lock poisoned".to_string()))?;
+                state.shutdown = true;
+                condvar.notify_all();
+            }
+            let _ = runtime_emit_event(
+                &shared,
+                &events_path,
+                "runtime.stopped",
+                "info",
+                json!({"reason":"runtime_down_requested"}),
+            );
+            runtime_write_json_response(&mut stream, 200, &json!({"ok": true}))?;
+        }
+        _ => {
+            runtime_write_text_response(
+                &mut stream,
+                404,
+                "application/json",
+                "{\"error\":\"not found\"}",
+            )?;
+        }
+    }
+    Ok(())
+}
+
+fn runtime_status_payload(ctx: &Context) -> Result<serde_json::Value, LassoError> {
+    let (paths, _) = resolve_runtime_paths(ctx)?;
+    let running = runtime_ping(ctx).is_ok();
+    let pid = read_pid_file(&paths.runtime_pid_path);
+    Ok(json!({
+        "running": running,
+        "socket_path": paths.runtime_socket_path,
+        "pid_path": paths.runtime_pid_path,
+        "pid": pid
+    }))
+}
+
+fn runtime_up_internal(ctx: &Context, emit_output: bool) -> Result<(), LassoError> {
+    #[cfg(not(unix))]
+    {
+        let _ = (ctx, emit_output);
+        return Err(LassoError::Config(
+            "runtime control plane is only supported on unix hosts".to_string(),
+        ));
+    }
+    #[cfg(unix)]
+    {
+        let cfg = if ctx.config_path.exists() {
+            read_config(&ctx.config_path)?
+        } else {
+            Config::default()
+        };
+        let (paths, _) = resolve_runtime_paths(ctx)?;
+        if runtime_ping(ctx).is_ok() {
+            if emit_output {
+                return output(
+                    ctx,
+                    json!({"running": true, "already_running": true, "socket_path": paths.runtime_socket_path}),
+                );
+            }
+            return Ok(());
+        }
+        if let Some(pid) = read_pid_file(&paths.runtime_pid_path) {
+            if process_is_alive(pid) {
+                return Err(LassoError::Process(format!(
+                    "runtime pid {} is alive but socket {} is unavailable; run `lasso runtime down` and retry",
+                    pid,
+                    paths.runtime_socket_path.display()
+                )));
+            }
+        }
+        runtime_cleanup_artifacts(&paths);
+        ensure_runtime_permissions(&cfg, &paths.runtime_dir, None)?;
+        let exe = env::current_exe()?;
+        let mut cmd = Command::new(exe);
+        cmd.arg("--config").arg(&ctx.config_path);
+        cmd.arg("--env-file").arg(&ctx.env_file);
+        cmd.arg("--bundle-dir").arg(&ctx.bundle_dir);
+        for compose_override in &ctx.compose_file_overrides {
+            cmd.arg("--compose-file").arg(compose_override);
+        }
+        cmd.arg("runtime").arg("serve");
+        cmd.env(RUNTIME_BYPASS_ENV, "1");
+        cmd.stdin(Stdio::null());
+        cmd.stdout(Stdio::null());
+        cmd.stderr(Stdio::null());
+        let mut child = cmd.spawn().map_err(|err| {
+            LassoError::Process(format!("failed to start runtime control plane: {err}"))
+        })?;
+
+        let mut started = false;
+        for _ in 0..300 {
+            thread::sleep(Duration::from_millis(100));
+            if runtime_ping(ctx).is_ok() {
+                started = true;
+                break;
+            }
+            if let Some(status) = child.try_wait()? {
+                return Err(LassoError::Process(format!(
+                    "runtime control plane exited before ready (status: {}); try `lasso runtime serve` for direct diagnostics",
+                    status
+                )));
+            }
+        }
+        if !started {
+            return Err(LassoError::Process(format!(
+                "runtime control plane did not become ready at {}",
+                paths.runtime_socket_path.display()
+            )));
+        }
+        if emit_output {
+            output(
+                ctx,
+                json!({
+                    "running": true,
+                    "already_running": false,
+                    "socket_path": paths.runtime_socket_path
+                }),
+            )?;
+        }
+        Ok(())
+    }
+}
+
+fn runtime_down_internal(ctx: &Context) -> Result<(), LassoError> {
+    let (paths, _) = resolve_runtime_paths(ctx)?;
+    if runtime_ping(ctx).is_ok() {
+        let response = runtime_control_plane_request(
+            ctx,
+            "POST",
+            "/v1/runtime/down",
+            &[("Content-Type".to_string(), "application/json".to_string())],
+            Some(b"{}"),
+        )?;
+        if response.status >= 400 {
+            return Err(LassoError::Process(format!(
+                "runtime down failed with status {}",
+                response.status
+            )));
+        }
+        for _ in 0..30 {
+            thread::sleep(Duration::from_millis(100));
+            if runtime_ping(ctx).is_err() {
+                break;
+            }
+        }
+    }
+    runtime_cleanup_artifacts(&paths);
+    output(
+        ctx,
+        json!({"running": false, "socket_path": paths.runtime_socket_path}),
+    )
+}
+
+fn runtime_serve(ctx: &Context) -> Result<(), LassoError> {
+    #[cfg(not(unix))]
+    {
+        let _ = ctx;
+        return Err(LassoError::Config(
+            "runtime control plane is only supported on unix hosts".to_string(),
+        ));
+    }
+    #[cfg(unix)]
+    {
+        let cfg = if ctx.config_path.exists() {
+            read_config(&ctx.config_path)?
+        } else {
+            Config::default()
+        };
+        let (paths, _) = resolve_runtime_paths(ctx)?;
+        ensure_runtime_permissions(&cfg, &paths.runtime_dir, None)?;
+        let _ = fs::remove_file(&paths.runtime_socket_path);
+        let listener = UnixListener::bind(&paths.runtime_socket_path)?;
+        listener.set_nonblocking(true)?;
+        ensure_runtime_permissions(&cfg, &paths.runtime_dir, Some(&paths.runtime_socket_path))?;
+        write_atomic_text_file(
+            &paths.runtime_pid_path,
+            &format!("{}\n", std::process::id()),
+            Some(0o660),
+        )?;
+
+        let shared: Arc<(Mutex<RuntimeSharedState>, Condvar)> =
+            Arc::new((Mutex::new(RuntimeSharedState::default()), Condvar::new()));
+        let _ = runtime_emit_event(
+            &shared,
+            &paths.runtime_events_path,
+            "runtime.started",
+            "info",
+            json!({"socket_path": paths.runtime_socket_path}),
+        );
+        let scheduler_shared = Arc::clone(&shared);
+        let scheduler_ctx = ctx.clone();
+        let scheduler_events = paths.runtime_events_path.clone();
+        let scheduler_handle = thread::spawn(move || {
+            runtime_scheduler_loop(scheduler_ctx, scheduler_shared, scheduler_events)
+        });
+
+        loop {
+            {
+                let (lock, _) = &*shared;
+                let state = lock
+                    .lock()
+                    .map_err(|_| LassoError::Process("runtime state lock poisoned".to_string()))?;
+                if state.shutdown {
+                    break;
+                }
+            }
+            match listener.accept() {
+                Ok((stream, _addr)) => {
+                    let ctx_clone = ctx.clone();
+                    let shared_clone = Arc::clone(&shared);
+                    let events_clone = paths.runtime_events_path.clone();
+                    thread::spawn(move || {
+                        let _ = runtime_handle_connection(
+                            stream,
+                            ctx_clone,
+                            shared_clone,
+                            events_clone,
+                        );
+                    });
+                }
+                Err(err) if err.kind() == io::ErrorKind::WouldBlock => {
+                    thread::sleep(Duration::from_millis(100));
+                }
+                Err(err) => {
+                    let _ = runtime_emit_warning(
+                        &shared,
+                        &paths.runtime_events_path,
+                        &format!("runtime listener accept failed: {err}"),
+                    );
+                    thread::sleep(Duration::from_millis(250));
+                }
+            }
+        }
+
+        {
+            let (lock, condvar) = &*shared;
+            if let Ok(mut state) = lock.lock() {
+                state.shutdown = true;
+                condvar.notify_all();
+            }
+        }
+        let _ = scheduler_handle.join();
+        runtime_cleanup_artifacts(&paths);
+        Ok(())
+    }
+}
+
+fn handle_runtime(ctx: &Context, command: RuntimeCommand) -> Result<(), LassoError> {
+    match command {
+        RuntimeCommand::Up => runtime_up_internal(ctx, true),
+        RuntimeCommand::Down => runtime_down_internal(ctx),
+        RuntimeCommand::Status => output(ctx, runtime_status_payload(ctx)?),
+        RuntimeCommand::Serve => runtime_serve(ctx),
+    }
+}
+
+const SHIM_MARKER: &str = "# lasso-shim";
+
+fn normalize_shim_providers(providers: Vec<String>) -> Vec<String> {
+    if providers.is_empty() {
+        return vec!["codex".to_string(), "claude".to_string()];
+    }
+    providers
+}
+
+fn shim_path_for_provider(provider: &str) -> PathBuf {
+    default_bin_dir().join(provider)
+}
+
+fn shim_script(provider: &str) -> String {
+    format!(
+        "#!/usr/bin/env bash\n{marker}\nset -euo pipefail\nexec lasso shim exec {provider} -- \"$@\"\n",
+        marker = SHIM_MARKER
+    )
+}
+
+fn is_lasso_managed_shim(path: &Path) -> bool {
+    fs::read_to_string(path)
+        .map(|body| body.contains(SHIM_MARKER))
+        .unwrap_or(false)
+}
+
+#[cfg(unix)]
+fn write_shim(path: &Path, provider: &str) -> Result<(), LassoError> {
+    use std::os::unix::fs::PermissionsExt;
+    ensure_parent(path)?;
+    let body = shim_script(provider);
+    write_atomic_text_file(path, &body, Some(0o755))?;
+    fs::set_permissions(path, fs::Permissions::from_mode(0o755))?;
+    Ok(())
+}
+
+#[cfg(not(unix))]
+fn write_shim(_path: &Path, _provider: &str) -> Result<(), LassoError> {
+    Err(LassoError::Config(
+        "shim install is only supported on unix hosts".to_string(),
+    ))
+}
+
+fn ensure_provider_plane_for_shim<R: DockerRunner>(
+    ctx: &Context,
+    provider: &str,
+    runner: &R,
+) -> Result<String, LassoError> {
+    let cfg = read_config(&ctx.config_path)?;
+    let log_root = PathBuf::from(expand_path(&cfg.paths.log_root));
+    if let Some(active_provider) = load_active_provider_state(&log_root)? {
+        if active_provider.provider != provider {
+            return Err(provider_mismatch_error(&active_provider.provider, provider));
+        }
+        let active_workspace = load_active_run_state(&log_root)?
+            .filter(|state| state.run_id == active_provider.run_id)
+            .map(|state| resolve_active_run_workspace_root(&cfg, &state))
+            .transpose()?;
+        let run_env =
+            compose_env_for_run(Some(&active_provider.run_id), active_workspace.as_deref());
+        if provider_plane_is_running(ctx, runner, &cfg, false, &run_env)? {
+            return Ok(active_provider.run_id);
+        }
+    }
+    handle_up(
+        ctx,
+        Some(provider.to_string()),
+        false,
+        None,
+        Some("missing".to_string()),
+        true,
+        None,
+        runner,
+    )?;
+    let active_provider = load_active_provider_state(&log_root)?.ok_or_else(|| {
+        LassoError::Process("provider did not register active state after startup".to_string())
+    })?;
+    Ok(active_provider.run_id)
+}
+
+fn shim_validate_exec_args(args: &[String]) -> Result<(), LassoError> {
+    for arg in args {
+        if Path::new(arg).is_absolute() {
+            return Err(LassoError::Process(format!(
+                "absolute host path arguments are unsupported in shim v1: {}",
+                arg
+            )));
+        }
+    }
+    Ok(())
+}
+
+fn handle_shim<R: DockerRunner>(
+    ctx: &Context,
+    command: ShimCommand,
+    runner: &R,
+) -> Result<(), LassoError> {
+    match command {
+        ShimCommand::Install { providers } => {
+            let cfg = read_config(&ctx.config_path)?;
+            let mut installed = Vec::new();
+            for provider in normalize_shim_providers(providers) {
+                let _ = provider_from_config(&cfg, &provider)?;
+                let shim_path = shim_path_for_provider(&provider);
+                if shim_path.exists() && !is_lasso_managed_shim(&shim_path) {
+                    return Err(LassoError::Process(format!(
+                        "shim install would overwrite existing non-lasso binary: {}",
+                        shim_path.display()
+                    )));
+                }
+                write_shim(&shim_path, &provider)?;
+                installed.push(json!({"provider": provider, "path": shim_path}));
+            }
+            output(ctx, json!({"installed": installed}))
+        }
+        ShimCommand::Uninstall { providers } => {
+            let mut removed = Vec::new();
+            for provider in normalize_shim_providers(providers) {
+                let shim_path = shim_path_for_provider(&provider);
+                if shim_path.exists() && is_lasso_managed_shim(&shim_path) {
+                    fs::remove_file(&shim_path)?;
+                    removed.push(json!({"provider": provider, "path": shim_path, "removed": true}));
+                } else {
+                    removed
+                        .push(json!({"provider": provider, "path": shim_path, "removed": false}));
+                }
+            }
+            output(ctx, json!({"removed": removed}))
+        }
+        ShimCommand::List => {
+            let cfg = read_config(&ctx.config_path)?;
+            let mut rows = Vec::new();
+            for provider in cfg.providers.keys() {
+                let shim_path = shim_path_for_provider(provider);
+                rows.push(json!({
+                    "provider": provider,
+                    "path": shim_path,
+                    "installed": shim_path.exists() && is_lasso_managed_shim(&shim_path)
+                }));
+            }
+            output(ctx, json!({"shims": rows}))
+        }
+        ShimCommand::Exec { provider, argv } => {
+            let mut passthrough = argv;
+            if passthrough
+                .first()
+                .map(|value| value == "--")
+                .unwrap_or(false)
+            {
+                passthrough.remove(0);
+            }
+            shim_validate_exec_args(&passthrough)?;
+            let cfg = read_config(&ctx.config_path)?;
+            let provider_cfg = provider_from_config(&cfg, &provider)?;
+            let workspace_root = PathBuf::from(expand_path(&cfg.paths.workspace_root));
+            let log_root = PathBuf::from(expand_path(&cfg.paths.log_root));
+            let cwd = env::current_dir()?;
+            let workspace_canon = fs::canonicalize(&workspace_root).unwrap_or(workspace_root);
+            let cwd_canon = fs::canonicalize(&cwd).unwrap_or(cwd);
+            if !cwd_canon.starts_with(&workspace_canon) {
+                return Err(LassoError::Process(format!(
+                    "shim execution must run from within workspace root: {}",
+                    workspace_canon.display()
+                )));
+            }
+            ensure_runtime_running(ctx)?;
+            let run_id = ensure_provider_plane_for_shim(ctx, &provider, runner)?;
+            let mut tui_cmd = provider_cfg.commands.tui.clone();
+            for arg in &passthrough {
+                tui_cmd.push(' ');
+                tui_cmd.push_str(&shell_single_quote(arg));
+            }
+            let runtime =
+                generate_provider_runtime_compose(ctx, &provider, provider_cfg, Some(&tui_cmd))?;
+            for warning in &runtime.warnings {
+                eprintln!("warning: {warning}");
+            }
+            let mut args = compose_base_args(ctx, &cfg, false, &[runtime.override_file.clone()])?;
+            args.push("run".to_string());
+            args.push("--rm".to_string());
+            args.push("-e".to_string());
+            args.push("HARNESS_MODE=tui".to_string());
+            args.push("harness".to_string());
+            let active_workspace = load_active_run_state(&log_root)?
+                .filter(|state| state.run_id == run_id)
+                .map(|state| resolve_active_run_workspace_root(&cfg, &state))
+                .transpose()?;
+            run_docker_command(
+                ctx,
+                runner,
+                &args,
+                &compose_env_for_run(Some(&run_id), active_workspace.as_deref()),
+                json!({"action":"shim_exec", "provider": provider, "run_id": run_id}),
+                false,
+            )
+        }
+    }
+}
+
 fn handle_up<R: DockerRunner>(
     ctx: &Context,
     provider: Option<String>,
     collector_only: bool,
     workspace: Option<String>,
-    ui: bool,
     pull: Option<String>,
     wait: bool,
     timeout_sec: Option<u64>,
@@ -3726,13 +5647,13 @@ fn handle_up<R: DockerRunner>(
         LifecycleTarget::CollectorOnly => {
             let effective_workspace = resolve_effective_workspace_root(&cfg, workspace.as_deref())?;
             let preflight_env = compose_env_for_run(None, Some(&effective_workspace));
-            if provider_plane_is_running(ctx, runner, &cfg, ui, &preflight_env)? {
+            if provider_plane_is_running(ctx, runner, &cfg, false, &preflight_env)? {
                 return Err(LassoError::Process(
                     "provider plane is still running; stop it before starting a new collector run"
                         .to_string(),
                 ));
             }
-            if collector_is_running(ctx, runner, &cfg, ui, &preflight_env)? {
+            if collector_is_running(ctx, runner, &cfg, false, &preflight_env)? {
                 return Err(LassoError::Process(
                     "collector is already running".to_string(),
                 ));
@@ -3741,7 +5662,7 @@ fn handle_up<R: DockerRunner>(
             fs::create_dir_all(run_root(&log_root, &run_id))?;
             write_active_run_state(&log_root, &run_id, &effective_workspace)?;
 
-            let mut args = compose_base_args(ctx, &cfg, ui, &[])?;
+            let mut args = compose_base_args(ctx, &cfg, false, &[])?;
             args.push("up".to_string());
             args.push("-d".to_string());
             if let Some(pull) = pull {
@@ -3777,6 +5698,25 @@ fn handle_up<R: DockerRunner>(
         }
         LifecycleTarget::Provider(provider_name) => {
             let provider_cfg = provider_from_config(&cfg, &provider_name)?;
+            if cfg.collector.auto_start {
+                let collector_running =
+                    collector_is_running(ctx, runner, &cfg, false, &BTreeMap::new())?;
+                let active_run_valid = load_active_run_state(&log_root)?
+                    .map(|state| run_root(&log_root, &state.run_id).exists())
+                    .unwrap_or(false);
+                if !collector_running || !active_run_valid {
+                    handle_up(
+                        ctx,
+                        None,
+                        true,
+                        None,
+                        Some("missing".to_string()),
+                        true,
+                        None,
+                        runner,
+                    )?;
+                }
+            }
             let active_run = load_active_run_state(&log_root)?.ok_or_else(|| {
                 LassoError::Process(
                     "no active run found; start collector first with `lasso up --collector-only`"
@@ -3803,7 +5743,7 @@ fn handle_up<R: DockerRunner>(
                 ));
             }
             let run_env = compose_env_for_run(Some(&active_run.run_id), Some(&active_workspace));
-            if !collector_is_running(ctx, runner, &cfg, ui, &run_env)? {
+            if !collector_is_running(ctx, runner, &cfg, false, &run_env)? {
                 return Err(LassoError::Process(
                     "collector is not running; start it first with `lasso up --collector-only`"
                         .to_string(),
@@ -3817,19 +5757,20 @@ fn handle_up<R: DockerRunner>(
                     ));
                 }
             }
-            if provider_plane_is_running(ctx, runner, &cfg, ui, &run_env)? {
+            if provider_plane_is_running(ctx, runner, &cfg, false, &run_env)? {
                 return Err(LassoError::Process(format!(
                     "provider plane is already running for '{}'",
                     provider_name
                 )));
             }
 
-            let runtime = generate_provider_runtime_compose(ctx, &provider_name, provider_cfg)?;
+            let runtime =
+                generate_provider_runtime_compose(ctx, &provider_name, provider_cfg, None)?;
             for warning in &runtime.warnings {
                 eprintln!("warning: {warning}");
             }
 
-            let mut args = compose_base_args(ctx, &cfg, ui, &[runtime.override_file.clone()])?;
+            let mut args = compose_base_args(ctx, &cfg, false, &[runtime.override_file.clone()])?;
             args.push("up".to_string());
             args.push("-d".to_string());
             if let Some(pull) = pull {
@@ -3878,7 +5819,6 @@ fn handle_down<R: DockerRunner>(
     ctx: &Context,
     provider: Option<String>,
     collector_only: bool,
-    ui: bool,
     runner: &R,
 ) -> Result<(), LassoError> {
     let cfg = read_config(&ctx.config_path)?;
@@ -3895,7 +5835,7 @@ fn handle_down<R: DockerRunner>(
 
     match target {
         LifecycleTarget::CollectorOnly => {
-            let mut args = compose_base_args(ctx, &cfg, ui, &[])?;
+            let mut args = compose_base_args(ctx, &cfg, false, &[])?;
             args.push("stop".to_string());
             args.push("collector".to_string());
             run_docker_command(
@@ -3917,7 +5857,7 @@ fn handle_down<R: DockerRunner>(
                     ));
                 }
             }
-            let mut args = compose_base_args(ctx, &cfg, ui, &[])?;
+            let mut args = compose_base_args(ctx, &cfg, false, &[])?;
             args.push("stop".to_string());
             args.push("agent".to_string());
             args.push("harness".to_string());
@@ -3941,7 +5881,6 @@ fn handle_status<R: DockerRunner>(
     ctx: &Context,
     provider: Option<String>,
     collector_only: bool,
-    ui: bool,
     runner: &R,
 ) -> Result<(), LassoError> {
     let cfg = read_config(&ctx.config_path)?;
@@ -3956,7 +5895,7 @@ fn handle_status<R: DockerRunner>(
     let env_overrides = compose_env_for_run(run_id.as_deref(), workspace_root.as_deref());
     let target = resolve_lifecycle_target(provider, collector_only)?;
 
-    let mut args = compose_base_args(ctx, &cfg, ui, &[])?;
+    let mut args = compose_base_args(ctx, &cfg, false, &[])?;
     args.push("ps".to_string());
     args.push("--format".to_string());
     args.push("json".to_string());
@@ -4127,7 +6066,7 @@ fn handle_tui<R: DockerRunner>(
     let host_start_dir = resolve_host_start_dir(&cfg, &workspace_root, start_dir.as_deref())?;
     let container_start_dir = map_host_start_dir_to_container(&host_start_dir, &workspace_root)?;
 
-    let runtime = generate_provider_runtime_compose(ctx, &provider, provider_cfg)?;
+    let runtime = generate_provider_runtime_compose(ctx, &provider, provider_cfg, None)?;
     for warning in &runtime.warnings {
         eprintln!("warning: {warning}");
     }
@@ -4189,93 +6128,292 @@ fn handle_jobs(ctx: &Context, command: JobsCommand) -> Result<(), LassoError> {
     }
 }
 
-fn handle_doctor(ctx: &Context) -> Result<(), LassoError> {
-    let mut checks = BTreeMap::new();
-    let docker_present = which::which("docker").is_ok();
-    let docker_ok = if docker_present {
-        let output = Command::new("docker")
+#[derive(Debug, Clone, Serialize)]
+struct DoctorCheck {
+    id: String,
+    ok: bool,
+    severity: String,
+    strict_fail: bool,
+    message: String,
+    remediation: String,
+    details: serde_json::Value,
+}
+
+fn doctor_check(
+    id: &str,
+    ok: bool,
+    severity: &str,
+    strict_fail: bool,
+    message: impl Into<String>,
+    remediation: impl Into<String>,
+    details: serde_json::Value,
+) -> DoctorCheck {
+    DoctorCheck {
+        id: id.to_string(),
+        ok,
+        severity: severity.to_string(),
+        strict_fail,
+        message: message.into(),
+        remediation: remediation.into(),
+        details,
+    }
+}
+
+fn collect_doctor_checks(ctx: &Context, cfg: &Config) -> Result<Vec<DoctorCheck>, LassoError> {
+    let mut checks = Vec::new();
+
+    let docker_installed = which::which("docker").is_ok();
+    let docker_ok = if docker_installed {
+        Command::new("docker")
             .arg("info")
             .stdout(Stdio::null())
             .stderr(Stdio::null())
-            .status();
-        output.map(|s| s.success()).unwrap_or(false)
+            .status()
+            .map(|s| s.success())
+            .unwrap_or(false)
     } else {
         false
     };
-    let docker_compose_ok = if docker_present {
-        let output = Command::new("docker")
+    checks.push(doctor_check(
+        "docker_runtime",
+        docker_ok,
+        "error",
+        true,
+        if docker_ok {
+            "docker daemon reachable"
+        } else if docker_installed {
+            "docker is installed but daemon is unreachable"
+        } else {
+            "docker is not installed or not in PATH"
+        },
+        "Install/start Docker Desktop (or compatible Docker runtime) and rerun `lasso doctor`.",
+        json!({"docker_installed": docker_installed}),
+    ));
+
+    let docker_compose_ok = if docker_installed {
+        Command::new("docker")
             .arg("compose")
             .arg("version")
             .stdout(Stdio::null())
             .stderr(Stdio::null())
-            .status();
-        output.map(|s| s.success()).unwrap_or(false)
+            .status()
+            .map(|s| s.success())
+            .unwrap_or(false)
     } else {
         false
     };
-    checks.insert("docker".to_string(), docker_ok);
-    checks.insert("docker_compose".to_string(), docker_compose_ok);
+    checks.push(doctor_check(
+        "docker_compose",
+        docker_compose_ok,
+        "error",
+        true,
+        if docker_compose_ok {
+            "docker compose is available"
+        } else {
+            "docker compose is not available"
+        },
+        "Install/enable Docker Compose and rerun `lasso doctor`.",
+        json!({"docker_installed": docker_installed}),
+    ));
 
-    let cfg = read_config(&ctx.config_path)?;
+    let compose_files = configured_compose_files(ctx, true, &[]);
+    let missing_compose: Vec<String> = compose_files
+        .iter()
+        .filter(|path| !path.exists())
+        .map(|path| path.to_string_lossy().to_string())
+        .collect();
+    checks.push(doctor_check(
+        "compose_contract",
+        missing_compose.is_empty(),
+        "error",
+        true,
+        if missing_compose.is_empty() {
+            "compose/runtime contract files present"
+        } else {
+            "one or more compose contract files are missing"
+        },
+        "Reinstall/update the CLI bundle or fix `--bundle-dir/--compose-file` overrides.",
+        json!({"missing_files": missing_compose}),
+    ));
+
     let log_root = PathBuf::from(expand_path(&cfg.paths.log_root));
-    let log_ok = host_dir_writable(&log_root);
-    checks.insert("log_root_writable".to_string(), log_ok);
-    let ok = docker_ok && docker_compose_ok && log_ok;
-    let error = if ok {
-        None
-    } else if !docker_ok && !docker_compose_ok {
-        Some("docker is not available; docker compose is not available".to_string())
-    } else if !docker_ok {
-        Some("docker is not available".to_string())
-    } else if !docker_compose_ok {
-        Some("docker compose is not available".to_string())
-    } else {
-        Some("log root is not writable".to_string())
-    };
+    let log_writable = host_dir_writable(&log_root);
+    checks.push(doctor_check(
+        "log_sink_permissions",
+        log_writable,
+        "error",
+        true,
+        if log_writable {
+            "log root is writable"
+        } else {
+            "log root is not writable"
+        },
+        format!(
+            "Ensure {} exists and is writable by your user.",
+            log_root.display()
+        ),
+        json!({"log_root": log_root}),
+    ));
+
+    let workspace_root = PathBuf::from(expand_path(&cfg.paths.workspace_root));
+    let workspace_ok = fs::create_dir_all(&workspace_root).is_ok();
+    checks.push(doctor_check(
+        "path_config_coherence",
+        workspace_ok && workspace_root != log_root,
+        "warn",
+        true,
+        if workspace_ok && workspace_root != log_root {
+            "workspace/log path config is coherent"
+        } else if workspace_root == log_root {
+            "workspace_root and log_root should not be the same path"
+        } else {
+            "workspace_root is not writable"
+        },
+        "Set distinct writable `paths.workspace_root` and `paths.log_root` values.",
+        json!({"workspace_root": workspace_root, "log_root": log_root}),
+    ));
+
+    let (paths, _) = resolve_runtime_paths(ctx)?;
+    let runtime_dir_ok = fs::create_dir_all(&paths.runtime_dir).is_ok();
+    checks.push(doctor_check(
+        "runtime_socket_ready",
+        runtime_dir_ok,
+        "warn",
+        false,
+        if runtime_dir_ok {
+            "runtime socket directory is writable"
+        } else {
+            "runtime socket directory is not writable"
+        },
+        format!(
+            "Ensure runtime dir {} is writable for runtime daemon startup.",
+            paths.runtime_dir.display()
+        ),
+        json!({"runtime_dir": paths.runtime_dir}),
+    ));
+
+    let token_ok =
+        !cfg.harness.api_token.trim().is_empty() || env::var("HARNESS_API_TOKEN").is_ok();
+    checks.push(doctor_check(
+        "harness_token_sanity",
+        token_ok,
+        "warn",
+        false,
+        if token_ok {
+            "harness token configured"
+        } else {
+            "harness token is empty"
+        },
+        "Set `harness.api_token` in config or `HARNESS_API_TOKEN` env before non-interactive `lasso run`.",
+        json!({}),
+    ));
+
+    let collector_sensor_ok = ["/sys/fs/bpf", "/sys/kernel/tracing", "/sys/kernel/debug"]
+        .iter()
+        .all(|path| Path::new(path).exists());
+    checks.push(doctor_check(
+        "collector_sensor_readiness",
+        collector_sensor_ok,
+        "warn",
+        false,
+        if collector_sensor_ok {
+            "collector sensor paths look available"
+        } else {
+            "collector sensor prerequisite paths missing on host"
+        },
+        "Verify Docker host runtime supports collector requirements (audit/eBPF prerequisites).",
+        json!({"required_paths": ["/sys/fs/bpf", "/sys/kernel/tracing", "/sys/kernel/debug"]}),
+    ));
+
+    let attribution_ok = cfg
+        .providers
+        .values()
+        .all(|provider| !provider.ownership.root_comm.is_empty());
+    checks.push(doctor_check(
+        "attribution_prerequisites",
+        attribution_ok,
+        "error",
+        true,
+        if attribution_ok {
+            "provider ownership attribution config present"
+        } else {
+            "one or more providers have empty ownership.root_comm"
+        },
+        "Ensure each provider has non-empty `ownership.root_comm` entries.",
+        json!({}),
+    ));
+
+    checks.push(doctor_check(
+        "contract_schema_compatibility",
+        cfg.version == 2,
+        "error",
+        true,
+        if cfg.version == 2 {
+            "config schema version is compatible"
+        } else {
+            "config schema version is incompatible"
+        },
+        "Set `version: 2` in config.yaml and migrate provider blocks as needed.",
+        json!({"config_version": cfg.version}),
+    ));
+
+    Ok(checks)
+}
+
+fn handle_doctor(ctx: &Context, strict: bool) -> Result<(), LassoError> {
+    let cfg = read_config(&ctx.config_path)?;
+    let checks = collect_doctor_checks(ctx, &cfg)?;
+    let has_error = checks
+        .iter()
+        .any(|check| !check.ok && check.severity == "error");
+    let has_strict_warning = checks.iter().any(|check| !check.ok && check.strict_fail);
+    let ok = !has_error && (!strict || !has_strict_warning);
+    let primary_error = checks
+        .iter()
+        .find(|check| !check.ok && check.severity == "error")
+        .or_else(|| {
+            checks
+                .iter()
+                .find(|check| !check.ok && strict && check.strict_fail)
+        })
+        .or_else(|| checks.iter().find(|check| !check.ok))
+        .map(|check| check.message.clone());
 
     if ctx.json {
         let payload = JsonResult {
             ok,
-            result: Some(json!({ "checks": checks })),
-            error,
+            result: Some(json!({ "checks": checks, "strict": strict })),
+            error: if ok { None } else { primary_error },
             error_details: None,
         };
         print_json(&payload)?;
         return Ok(());
     }
 
-    println!(
-        "Docker: {}",
-        if docker_ok {
-            "ok"
-        } else {
-            "missing or not running"
+    for check in &checks {
+        let state = if check.ok { "ok" } else { "fail" };
+        println!(
+            "[{}] {} ({}) - {}",
+            state, check.id, check.severity, check.message
+        );
+        if !check.ok {
+            println!("  remediation: {}", check.remediation);
         }
-    );
-    println!(
-        "Docker Compose: {}",
-        if docker_compose_ok {
-            "ok"
-        } else {
-            "missing or not running"
-        }
-    );
-    println!(
-        "Log root: {}",
-        if log_ok { "writable" } else { "not writable" }
-    );
-    if !docker_ok {
-        return Err(LassoError::Process("docker is not available".to_string()));
     }
-    if !docker_compose_ok {
-        return Err(LassoError::Process(
-            "docker compose is not available".to_string(),
-        ));
+    if ok {
+        return Ok(());
     }
-    if !log_ok {
-        return Err(LassoError::Process("log root is not writable".to_string()));
+    if strict && has_strict_warning {
+        return Err(LassoError::Process("doctor strict mode failed".to_string()));
     }
-    Ok(())
+    Err(LassoError::Process(
+        checks
+            .iter()
+            .find(|check| !check.ok && check.severity == "error")
+            .or_else(|| checks.iter().find(|check| !check.ok))
+            .map(|check| check.message.clone())
+            .unwrap_or_else(|| "one or more readiness checks failed".to_string()),
+    ))
 }
 
 fn handle_paths(ctx: &Context) -> Result<(), LassoError> {
@@ -4294,6 +6432,10 @@ fn handle_paths(ctx: &Context) -> Result<(), LassoError> {
             "config_path": paths.config_path,
             "env_file": paths.env_file,
             "bundle_dir": paths.bundle_dir,
+            "runtime_dir": paths.runtime_dir,
+            "runtime_socket_path": paths.runtime_socket_path,
+            "runtime_pid_path": paths.runtime_pid_path,
+            "runtime_events_path": paths.runtime_events_path,
             "compose_files": compose_files,
             "log_root": paths.log_root,
             "workspace_root": paths.workspace_root,
@@ -4988,6 +7130,35 @@ paths:
         let expected = default_paths_for_os(env::consts::OS, &home).expect("default paths");
         assert_eq!(cfg.paths.log_root, expected.log_root);
         assert_eq!(cfg.paths.workspace_root, expected.workspace_root);
+        assert!(cfg.collector.auto_start);
+        assert_eq!(cfg.collector.idle_timeout_min, 10_080);
+        assert_eq!(cfg.collector.rotate_every_min, 1_440);
+        assert_eq!(cfg.runtime_control_plane.socket_path, "");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn runtime_socket_path_falls_back_when_default_is_too_long() {
+        let cfg: Config = serde_yaml::from_str("version: 2").expect("config");
+        let deep_config_dir = PathBuf::from(format!("/tmp/{}", "a".repeat(180)));
+        let preferred = deep_config_dir.join("runtime").join("control_plane.sock");
+        assert!(unix_socket_path_too_long(&preferred));
+        let effective = effective_runtime_socket_path(&cfg, &deep_config_dir);
+        assert!(!unix_socket_path_too_long(&effective));
+        assert_ne!(effective, preferred);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn config_validate_rejects_overlong_runtime_socket_path() {
+        let yaml = format!(
+            "version: 2\nruntime_control_plane:\n  socket_path: \"/tmp/{}\"\n",
+            "b".repeat(180)
+        );
+        let err = read_config_from_str(&yaml).expect_err("long socket path should fail");
+        assert!(err
+            .to_string()
+            .contains("runtime_control_plane.socket_path is too long"));
     }
 
     #[test]
@@ -5001,11 +7172,13 @@ paths:
         let dir = tempdir().unwrap();
         let env_path = dir.path().join("compose.env");
         let cfg: Config = serde_yaml::from_str("version: 2").unwrap();
-        let envs = config_to_env(&cfg);
+        let envs = config_to_env(&cfg, &dir.path().join("config.yaml"));
         write_env_file(&env_path, &envs).unwrap();
         let content = fs::read_to_string(&env_path).unwrap();
         assert!(content.contains("LASSO_VERSION="));
         assert!(content.contains("LASSO_LOG_ROOT="));
+        assert!(content.contains("LASSO_RUNTIME_DIR="));
+        assert!(content.contains("LASSO_RUNTIME_GID="));
     }
 
     #[test]
@@ -5061,7 +7234,7 @@ providers:
         let ctx = make_context(dir.path());
         let runner = MockDockerRunner::default();
 
-        handle_up(&ctx, None, true, None, false, None, true, Some(45), &runner).unwrap();
+        handle_up(&ctx, None, true, None, None, true, Some(45), &runner).unwrap();
 
         let calls = runner.calls();
         assert_eq!(calls.len(), 3);
@@ -5089,18 +7262,8 @@ providers:
         let ctx = make_context(dir.path());
         let runner = MockDockerRunner::default();
 
-        let err = handle_up(
-            &ctx,
-            None,
-            true,
-            None,
-            false,
-            None,
-            false,
-            Some(10),
-            &runner,
-        )
-        .expect_err("timeout without wait should fail");
+        let err = handle_up(&ctx, None, true, None, None, false, Some(10), &runner)
+            .expect_err("timeout without wait should fail");
         assert!(err.to_string().contains("--timeout-sec requires --wait"));
     }
 
@@ -5122,7 +7285,7 @@ providers:
             stderr: Vec::new(),
         });
 
-        let err = handle_up(&ctx, None, true, None, false, None, false, None, &runner)
+        let err = handle_up(&ctx, None, true, None, None, false, None, &runner)
             .expect_err("already-running stack should fail");
         assert!(err.to_string().contains("collector is already running"));
         assert_eq!(runner.calls().len(), 2);
@@ -5136,7 +7299,7 @@ providers:
         let ctx = make_context(dir.path());
         let runner = MockDockerRunner::default();
 
-        handle_down(&ctx, None, true, false, &runner).unwrap();
+        handle_down(&ctx, None, true, &runner).unwrap();
 
         let calls = runner.calls();
         assert_eq!(calls.len(), 1);
@@ -5160,7 +7323,7 @@ providers:
             stderr: Vec::new(),
         });
 
-        handle_status(&ctx, None, true, true, &runner).unwrap();
+        handle_status(&ctx, None, true, &runner).unwrap();
 
         let calls = runner.calls();
         assert_eq!(calls.len(), 1);

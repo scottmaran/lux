@@ -181,8 +181,9 @@ jobs:
           cp compose.yml "$BUNDLE_DIR/"
           cp compose.ui.yml "$BUNDLE_DIR/"
           cp lasso/config/default.yaml "$BUNDLE_DIR/config/default.yaml"
-          mkdir -p "$BUNDLE_DIR/docs"
-          cp -R docs/guide "$BUNDLE_DIR/docs/guide"
+          mkdir -p "$BUNDLE_DIR/docs/contracts"
+          cp docs/contracts/cli.md "$BUNDLE_DIR/docs/contracts/cli.md"
+          cp docs/contracts/config.md "$BUNDLE_DIR/docs/contracts/config.md"
           cp README.md "$BUNDLE_DIR/README.md"
           if [ -f LICENSE ]; then cp LICENSE "$BUNDLE_DIR/LICENSE"; fi
           echo "${VERSION#v}" > "$BUNDLE_DIR/VERSION"

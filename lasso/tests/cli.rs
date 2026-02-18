@@ -1,4 +1,5 @@
 use assert_cmd::Command;
+use predicates::str::contains;
 use serde_json::Value;
 use std::fs;
 #[cfg(unix)]
@@ -270,13 +271,33 @@ fn doctor_reports_missing_docker_in_json() {
 
     let value = parse_json(&output);
     assert!(!value["ok"].as_bool().unwrap());
-    let error = value["error"].as_str().unwrap_or_default();
-    assert!(error.contains("docker"));
-    assert_eq!(value["result"]["checks"]["docker"].as_bool(), Some(false));
-    assert_eq!(
-        value["result"]["checks"]["docker_compose"].as_bool(),
-        Some(false)
-    );
+    let checks = value["result"]["checks"].as_array().expect("checks");
+    let docker = checks
+        .iter()
+        .find(|row| row["id"] == "docker_runtime")
+        .expect("docker_runtime check");
+    assert_eq!(docker["ok"], false);
+    let docker_compose = checks
+        .iter()
+        .find(|row| row["id"] == "docker_compose")
+        .expect("docker_compose check");
+    assert_eq!(docker_compose["ok"], false);
+}
+
+#[test]
+fn doctor_strict_fails_when_checks_fail() {
+    let dir = tempdir().unwrap();
+    let config_path = dir.path().join("config.yaml");
+    fs::write(&config_path, "version: 2\n").unwrap();
+
+    bin()
+        .env("PATH", "")
+        .arg("--config")
+        .arg(&config_path)
+        .arg("doctor")
+        .arg("--strict")
+        .assert()
+        .failure();
 }
 
 #[test]
@@ -886,4 +907,190 @@ fn update_rollback_dry_run_previous_selects_prior_version() {
     let value = parse_json(&output);
     assert!(value["ok"].as_bool().unwrap());
     assert_eq!(value["result"]["target_version"], "v0.1.0");
+}
+
+#[test]
+fn ui_url_returns_default_local_url() {
+    let dir = tempdir().unwrap();
+    let config_path = dir.path().join("config.yaml");
+    fs::write(&config_path, "version: 2\n").unwrap();
+
+    let output = bin()
+        .arg("--json")
+        .arg("--config")
+        .arg(&config_path)
+        .arg("ui")
+        .arg("url")
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    let value = parse_json(&output);
+    assert_eq!(value["result"]["url"], "http://127.0.0.1:8090");
+}
+
+#[test]
+fn up_rejects_removed_ui_flag() {
+    let dir = tempdir().unwrap();
+    let config_path = dir.path().join("config.yaml");
+    fs::write(&config_path, "version: 2\n").unwrap();
+
+    bin()
+        .arg("--config")
+        .arg(&config_path)
+        .arg("up")
+        .arg("--collector-only")
+        .arg("--ui")
+        .assert()
+        .failure()
+        .stderr(contains("unexpected argument '--ui'"));
+}
+
+#[cfg(unix)]
+#[test]
+fn runtime_up_status_down_cycle() {
+    let dir = tempdir().unwrap();
+    let config_path = dir.path().join("config.yaml");
+    fs::write(&config_path, "version: 2\n").unwrap();
+
+    let up = bin()
+        .arg("--json")
+        .arg("--config")
+        .arg(&config_path)
+        .arg("runtime")
+        .arg("up")
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    let up_value = parse_json(&up);
+    assert!(up_value["result"]["running"].as_bool().unwrap_or(false));
+
+    let status = bin()
+        .arg("--json")
+        .arg("--config")
+        .arg(&config_path)
+        .arg("runtime")
+        .arg("status")
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    let status_value = parse_json(&status);
+    assert!(status_value["result"]["running"].as_bool().unwrap_or(false));
+
+    let down = bin()
+        .arg("--json")
+        .arg("--config")
+        .arg(&config_path)
+        .arg("runtime")
+        .arg("down")
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    let down_value = parse_json(&down);
+    assert!(!down_value["result"]["running"].as_bool().unwrap_or(true));
+}
+
+#[cfg(unix)]
+#[test]
+fn shim_install_list_uninstall_roundtrip() {
+    let dir = tempdir().unwrap();
+    let home = dir.path().join("home");
+    fs::create_dir_all(&home).unwrap();
+    let config_path = dir.path().join("config.yaml");
+    fs::write(&config_path, "version: 2\n").unwrap();
+
+    let install = bin()
+        .env("HOME", &home)
+        .arg("--json")
+        .arg("--config")
+        .arg(&config_path)
+        .arg("shim")
+        .arg("install")
+        .arg("codex")
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    let install_value = parse_json(&install);
+    assert!(install_value["result"]["installed"].as_array().is_some());
+    let shim_path = home.join(".local").join("bin").join("codex");
+    assert!(shim_path.exists());
+
+    let list = bin()
+        .env("HOME", &home)
+        .arg("--json")
+        .arg("--config")
+        .arg(&config_path)
+        .arg("shim")
+        .arg("list")
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    let list_value = parse_json(&list);
+    let rows = list_value["result"]["shims"].as_array().unwrap();
+    let codex = rows
+        .iter()
+        .find(|row| row["provider"] == "codex")
+        .expect("codex shim row");
+    assert_eq!(codex["installed"], true);
+
+    bin()
+        .env("HOME", &home)
+        .arg("--json")
+        .arg("--config")
+        .arg(&config_path)
+        .arg("shim")
+        .arg("uninstall")
+        .arg("codex")
+        .assert()
+        .success();
+    assert!(!shim_path.exists());
+}
+
+#[test]
+fn shim_exec_rejects_absolute_paths() {
+    let dir = tempdir().unwrap();
+    let workspace = dir.path().join("workspace");
+    let logs = dir.path().join("logs");
+    fs::create_dir_all(&workspace).unwrap();
+    fs::create_dir_all(&logs).unwrap();
+    let config_path = dir.path().join("config.yaml");
+    fs::write(
+        &config_path,
+        format!(
+            "version: 2\npaths:\n  workspace_root: {}\n  log_root: {}\n",
+            workspace.display(),
+            logs.display()
+        ),
+    )
+    .unwrap();
+
+    let output = bin()
+        .current_dir(&workspace)
+        .arg("--json")
+        .arg("--config")
+        .arg(&config_path)
+        .arg("shim")
+        .arg("exec")
+        .arg("codex")
+        .arg("--")
+        .arg("/tmp/host-path")
+        .assert()
+        .failure()
+        .get_output()
+        .stdout
+        .clone();
+    let value = parse_json(&output);
+    let error = value["error"].as_str().unwrap_or_default();
+    assert!(error.contains("absolute host path"));
 }

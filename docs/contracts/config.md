@@ -42,6 +42,18 @@ harness:
   api_port: 8081
   api_token: ""
 
+collector:
+  auto_start: true
+  idle_timeout_min: 10080
+  rotate_every_min: 1440
+
+runtime_control_plane:
+  # empty means "<config_dir>/runtime/control_plane.sock"
+  # (with automatic short-path fallback when Unix socket length limits require it)
+  socket_path: ""
+  # optional; defaults to invoking user's primary gid
+  socket_gid: null
+
 providers:
   codex:
     auth_mode: api_key
@@ -103,6 +115,14 @@ To migrate:
 ## Required Concepts
 
 - `version` must be `2`.
+- `collector` is optional and defaults to:
+  - `auto_start: true`
+  - `idle_timeout_min: 10080`
+  - `rotate_every_min: 1440`
+- `runtime_control_plane` is optional and defaults to:
+  - `socket_path: <config_dir>/runtime/control_plane.sock`
+    - if too long for Unix socket limits, runtime uses a deterministic short fallback path
+  - `socket_gid: <invoking_user_primary_gid>`
 - `providers.<name>.auth_mode` must be explicit:
   - `api_key`
   - `host_state`
@@ -167,6 +187,8 @@ Generated compose env values include:
 - `LASSO_VERSION`
 - `LASSO_LOG_ROOT`
 - `LASSO_WORKSPACE_ROOT`
+- `LASSO_RUNTIME_DIR`
+- `LASSO_RUNTIME_GID`
 - `HARNESS_HTTP_PORT`
 - `HARNESS_API_TOKEN` (if configured)
 - `COLLECTOR_ROOT_COMM` (merged from provider ownership config)

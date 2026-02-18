@@ -199,9 +199,13 @@ def test_doctor_reports_missing_docker_in_json(tmp_path: Path, lasso_cli_binary:
     payload = json.loads(result.stdout)
     assert payload["ok"] is False
     assert "docker" in (payload.get("error") or "").lower()
-    checks = ((payload.get("result") or {}).get("checks") or {})
-    assert checks.get("docker") is False
-    assert checks.get("docker_compose") is False
+    checks = ((payload.get("result") or {}).get("checks") or [])
+    docker_runtime = next((row for row in checks if row.get("id") == "docker_runtime"), None)
+    assert docker_runtime is not None
+    assert docker_runtime.get("ok") is False
+    docker_compose = next((row for row in checks if row.get("id") == "docker_compose"), None)
+    assert docker_compose is not None
+    assert docker_compose.get("ok") is False
 
 
 def test_doctor_reports_log_root_unwritable_in_json(tmp_path: Path, lasso_cli_binary: Path) -> None:
@@ -230,16 +234,29 @@ def test_doctor_reports_log_root_unwritable_in_json(tmp_path: Path, lasso_cli_bi
     )
     payload = json.loads(result.stdout)
     assert payload["ok"] is False
-    checks = ((payload.get("result") or {}).get("checks") or {})
-    assert checks.get("log_root_writable") is False
+    checks = ((payload.get("result") or {}).get("checks") or [])
+    log_sink = next((row for row in checks if row.get("id") == "log_sink_permissions"), None)
+    assert log_sink is not None
+    assert log_sink.get("ok") is False
     error = (payload.get("error") or "").lower()
     assert ("log root" in error) or ("docker" in error)
 
 
 def test_status_fails_when_docker_missing(tmp_path: Path, lasso_cli_binary: Path) -> None:
-    home, _, _ = _policy_paths(tmp_path)
+    home, log_root, work_root = _policy_paths(tmp_path)
     config_path = tmp_path / "config.yaml"
-    config_path.write_text("version: 2\n", encoding="utf-8")
+    config_path.write_text(
+        "\n".join(
+            [
+                "version: 2",
+                "paths:",
+                f"  log_root: {log_root}",
+                f"  workspace_root: {work_root}",
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
     env = os.environ.copy()
     env["HOME"] = str(home)
     env["PATH"] = ""
@@ -250,6 +267,10 @@ def test_status_fails_when_docker_missing(tmp_path: Path, lasso_cli_binary: Path
             "--json",
             "--config",
             str(config_path),
+            "--compose-file",
+            str(ROOT_DIR / "compose.yml"),
+            "--compose-file",
+            str(ROOT_DIR / "tests" / "integration" / "compose.test.override.yml"),
             "status",
             "--collector-only",
         ],
