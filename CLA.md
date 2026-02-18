@@ -1,6 +1,6 @@
 # Lux Contributor License Agreement (CLA)
 
-This Contributor License Agreement ("Agreement") is a legal agreement between you ("You") and the maintainer(s) of the Lux project (the "Project") for the contributions You submit to the Project.
+This Contributor License Agreement ("Agreement") is a legal agreement between you ("You") and Page Mill Applied Intelligence (the "Company"), steward of the Lux project (the "Project"), for the contributions You submit to the Project.
 
 By submitting a pull request, patch, issue comment containing code, documentation, or any other material to this repository, You agree to the terms of this Agreement.
 
@@ -22,9 +22,9 @@ If You institute patent litigation against any entity (including a cross-claim o
 
 ## 4. Outbound License and Relicensing
 
-You understand that the Project distributes code under an open source license (currently `AGPL-3.0-only`).
+You understand that the Company distributes Project code under an open source license (currently `AGPL-3.0-only`).
 
-In addition to distributing Contributions under the Project's open source license, the copyright and patent licenses You grant in this Agreement allow the Project to distribute and sublicense Your Contributions under other license terms (including proprietary/commercial licenses).
+In addition to distributing Contributions under the Project's open source license, the copyright and patent licenses You grant in this Agreement allow the Company to distribute and sublicense Your Contributions under other license terms (including proprietary/commercial licenses).
 
 ## 5. Your Representations
 
@@ -37,4 +37,3 @@ You represent that:
 ## 6. Disclaimer
 
 Except as expressly stated in this Agreement, Your Contributions are provided "AS IS", without warranties or conditions of any kind.
-
