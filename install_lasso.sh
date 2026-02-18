@@ -170,7 +170,10 @@ ln -sfn "${INSTALL_DIR}/current/lasso" "${BIN_DIR}/lasso"
 
 mkdir -p "$CONFIG_DIR"
 if [ ! -f "${CONFIG_DIR}/config.yaml" ]; then
-  cp "${INSTALL_DIR}/current/config/default.yaml" "${CONFIG_DIR}/config.yaml"
+  if ! "${INSTALL_DIR}/current/lasso" --config "${CONFIG_DIR}/config.yaml" config init >/dev/null 2>&1; then
+    echo "ERROR: failed to initialize ${CONFIG_DIR}/config.yaml using lasso defaults" >&2
+    exit 1
+  fi
 fi
 
 case ":${PATH:-}:" in

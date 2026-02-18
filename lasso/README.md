@@ -30,6 +30,7 @@ export LASSO_BUNDLE_DIR=$(cd .. && pwd)
 ./target/debug/lasso config apply
 ./target/debug/lasso up --collector-only
 ./target/debug/lasso up --provider codex
+./target/debug/lasso run --provider codex --start-dir "$PWD" "hello"
 ```
 
 ## Tests
@@ -43,3 +44,4 @@ cargo test
 
 - `--config <path>` overrides the default config path.
 - `--json` enables machine‑readable output.
+- `run --cwd` is removed; use `run --start-dir <host-path>`.

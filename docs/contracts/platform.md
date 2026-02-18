@@ -5,11 +5,10 @@ This document defines which environments Lasso currently supports and what a use
 can rely on when running Lasso in those environments.
 
 ## Supported Environments
-- Host OS: macOS with Docker Desktop installed and running.
-- Linux host runtime support is currently best-effort and not guaranteed (as of
-  February 2026).
+- Host OS: macOS or Linux.
+- Docker runtime installed and running on the host.
 - CPU architectures: x86_64 and arm64.
-- Container runtime: Docker (via Docker Desktop).
+- Container runtime: Docker.
 - Observation boundary (current): the Docker Desktop Linux VM.
 
 ## What This Means

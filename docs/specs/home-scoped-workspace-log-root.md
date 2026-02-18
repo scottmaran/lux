@@ -1,6 +1,6 @@
 # Spec: Home-Scoped Workspace And External Log Root Defaults
 
-Status: draft
+Status: implemented
 Owner: codex
 Created: 2026-02-17
 Last updated: 2026-02-17

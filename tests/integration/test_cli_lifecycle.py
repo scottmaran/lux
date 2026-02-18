@@ -117,9 +117,11 @@ def test_cli_up_wait_status_down_removes_volumes(
     lasso_cli_binary: Path,
 ) -> None:
     runtime_root = tmp_path / f"cli-lifecycle-{uuid.uuid4().hex[:8]}"
+    home_root = runtime_root / "home"
     log_root = runtime_root / "logs"
-    workspace_root = runtime_root / "workspace"
+    workspace_root = home_root / "workspace"
     config_dir = runtime_root / "config"
+    home_root.mkdir(parents=True, exist_ok=True)
     config_dir.mkdir(parents=True, exist_ok=True)
     log_root.mkdir(parents=True, exist_ok=True)
     workspace_root.mkdir(parents=True, exist_ok=True)
@@ -141,6 +143,7 @@ def test_cli_up_wait_status_down_removes_volumes(
     )
 
     env = os.environ.copy()
+    env["HOME"] = str(home_root)
     env["LASSO_ENV_FILE"] = str(env_file)
     env["LASSO_BUNDLE_DIR"] = str(ROOT_DIR)
     env["HARNESS_HOST_PORT"] = str(harness_port)

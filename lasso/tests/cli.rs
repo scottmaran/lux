@@ -3,6 +3,7 @@ use serde_json::Value;
 use std::fs;
 #[cfg(unix)]
 use std::os::unix::fs::symlink;
+use std::path::{Path, PathBuf};
 use tempfile::tempdir;
 
 fn bin() -> Command {
@@ -12,6 +13,16 @@ fn bin() -> Command {
 
 fn parse_json(bytes: &[u8]) -> Value {
     serde_json::from_slice(bytes).expect("json output")
+}
+
+fn make_policy_paths(root: &Path) -> (PathBuf, PathBuf, PathBuf) {
+    let home = root.join("home");
+    let log_root = root.join("logs");
+    let workspace_root = home.join("workspace");
+    fs::create_dir_all(&home).unwrap();
+    fs::create_dir_all(&log_root).unwrap();
+    fs::create_dir_all(&workspace_root).unwrap();
+    (home, log_root, workspace_root)
 }
 
 #[test]
@@ -87,11 +98,98 @@ fn config_validate_rejects_unknown_fields() {
 }
 
 #[test]
-fn config_apply_writes_env_and_dirs() {
+fn config_validate_rejects_workspace_outside_home() {
     let dir = tempdir().unwrap();
+    let home = dir.path().join("home");
+    fs::create_dir_all(&home).unwrap();
     let config_path = dir.path().join("config.yaml");
     let log_root = dir.path().join("logs");
-    let work_root = dir.path().join("work");
+    let workspace_root = dir.path().join("workspace-outside-home");
+    fs::write(
+        &config_path,
+        format!(
+            "version: 2\npaths:\n  log_root: {}\n  workspace_root: {}\n",
+            log_root.display(),
+            workspace_root.display()
+        ),
+    )
+    .unwrap();
+
+    let output = bin()
+        .env("HOME", &home)
+        .arg("--json")
+        .arg("--config")
+        .arg(&config_path)
+        .arg("config")
+        .arg("validate")
+        .assert()
+        .failure()
+        .get_output()
+        .stdout
+        .clone();
+    let value = parse_json(&output);
+    let error = value["error"].as_str().unwrap_or_default();
+    assert!(error.contains("paths.workspace_root must be under $HOME"));
+}
+
+#[test]
+fn config_validate_rejects_log_root_inside_home() {
+    let dir = tempdir().unwrap();
+    let home = dir.path().join("home");
+    fs::create_dir_all(&home).unwrap();
+    let config_path = dir.path().join("config.yaml");
+    let log_root = home.join("logs-inside-home");
+    let workspace_root = home.join("workspace");
+    fs::write(
+        &config_path,
+        format!(
+            "version: 2\npaths:\n  log_root: {}\n  workspace_root: {}\n",
+            log_root.display(),
+            workspace_root.display()
+        ),
+    )
+    .unwrap();
+
+    let output = bin()
+        .env("HOME", &home)
+        .arg("--json")
+        .arg("--config")
+        .arg(&config_path)
+        .arg("config")
+        .arg("validate")
+        .assert()
+        .failure()
+        .get_output()
+        .stdout
+        .clone();
+    let value = parse_json(&output);
+    let error = value["error"].as_str().unwrap_or_default();
+    assert!(error.contains("paths.log_root must be outside $HOME"));
+}
+
+#[test]
+fn run_rejects_removed_cwd_flag() {
+    let output = bin()
+        .arg("run")
+        .arg("--provider")
+        .arg("codex")
+        .arg("--cwd")
+        .arg("/work")
+        .arg("hello")
+        .assert()
+        .failure()
+        .get_output()
+        .stderr
+        .clone();
+    let stderr = String::from_utf8_lossy(&output);
+    assert!(stderr.contains("--cwd"));
+}
+
+#[test]
+fn config_apply_writes_env_and_dirs() {
+    let dir = tempdir().unwrap();
+    let (home, log_root, work_root) = make_policy_paths(dir.path());
+    let config_path = dir.path().join("config.yaml");
     let env_file = dir.path().join("compose.env");
 
     let yaml = format!(
@@ -104,6 +202,7 @@ fn config_apply_writes_env_and_dirs() {
     bin()
         .arg("--config")
         .arg(&config_path)
+        .env("HOME", &home)
         .env("LASSO_ENV_FILE", &env_file)
         .arg("config")
         .arg("apply")
@@ -146,17 +245,18 @@ fn config_apply_invalid_config_is_actionable() {
 #[test]
 fn doctor_reports_missing_docker_in_json() {
     let dir = tempdir().unwrap();
+    let (home, log_root, work_root) = make_policy_paths(dir.path());
     let config_path = dir.path().join("config.yaml");
-    let log_root = dir.path().join("logs");
 
     let yaml = format!(
         "version: 2\npaths:\n  log_root: {}\n  workspace_root: {}\n",
         log_root.display(),
-        log_root.display()
+        work_root.display()
     );
     fs::write(&config_path, yaml).unwrap();
 
     let output = bin()
+        .env("HOME", &home)
         .env("PATH", "")
         .arg("--json")
         .arg("--config")
@@ -218,11 +318,8 @@ fn run_requires_active_provider_plane() {
 #[test]
 fn logs_tail_without_active_run_fails_with_actionable_error() {
     let dir = tempdir().unwrap();
+    let (home, log_root, work_root) = make_policy_paths(dir.path());
     let config_path = dir.path().join("config.yaml");
-    let log_root = dir.path().join("logs");
-    let work_root = dir.path().join("work");
-    fs::create_dir_all(&log_root).unwrap();
-    fs::create_dir_all(&work_root).unwrap();
     fs::write(
         &config_path,
         format!(
@@ -234,6 +331,7 @@ fn logs_tail_without_active_run_fails_with_actionable_error() {
     .unwrap();
 
     let output = bin()
+        .env("HOME", &home)
         .arg("--json")
         .arg("--config")
         .arg(&config_path)
@@ -252,11 +350,8 @@ fn logs_tail_without_active_run_fails_with_actionable_error() {
 #[test]
 fn logs_tail_latest_resolves_most_recent_run_directory() {
     let dir = tempdir().unwrap();
+    let (home, log_root, work_root) = make_policy_paths(dir.path());
     let config_path = dir.path().join("config.yaml");
-    let log_root = dir.path().join("logs");
-    let work_root = dir.path().join("work");
-    fs::create_dir_all(&log_root).unwrap();
-    fs::create_dir_all(&work_root).unwrap();
     fs::write(
         &config_path,
         format!(
@@ -285,6 +380,7 @@ fn logs_tail_latest_resolves_most_recent_run_directory() {
     fs::write(&t2, "{\"ts\":\"2026-02-12T12:00:00Z\"}\n").unwrap();
 
     let output = bin()
+        .env("HOME", &home)
         .arg("--json")
         .arg("--config")
         .arg(&config_path)
@@ -305,11 +401,8 @@ fn logs_tail_latest_resolves_most_recent_run_directory() {
 #[test]
 fn jobs_list_with_run_id_uses_run_scoped_jobs_directory() {
     let dir = tempdir().unwrap();
+    let (home, log_root, work_root) = make_policy_paths(dir.path());
     let config_path = dir.path().join("config.yaml");
-    let log_root = dir.path().join("logs");
-    let work_root = dir.path().join("work");
-    fs::create_dir_all(&log_root).unwrap();
-    fs::create_dir_all(&work_root).unwrap();
     fs::write(
         &config_path,
         format!(
@@ -326,6 +419,7 @@ fn jobs_list_with_run_id_uses_run_scoped_jobs_directory() {
     fs::create_dir_all(jobs_dir.join("job_2")).unwrap();
 
     let output = bin()
+        .env("HOME", &home)
         .arg("--json")
         .arg("--config")
         .arg(&config_path)
@@ -352,15 +446,13 @@ fn jobs_list_with_run_id_uses_run_scoped_jobs_directory() {
 #[test]
 fn paths_reports_resolved_values() {
     let dir = tempdir().unwrap();
-    let home = dir.path();
+    let (home, log_root, work_root) = make_policy_paths(dir.path());
+    let canonical_log_root = fs::canonicalize(&log_root).unwrap();
+    let canonical_work_root = fs::canonicalize(&work_root).unwrap();
     let config_path = dir.path().join("config.yaml");
     let env_file = dir.path().join("compose.env");
-    let log_root = dir.path().join("logs");
-    let work_root = dir.path().join("work");
     let install_dir = home.join(".lasso");
     let bin_dir = home.join(".local").join("bin");
-    fs::create_dir_all(&log_root).unwrap();
-    fs::create_dir_all(&work_root).unwrap();
     fs::write(&env_file, "LASSO_VERSION=v0.1.0\n").unwrap();
     fs::write(
         &config_path,
@@ -389,11 +481,11 @@ fn paths_reports_resolved_values() {
     assert!(value["ok"].as_bool().unwrap());
     assert_eq!(
         value["result"]["log_root"].as_str().unwrap(),
-        log_root.to_string_lossy()
+        canonical_log_root.to_string_lossy()
     );
     assert_eq!(
         value["result"]["workspace_root"].as_str().unwrap(),
-        work_root.to_string_lossy()
+        canonical_work_root.to_string_lossy()
     );
     assert_eq!(
         value["result"]["install_dir"].as_str().unwrap(),

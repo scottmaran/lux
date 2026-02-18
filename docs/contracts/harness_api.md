@@ -20,7 +20,8 @@ Request body (JSON object):
 - `capture_input` (bool, optional; default `true`): if `false`, the persisted
   `input.json` contains `"[redacted]"` instead of the prompt text.
 - `cwd` (string, optional): absolute path under `HARNESS_AGENT_WORKDIR`.
-  Invalid/unsafe values are ignored and the default is used.
+  If omitted, defaults to `HARNESS_AGENT_WORKDIR`.
+  Invalid values are rejected with HTTP `400`.
 - `env` (object, optional): environment variables for the remote command.
   Keys are sanitized; values are stringified. This map is persisted in job
   metadata by design.
@@ -31,7 +32,7 @@ Request body (JSON object):
 
 Responses:
 - `202`: accepted.
-- `400`: invalid request (for example missing/empty `prompt`, invalid JSON).
+- `400`: invalid request (for example missing/empty `prompt`, invalid JSON, invalid `cwd`).
 - `401`: unauthorized (missing/incorrect `X-Harness-Token`).
 - `404`: not found (wrong path).
 

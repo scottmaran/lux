@@ -25,8 +25,11 @@ Overrides:
 version: 2
 
 paths:
-  log_root: ~/lasso-logs
-  workspace_root: ~/lasso-workspace
+  # macOS default: /Users/Shared/Lasso/logs
+  # Linux default: /var/lib/lasso/logs
+  log_root: /var/lib/lasso/logs
+  # default: $HOME
+  workspace_root: /home/alice
 
 release:
   tag: ""
@@ -105,6 +108,26 @@ To migrate:
   - `host_state`
 - `providers.<name>.mount_host_state_in_api_mode` defaults `false`.
 
+## Path Policy
+
+`paths.log_root` and `paths.workspace_root` are validated as a security boundary:
+
+- Host OS must be `macos` or `linux`.
+- `$HOME` must resolve to an existing absolute directory.
+- `workspace_root` must be equal to or under `$HOME`.
+- `log_root` must be outside `$HOME`.
+- `workspace_root` and `log_root` must not overlap in either direction.
+- Paths are resolved from absolute/canonical host paths (`~` expansion is allowed).
+
+Default path computation used by `setup`, `config init`, and installer bootstrap:
+
+- macOS:
+  - `paths.log_root=/Users/Shared/Lasso/logs`
+  - `paths.workspace_root=$HOME`
+- Linux:
+  - `paths.log_root=/var/lib/lasso/logs`
+  - `paths.workspace_root=$HOME`
+
 ## API-Key Secrets Files
 
 Provider secrets files are only used when `auth_mode=api_key`.
@@ -136,8 +159,9 @@ If this happens, switch the provider to `auth_mode=api_key`.
 ## What `lasso config apply` Does
 
 - Validates config schema and provider blocks.
+- Enforces path policy (`workspace_root` under `$HOME`, `log_root` outside `$HOME`, no overlap).
 - Writes compose env file (default `~/.config/lasso/compose.env`).
-- Ensures `paths.log_root` and `paths.workspace_root` exist.
+- Ensures canonical `paths.log_root` and `paths.workspace_root` exist.
 
 Generated compose env values include:
 - `LASSO_VERSION`

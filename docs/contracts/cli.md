@@ -43,14 +43,16 @@ Flags:
 Start either collector plane or provider plane.
 
 - Collector only:
-  - `lasso up --collector-only [--wait --timeout-sec N]`
+  - `lasso up --collector-only [--workspace <host-path>] [--wait --timeout-sec N]`
 - Provider plane:
-  - `lasso up --provider codex|claude [--wait --timeout-sec N]`
+  - `lasso up --provider codex|claude [--workspace <host-path>] [--wait --timeout-sec N]`
 
 Rules:
 - `--collector-only` conflicts with `--provider`.
 - `up --provider X` requires an active collector run (`up --collector-only` first).
 - Provider mismatch hard-fails (no implicit provider switching).
+- `--workspace` must be under `$HOME`, must not overlap log root, and applies to the run started by `up --collector-only`.
+- `up --provider --workspace` is optional, but when provided it must exactly match the active run workspace.
 
 ### `down`
 
@@ -70,18 +72,19 @@ Show compose status for one plane.
 
 Run an interactive harness TUI session for the active provider plane.
 
-- `lasso tui --provider codex|claude`
+- `lasso tui --provider codex|claude [--start-dir <host-path>]`
 
 ### `run`
 
 Submit a non-interactive harness job.
 
 - `lasso run --provider codex|claude "prompt"`
-- Optional: `--capture-input <bool> --cwd <path> --timeout-sec <n> --env KEY=VALUE`
+- Optional: `--capture-input <bool> --start-dir <host-path> --timeout-sec <n> --env KEY=VALUE`
 
 Notes:
 - `run` requires active provider plane state for the selected provider.
 - `--env` values are persisted in job metadata by design.
+- `--start-dir` defaults to the host current working directory and must be inside the run workspace.
 
 ### `jobs`
 

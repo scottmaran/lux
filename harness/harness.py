@@ -103,16 +103,20 @@ def sanitize_env(env: dict) -> dict:
     return clean
 
 
-def sanitize_cwd(cwd: str) -> str:
+def validate_cwd(cwd: object) -> tuple[str | None, str | None]:
     base = os.path.realpath(DEFAULT_CWD)
+    if cwd is None:
+        return base, None
+    if not isinstance(cwd, str):
+        return None, "cwd must be a string"
     if not cwd:
-        return base
+        return None, f"cwd must be an absolute path under {base}"
     if not os.path.isabs(cwd):
-        return base
+        return None, f"cwd must be an absolute path under {base}"
     real = os.path.realpath(cwd)
     if real == base or real.startswith(base + os.sep):
-        return real
-    return base
+        return real, None
+    return None, f"cwd must be under HARNESS_AGENT_WORKDIR ({base})"
 
 
 def ssh_base_args() -> list:
@@ -466,7 +470,9 @@ def handle_run(payload: dict) -> tuple[dict, int]:
     if name_err:
         return {"error": name_err}, 400
 
-    cwd = sanitize_cwd(str(payload.get("cwd", DEFAULT_CWD)))
+    cwd, cwd_err = validate_cwd(payload.get("cwd"))
+    if cwd_err:
+        return {"error": cwd_err}, 400
     env = sanitize_env(payload.get("env", {}))
     timeout = payload.get("timeout_sec")
     timeout = int(timeout) if isinstance(timeout, (int, float)) and timeout > 0 else None
