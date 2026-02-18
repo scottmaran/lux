@@ -27,12 +27,12 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use thiserror::Error;
 
 const DEFAULT_CONFIG_YAML: &str = include_str!("../config/default.yaml");
-const RUNTIME_BYPASS_ENV: &str = "LASSO_RUNTIME_BYPASS";
+const RUNTIME_BYPASS_ENV: &str = "LUX_RUNTIME_BYPASS";
 #[cfg(unix)]
 const UNIX_SOCKET_PATH_LIMIT_BYTES: usize = 100;
 
 #[derive(Parser, Debug)]
-#[command(name = "lasso", version, about = "Lasso CLI")]
+#[command(name = "lux", version, about = "Lux CLI")]
 struct Cli {
     #[arg(long, global = true)]
     config: Option<PathBuf>,
@@ -263,7 +263,7 @@ enum LogsCommand {
 }
 
 #[derive(Debug, Error)]
-enum LassoError {
+enum LuxError {
     #[error("config error: {0}")]
     Config(String),
     #[error("io error: {0}")]
@@ -423,9 +423,9 @@ impl Default for Paths {
             .map(|path| path.to_string_lossy().to_string())
             .unwrap_or_else(|| "~".to_string());
         let log_root = match env::consts::OS {
-            "macos" => "/Users/Shared/Lasso/logs",
-            "linux" => "/var/lib/lasso/logs",
-            _ => "/var/lib/lasso/logs",
+            "macos" => "/Users/Shared/Lux/logs",
+            "linux" => "/var/lib/lux/logs",
+            _ => "/var/lib/lux/logs",
         }
         .to_string();
         Self {
@@ -446,7 +446,7 @@ impl Default for Release {
 impl Default for Docker {
     fn default() -> Self {
         Self {
-            project_name: "lasso".to_string(),
+            project_name: "lux".to_string(),
         }
     }
 }
@@ -552,7 +552,7 @@ fn default_providers() -> BTreeMap<String, Provider> {
             },
             auth: ProviderAuth {
                 api_key: ProviderApiKeyAuth {
-                    secrets_file: "~/.config/lasso/secrets/codex.env".to_string(),
+                    secrets_file: "~/.config/lux/secrets/codex.env".to_string(),
                     env_key: "OPENAI_API_KEY".to_string(),
                 },
                 host_state: ProviderHostStateAuth {
@@ -578,7 +578,7 @@ fn default_providers() -> BTreeMap<String, Provider> {
             },
             auth: ProviderAuth {
                 api_key: ProviderApiKeyAuth {
-                    secrets_file: "~/.config/lasso/secrets/claude.env".to_string(),
+                    secrets_file: "~/.config/lux/secrets/claude.env".to_string(),
                     env_key: "ANTHROPIC_API_KEY".to_string(),
                 },
                 host_state: ProviderHostStateAuth {
@@ -736,7 +736,7 @@ impl DockerRunner for RealDockerRunner {
     }
 }
 
-fn main() -> Result<(), LassoError> {
+fn main() -> Result<(), LuxError> {
     let raw_args: Vec<String> = env::args().skip(1).collect();
     let cli = Cli::parse();
     let ctx = build_context(&cli)?;
@@ -842,7 +842,7 @@ fn main() -> Result<(), LassoError> {
     Ok(())
 }
 
-fn build_context(cli: &Cli) -> Result<Context, LassoError> {
+fn build_context(cli: &Cli) -> Result<Context, LuxError> {
     let config_path = resolve_config_path(cli.config.as_ref());
     let env_file = resolve_env_file(cli.env_file.as_ref());
     let bundle_dir = resolve_bundle_dir(cli.bundle_dir.as_ref());
@@ -860,7 +860,7 @@ fn resolve_config_path(override_path: Option<&PathBuf>) -> PathBuf {
     if let Some(path) = override_path {
         return path.clone();
     }
-    if let Ok(path) = env::var("LASSO_CONFIG") {
+    if let Ok(path) = env::var("LUX_CONFIG") {
         return PathBuf::from(path);
     }
     let mut base = default_config_dir();
@@ -872,7 +872,7 @@ fn resolve_env_file(override_path: Option<&PathBuf>) -> PathBuf {
     if let Some(path) = override_path {
         return path.clone();
     }
-    if let Ok(path) = env::var("LASSO_ENV_FILE") {
+    if let Ok(path) = env::var("LUX_ENV_FILE") {
         return PathBuf::from(path);
     }
     let mut base = default_config_dir();
@@ -884,7 +884,7 @@ fn resolve_bundle_dir(override_path: Option<&PathBuf>) -> PathBuf {
     if let Some(path) = override_path {
         return path.clone();
     }
-    if let Ok(path) = env::var("LASSO_BUNDLE_DIR") {
+    if let Ok(path) = env::var("LUX_BUNDLE_DIR") {
         return PathBuf::from(path);
     }
     if let Ok(exe) = env::current_exe() {
@@ -928,24 +928,24 @@ struct PolicyPaths {
     workspace_root: PathBuf,
 }
 
-fn required_home_dir() -> Result<PathBuf, LassoError> {
+fn required_home_dir() -> Result<PathBuf, LuxError> {
     let home = home_dir().ok_or_else(|| {
-        LassoError::Config("unable to resolve $HOME; set HOME to an existing directory".to_string())
+        LuxError::Config("unable to resolve $HOME; set HOME to an existing directory".to_string())
     })?;
     if !home.is_absolute() {
-        return Err(LassoError::Config(format!(
+        return Err(LuxError::Config(format!(
             "resolved HOME path is not absolute: {}",
             home.display()
         )));
     }
     if !home.exists() {
-        return Err(LassoError::Config(format!(
+        return Err(LuxError::Config(format!(
             "resolved HOME path does not exist: {}",
             home.display()
         )));
     }
     fs::canonicalize(&home).map_err(|err| {
-        LassoError::Config(format!(
+        LuxError::Config(format!(
             "failed to canonicalize HOME directory {}: {}",
             home.display(),
             err
@@ -953,29 +953,29 @@ fn required_home_dir() -> Result<PathBuf, LassoError> {
     })
 }
 
-fn default_paths_for_os(os: &str, home: &Path) -> Result<Paths, LassoError> {
+fn default_paths_for_os(os: &str, home: &Path) -> Result<Paths, LuxError> {
     match os {
         "macos" => Ok(Paths {
-            log_root: "/Users/Shared/Lasso/logs".to_string(),
+            log_root: "/Users/Shared/Lux/logs".to_string(),
             workspace_root: home.to_string_lossy().to_string(),
         }),
         "linux" => Ok(Paths {
-            log_root: "/var/lib/lasso/logs".to_string(),
+            log_root: "/var/lib/lux/logs".to_string(),
             workspace_root: home.to_string_lossy().to_string(),
         }),
-        other => Err(LassoError::Config(format!(
+        other => Err(LuxError::Config(format!(
             "unsupported host operating system '{}' for default path computation; supported: macos, linux",
             other
         ))),
     }
 }
 
-fn computed_default_paths_for_current_os() -> Result<Paths, LassoError> {
+fn computed_default_paths_for_current_os() -> Result<Paths, LuxError> {
     let home = required_home_dir()?;
     default_paths_for_os(env::consts::OS, &home)
 }
 
-fn build_default_config_yaml() -> Result<String, LassoError> {
+fn build_default_config_yaml() -> Result<String, LuxError> {
     let defaults = computed_default_paths_for_current_os()?;
     let mut edits = SetupYamlEdits::default();
     edits.log_root = Some(defaults.log_root);
@@ -984,10 +984,10 @@ fn build_default_config_yaml() -> Result<String, LassoError> {
     Ok(patched)
 }
 
-fn expand_home_path(input: &str, home: &Path, field: &str) -> Result<PathBuf, LassoError> {
+fn expand_home_path(input: &str, home: &Path, field: &str) -> Result<PathBuf, LuxError> {
     let trimmed = input.trim();
     if trimmed.is_empty() {
-        return Err(LassoError::Config(format!(
+        return Err(LuxError::Config(format!(
             "{field} must be a non-empty absolute path"
         )));
     }
@@ -998,23 +998,23 @@ fn expand_home_path(input: &str, home: &Path, field: &str) -> Result<PathBuf, La
         return Ok(home.join(stripped));
     }
     if trimmed.starts_with('~') {
-        return Err(LassoError::Config(format!(
+        return Err(LuxError::Config(format!(
             "{field} uses unsupported '~' syntax; use '~/' or an absolute path"
         )));
     }
     Ok(PathBuf::from(trimmed))
 }
 
-fn canonicalize_policy_path(path: &Path, field: &str) -> Result<PathBuf, LassoError> {
+fn canonicalize_policy_path(path: &Path, field: &str) -> Result<PathBuf, LuxError> {
     if !path.is_absolute() {
-        return Err(LassoError::Config(format!(
+        return Err(LuxError::Config(format!(
             "{field} must be an absolute path: {}",
             path.display()
         )));
     }
     if path.exists() {
         return fs::canonicalize(path).map_err(|err| {
-            LassoError::Config(format!(
+            LuxError::Config(format!(
                 "failed to canonicalize {field} ({}): {}",
                 path.display(),
                 err
@@ -1026,7 +1026,7 @@ fn canonicalize_policy_path(path: &Path, field: &str) -> Result<PathBuf, LassoEr
     let mut tail: Vec<std::ffi::OsString> = Vec::new();
     while !cursor.exists() {
         let name = cursor.file_name().ok_or_else(|| {
-            LassoError::Config(format!(
+            LuxError::Config(format!(
                 "{field} is not canonicalizable: {}",
                 path.display()
             ))
@@ -1035,7 +1035,7 @@ fn canonicalize_policy_path(path: &Path, field: &str) -> Result<PathBuf, LassoEr
         cursor = cursor
             .parent()
             .ok_or_else(|| {
-                LassoError::Config(format!(
+                LuxError::Config(format!(
                     "{field} is not canonicalizable: {}",
                     path.display()
                 ))
@@ -1044,7 +1044,7 @@ fn canonicalize_policy_path(path: &Path, field: &str) -> Result<PathBuf, LassoEr
     }
 
     let mut canonical = fs::canonicalize(&cursor).map_err(|err| {
-        LassoError::Config(format!(
+        LuxError::Config(format!(
             "failed to canonicalize {field} ancestor ({}): {}",
             cursor.display(),
             err
@@ -1056,7 +1056,7 @@ fn canonicalize_policy_path(path: &Path, field: &str) -> Result<PathBuf, LassoEr
     Ok(canonical)
 }
 
-fn resolve_policy_path(input: &str, field: &str, home: &Path) -> Result<PathBuf, LassoError> {
+fn resolve_policy_path(input: &str, field: &str, home: &Path) -> Result<PathBuf, LuxError> {
     let expanded = expand_home_path(input, home, field)?;
     canonicalize_policy_path(&expanded, field)
 }
@@ -1065,28 +1065,28 @@ fn path_is_within(path: &Path, root: &Path) -> bool {
     path == root || path.starts_with(root)
 }
 
-fn resolve_config_policy_paths(cfg: &Config) -> Result<PolicyPaths, LassoError> {
+fn resolve_config_policy_paths(cfg: &Config) -> Result<PolicyPaths, LuxError> {
     let home = required_home_dir()?;
     let workspace_root =
         resolve_policy_path(&cfg.paths.workspace_root, "paths.workspace_root", &home)?;
     let log_root = resolve_policy_path(&cfg.paths.log_root, "paths.log_root", &home)?;
 
     if !path_is_within(&workspace_root, &home) {
-        return Err(LassoError::Config(format!(
+        return Err(LuxError::Config(format!(
             "paths.workspace_root must be under $HOME (home={}, workspace={})",
             home.display(),
             workspace_root.display()
         )));
     }
     if path_is_within(&log_root, &home) {
-        return Err(LassoError::Config(format!(
+        return Err(LuxError::Config(format!(
             "paths.log_root must be outside $HOME to protect evidence integrity (home={}, log_root={})",
             home.display(),
             log_root.display()
         )));
     }
     if path_is_within(&workspace_root, &log_root) || path_is_within(&log_root, &workspace_root) {
-        return Err(LassoError::Config(format!(
+        return Err(LuxError::Config(format!(
             "paths.workspace_root and paths.log_root must not overlap (workspace={}, log_root={})",
             workspace_root.display(),
             log_root.display()
@@ -1101,16 +1101,16 @@ fn resolve_config_policy_paths(cfg: &Config) -> Result<PolicyPaths, LassoError> 
 }
 
 fn default_config_dir() -> PathBuf {
-    if let Ok(path) = env::var("LASSO_CONFIG_DIR") {
+    if let Ok(path) = env::var("LUX_CONFIG_DIR") {
         return PathBuf::from(path);
     }
     let mut base = home_dir().unwrap_or_else(|| PathBuf::from("."));
     base.push(".config");
-    base.push("lasso");
+    base.push("lux");
     base
 }
 
-fn ensure_parent(path: &Path) -> Result<(), LassoError> {
+fn ensure_parent(path: &Path) -> Result<(), LuxError> {
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent)?;
     }
@@ -1148,18 +1148,18 @@ fn runtime_control_plane_request(
     path: &str,
     headers: &[(String, String)],
     body: Option<&[u8]>,
-) -> Result<RuntimeHttpResponse, LassoError> {
+) -> Result<RuntimeHttpResponse, LuxError> {
     let (paths, _) = resolve_runtime_paths(ctx)?;
     let socket_path = &paths.runtime_socket_path;
     let mut stream = UnixStream::connect(socket_path).map_err(|err| {
-        LassoError::Process(format!(
+        LuxError::Process(format!(
             "failed to connect runtime control plane socket {}: {}",
             socket_path.display(),
             err
         ))
     })?;
     let mut request = format!(
-        "{} {} HTTP/1.1\r\nHost: lasso-runtime\r\nConnection: close\r\n",
+        "{} {} HTTP/1.1\r\nHost: lux-runtime\r\nConnection: close\r\n",
         method, path
     );
     for (key, value) in headers {
@@ -1185,7 +1185,7 @@ fn runtime_control_plane_request(
         .windows(4)
         .position(|w| w == b"\r\n\r\n")
         .ok_or_else(|| {
-            LassoError::Process("runtime response missing header delimiter".to_string())
+            LuxError::Process("runtime response missing header delimiter".to_string())
         })?;
     let header_bytes = &raw[..split];
     let body_bytes = raw[split + 4..].to_vec();
@@ -1193,12 +1193,12 @@ fn runtime_control_plane_request(
     let mut lines = header_text.lines();
     let status_line = lines
         .next()
-        .ok_or_else(|| LassoError::Process("runtime response missing status line".to_string()))?;
+        .ok_or_else(|| LuxError::Process("runtime response missing status line".to_string()))?;
     let status = status_line
         .split_whitespace()
         .nth(1)
         .and_then(|s| s.parse::<u16>().ok())
-        .ok_or_else(|| LassoError::Process("runtime response has invalid status".to_string()))?;
+        .ok_or_else(|| LuxError::Process("runtime response has invalid status".to_string()))?;
     let _parsed_headers: BTreeMap<String, String> = lines
         .filter_map(|line| line.split_once(':'))
         .map(|(key, value)| (key.trim().to_ascii_lowercase(), value.trim().to_string()))
@@ -1216,16 +1216,16 @@ fn runtime_control_plane_request(
     _path: &str,
     _headers: &[(String, String)],
     _body: Option<&[u8]>,
-) -> Result<RuntimeHttpResponse, LassoError> {
-    Err(LassoError::Config(
+) -> Result<RuntimeHttpResponse, LuxError> {
+    Err(LuxError::Config(
         "runtime control plane is only supported on unix hosts".to_string(),
     ))
 }
 
-fn runtime_ping(ctx: &Context) -> Result<(), LassoError> {
+fn runtime_ping(ctx: &Context) -> Result<(), LuxError> {
     let response = runtime_control_plane_request(ctx, "GET", "/v1/healthz", &[], None)?;
     if response.status >= 400 {
-        return Err(LassoError::Process(format!(
+        return Err(LuxError::Process(format!(
             "runtime control plane ping failed with status {}",
             response.status
         )));
@@ -1233,7 +1233,7 @@ fn runtime_ping(ctx: &Context) -> Result<(), LassoError> {
     Ok(())
 }
 
-fn ensure_runtime_running(ctx: &Context) -> Result<(), LassoError> {
+fn ensure_runtime_running(ctx: &Context) -> Result<(), LuxError> {
     if runtime_ping(ctx).is_ok() {
         return Ok(());
     }
@@ -1241,7 +1241,7 @@ fn ensure_runtime_running(ctx: &Context) -> Result<(), LassoError> {
     runtime_ping(ctx)
 }
 
-fn handle_runtime_execute_proxy(ctx: &Context, raw_args: &[String]) -> Result<(), LassoError> {
+fn handle_runtime_execute_proxy(ctx: &Context, raw_args: &[String]) -> Result<(), LuxError> {
     ensure_runtime_running(ctx)?;
     let body = serde_json::to_vec(&json!({ "argv": raw_args }))?;
     let response = runtime_control_plane_request(
@@ -1253,13 +1253,13 @@ fn handle_runtime_execute_proxy(ctx: &Context, raw_args: &[String]) -> Result<()
     )?;
     if response.status >= 400 {
         let text = String::from_utf8_lossy(&response.body).to_string();
-        return Err(LassoError::Process(format!(
+        return Err(LuxError::Process(format!(
             "runtime execute request failed (HTTP {}): {}",
             response.status, text
         )));
     }
     let payload: serde_json::Value = serde_json::from_slice(&response.body).map_err(|err| {
-        LassoError::Process(format!("runtime execute returned invalid JSON: {err}"))
+        LuxError::Process(format!("runtime execute returned invalid JSON: {err}"))
     })?;
     let status_code = payload
         .get("status_code")
@@ -1285,10 +1285,10 @@ fn handle_runtime_execute_proxy(ctx: &Context, raw_args: &[String]) -> Result<()
     Ok(())
 }
 
-fn read_config_from_str(content: &str) -> Result<Config, LassoError> {
+fn read_config_from_str(content: &str) -> Result<Config, LuxError> {
     let cfg: Config = serde_yaml::from_str(content)?;
     if cfg.version != 2 {
-        return Err(LassoError::Config(format!(
+        return Err(LuxError::Config(format!(
             "unsupported config version {}",
             cfg.version
         )));
@@ -1297,38 +1297,38 @@ fn read_config_from_str(content: &str) -> Result<Config, LassoError> {
     Ok(cfg)
 }
 
-fn read_config(path: &Path) -> Result<Config, LassoError> {
+fn read_config(path: &Path) -> Result<Config, LuxError> {
     let content = fs::read_to_string(path)?;
     read_config_from_str(&content)
 }
 
-fn validate_config(cfg: &Config) -> Result<(), LassoError> {
+fn validate_config(cfg: &Config) -> Result<(), LuxError> {
     if env::consts::OS != "macos" && env::consts::OS != "linux" {
-        return Err(LassoError::Config(format!(
+        return Err(LuxError::Config(format!(
             "unsupported host operating system '{}'; supported: macos, linux",
             env::consts::OS
         )));
     }
     let _ = resolve_config_policy_paths(cfg)?;
     if cfg.collector.idle_timeout_min == 0 {
-        return Err(LassoError::Config(
+        return Err(LuxError::Config(
             "collector.idle_timeout_min must be greater than 0".to_string(),
         ));
     }
     if cfg.collector.rotate_every_min == 0 {
-        return Err(LassoError::Config(
+        return Err(LuxError::Config(
             "collector.rotate_every_min must be greater than 0".to_string(),
         ));
     }
     if cfg.harness.api_port == 0 {
-        return Err(LassoError::Config(
+        return Err(LuxError::Config(
             "harness.api_port must be greater than 0".to_string(),
         ));
     }
     if cfg.runtime_control_plane.socket_path.contains('\n')
         || cfg.runtime_control_plane.socket_path.contains('\r')
     {
-        return Err(LassoError::Config(
+        return Err(LuxError::Config(
             "runtime_control_plane.socket_path contains an invalid newline".to_string(),
         ));
     }
@@ -1338,7 +1338,7 @@ fn validate_config(cfg: &Config) -> Result<(), LassoError> {
         if !configured.is_empty() {
             let expanded = PathBuf::from(expand_path(configured));
             if unix_socket_path_too_long(&expanded) {
-                return Err(LassoError::Config(format!(
+                return Err(LuxError::Config(format!(
                     "runtime_control_plane.socket_path is too long for unix sockets ({} bytes); set a shorter path",
                     expanded.as_os_str().as_bytes().len()
                 )));
@@ -1346,38 +1346,38 @@ fn validate_config(cfg: &Config) -> Result<(), LassoError> {
         }
     }
     if cfg.providers.is_empty() {
-        return Err(LassoError::Config(
+        return Err(LuxError::Config(
             "config.providers must contain at least one provider".to_string(),
         ));
     }
     for (name, provider) in &cfg.providers {
         if provider.commands.tui.trim().is_empty() {
-            return Err(LassoError::Config(format!(
+            return Err(LuxError::Config(format!(
                 "providers.{name}.commands.tui must be non-empty"
             )));
         }
         if provider.commands.run_template.trim().is_empty() {
-            return Err(LassoError::Config(format!(
+            return Err(LuxError::Config(format!(
                 "providers.{name}.commands.run_template must be non-empty"
             )));
         }
         if provider.auth.api_key.secrets_file.trim().is_empty() {
-            return Err(LassoError::Config(format!(
+            return Err(LuxError::Config(format!(
                 "providers.{name}.auth.api_key.secrets_file must be non-empty"
             )));
         }
         if provider.auth.api_key.env_key.trim().is_empty() {
-            return Err(LassoError::Config(format!(
+            return Err(LuxError::Config(format!(
                 "providers.{name}.auth.api_key.env_key must be non-empty"
             )));
         }
         if provider.auth.host_state.paths.is_empty() {
-            return Err(LassoError::Config(format!(
+            return Err(LuxError::Config(format!(
                 "providers.{name}.auth.host_state.paths must contain at least one path"
             )));
         }
         if provider.ownership.root_comm.is_empty() {
-            return Err(LassoError::Config(format!(
+            return Err(LuxError::Config(format!(
                 "providers.{name}.ownership.root_comm must contain at least one process name"
             )));
         }
@@ -1457,20 +1457,20 @@ fn runtime_socket_fallback_path(config_dir: &Path) -> PathBuf {
     let uid = current_uid();
     let candidates = vec![
         env::temp_dir()
-            .join(format!("lasso-runtime-u{uid}"))
+            .join(format!("lux-runtime-u{uid}"))
             .join(format!("{hash:016x}"))
             .join("control_plane.sock"),
         PathBuf::from(format!(
-            "/tmp/lasso-runtime-u{uid}/{hash:016x}/control_plane.sock"
+            "/tmp/lux-runtime-u{uid}/{hash:016x}/control_plane.sock"
         )),
-        PathBuf::from(format!("/tmp/lasso-{hash:016x}/control_plane.sock")),
+        PathBuf::from(format!("/tmp/lux-{hash:016x}/control_plane.sock")),
     ];
     for candidate in candidates {
         if !unix_socket_path_too_long(&candidate) {
             return candidate;
         }
     }
-    PathBuf::from("/tmp/lasso.sock")
+    PathBuf::from("/tmp/lux.sock")
 }
 
 fn effective_runtime_socket_path(cfg: &Config, config_dir: &Path) -> PathBuf {
@@ -1501,13 +1501,13 @@ fn config_to_env(cfg: &Config, config_path: &Path) -> BTreeMap<String, String> {
     } else {
         cfg.release.tag.trim().to_string()
     };
-    envs.insert("LASSO_VERSION".to_string(), tag);
+    envs.insert("LUX_VERSION".to_string(), tag);
     envs.insert(
-        "LASSO_LOG_ROOT".to_string(),
+        "LUX_LOG_ROOT".to_string(),
         expand_path(&cfg.paths.log_root),
     );
     envs.insert(
-        "LASSO_WORKSPACE_ROOT".to_string(),
+        "LUX_WORKSPACE_ROOT".to_string(),
         expand_path(&cfg.paths.workspace_root),
     );
     if !cfg.harness.api_token.trim().is_empty() {
@@ -1528,12 +1528,12 @@ fn config_to_env(cfg: &Config, config_path: &Path) -> BTreeMap<String, String> {
     let runtime_socket = effective_runtime_socket_path(cfg, &config_dir);
     if let Some(runtime_dir) = runtime_socket.parent() {
         envs.insert(
-            "LASSO_RUNTIME_DIR".to_string(),
+            "LUX_RUNTIME_DIR".to_string(),
             runtime_dir.to_string_lossy().to_string(),
         );
     }
     envs.insert(
-        "LASSO_RUNTIME_GID".to_string(),
+        "LUX_RUNTIME_GID".to_string(),
         effective_runtime_socket_gid(cfg).to_string(),
     );
     envs
@@ -1552,7 +1552,7 @@ fn merged_root_comm(cfg: &Config) -> Vec<String> {
     merged.into_iter().collect()
 }
 
-fn write_env_file(path: &Path, envs: &BTreeMap<String, String>) -> Result<(), LassoError> {
+fn write_env_file(path: &Path, envs: &BTreeMap<String, String>) -> Result<(), LuxError> {
     ensure_parent(path)?;
     let mut content = String::new();
     for (key, value) in envs {
@@ -1565,7 +1565,7 @@ fn write_env_file(path: &Path, envs: &BTreeMap<String, String>) -> Result<(), La
 fn host_dir_writable(path: &Path) -> bool {
     fs::create_dir_all(path)
         .and_then(|_| {
-            let test_path = path.join(".lasso_write_test");
+            let test_path = path.join(".lux_write_test");
             fs::write(&test_path, b"ok")?;
             fs::remove_file(&test_path)?;
             Ok(())
@@ -1598,15 +1598,15 @@ fn handle_setup(
     yes: bool,
     no_apply: bool,
     dry_run: bool,
-) -> Result<(), LassoError> {
+) -> Result<(), LuxError> {
     let apply = !no_apply && !dry_run;
     if ctx.json && !defaults {
-        return Err(LassoError::Process(
-            "--json is only supported with `lasso setup --defaults`".to_string(),
+        return Err(LuxError::Process(
+            "--json is only supported with `lux setup --defaults`".to_string(),
         ));
     }
     if !defaults && !io::stdin().is_terminal() {
-        return Err(LassoError::Process(
+        return Err(LuxError::Process(
             "interactive setup requires a TTY; re-run with `--defaults` for non-interactive mode"
                 .to_string(),
         ));
@@ -1625,7 +1625,7 @@ fn handle_setup(
     let base_cfg = match read_config_from_str(&base_yaml) {
         Ok(cfg) => cfg,
         Err(err) => {
-            return Err(LassoError::Config(format!(
+            return Err(LuxError::Config(format!(
                 "config is invalid. Please edit {} and try again. ({})",
                 config_path.display(),
                 err
@@ -1650,7 +1650,7 @@ fn handle_setup(
             let env_key = provider.auth.api_key.env_key.trim();
             let value = env::var(env_key).ok().unwrap_or_default();
             if value.trim().is_empty() {
-                return Err(LassoError::Process(format!(
+                return Err(LuxError::Process(format!(
                     "provider '{provider_name}' uses auth_mode=api_key but secrets file is missing at {}; set {} in your environment or create the secrets file manually",
                     secrets_file.display(),
                     env_key
@@ -1719,7 +1719,7 @@ fn handle_setup(
         println!();
         println!(
             "{} {}",
-            style(format!("Lasso Setup ({step}/{total})")).bold().cyan(),
+            style(format!("Lux Setup ({step}/{total})")).bold().cyan(),
             style(title).bold()
         );
     }
@@ -1733,10 +1733,10 @@ fn handle_setup(
         // without needing a full-screen TUI.
         let _ = Term::stdout().clear_screen();
     }
-    println!("{}", style("Lasso Setup").bold().cyan());
+    println!("{}", style("Lux Setup").bold().cyan());
     println!(
         "{}",
-        style("Welcome to Lasso! The blackbox for your ai agents. ")
+        style("Welcome to Lux! The blackbox for your ai agents. ")
     );
     println!(
         "{}",
@@ -1828,7 +1828,7 @@ For safety and policy compliance, workspace must be under $HOME."
         println!(
             "{}",
             style(
-                "How Lasso authenticates your agents depends on 
+                "How Lux authenticates your agents depends on 
 if you're using an API key or a subscription-based plan"
             )
             .dim()
@@ -1998,13 +1998,13 @@ if you're using an API key or a subscription-based plan"
                 .providers
                 .get_mut(provider_name)
                 .ok_or_else(|| {
-                    LassoError::Config(format!("provider missing from config: {provider_name}"))
+                    LuxError::Config(format!("provider missing from config: {provider_name}"))
                 })?;
             provider.auth_mode = match auth_mode.as_str() {
                 "api_key" => AuthMode::ApiKey,
                 "host_state" => AuthMode::HostState,
                 other => {
-                    return Err(LassoError::Config(format!(
+                    return Err(LuxError::Config(format!(
                         "unsupported auth_mode '{other}'"
                     )))
                 }
@@ -2246,7 +2246,7 @@ if you're using an API key or a subscription-based plan"
         println!();
         println!(
             "{}",
-            style("Manual secrets next steps (required before `lasso up --provider <name>` will work):")
+            style("Manual secrets next steps (required before `lux up --provider <name>` will work):")
                 .yellow()
                 .bold()
         );
@@ -2283,7 +2283,7 @@ if you're using an API key or a subscription-based plan"
     println!("{}", style("That's it!"));
     println!(
         "{}",
-        style("Now go spin up Lasso and start keeping track of your agents.").dim()
+        style("Now go spin up Lux and start keeping track of your agents.").dim()
     );
     println!(
         "{}",
@@ -2293,11 +2293,11 @@ if you're using an API key or a subscription-based plan"
     println!();
     println!("{}", style("Next steps").bold().cyan());
     if !apply {
-        println!("  lasso config apply");
+        println!("  lux config apply");
     }
-    println!("  lasso runtime up");
-    println!("  lasso ui up --wait");
-    println!("  lasso shim install codex claude");
+    println!("  lux runtime up");
+    println!("  lux ui up --wait");
+    println!("  lux shim install codex claude");
     if cfg_after_yaml.providers.contains_key("codex") {
         println!("  codex");
     } else if let Some(example) = cfg_after_yaml.providers.keys().next() {
@@ -2316,7 +2316,7 @@ if you're using an API key or a subscription-based plan"
     Ok(())
 }
 
-fn handle_config(ctx: &Context, command: ConfigCommand) -> Result<(), LassoError> {
+fn handle_config(ctx: &Context, command: ConfigCommand) -> Result<(), LuxError> {
     match command {
         ConfigCommand::Init => {
             if ctx.config_path.exists() {
@@ -2337,14 +2337,14 @@ fn handle_config(ctx: &Context, command: ConfigCommand) -> Result<(), LassoError
                     .arg(&ctx.config_path)
                     .status()
                     .map_err(|err| {
-                        LassoError::Process(format!("failed to launch editor: {err}"))
+                        LuxError::Process(format!("failed to launch editor: {err}"))
                     })?;
                 if !status.success() {
-                    return Err(LassoError::Process("editor exited with error".to_string()));
+                    return Err(LuxError::Process("editor exited with error".to_string()));
                 }
                 output(ctx, json!({"path": ctx.config_path}))
             } else {
-                Err(LassoError::Process(
+                Err(LuxError::Process(
                     "EDITOR is not set; please edit the config file manually".to_string(),
                 ))
             }
@@ -2357,7 +2357,7 @@ fn handle_config(ctx: &Context, command: ConfigCommand) -> Result<(), LassoError
             let cfg = match read_config(&ctx.config_path) {
                 Ok(cfg) => cfg,
                 Err(err) => {
-                    return Err(LassoError::Config(format!(
+                    return Err(LuxError::Config(format!(
                         "config is invalid. Please edit {} and try again. ({})",
                         ctx.config_path.display(),
                         err
@@ -2373,36 +2373,36 @@ fn handle_config(ctx: &Context, command: ConfigCommand) -> Result<(), LassoError
     }
 }
 
-fn apply_config(ctx: &Context, cfg: &Config) -> Result<(PathBuf, PathBuf), LassoError> {
-    fn create_log_root_with_guidance(log_root: &Path) -> Result<(), LassoError> {
+fn apply_config(ctx: &Context, cfg: &Config) -> Result<(PathBuf, PathBuf), LuxError> {
+    fn create_log_root_with_guidance(log_root: &Path) -> Result<(), LuxError> {
         fs::create_dir_all(log_root).map_err(|err| {
             if err.kind() == io::ErrorKind::PermissionDenied {
-                if env::consts::OS == "linux" && log_root.starts_with(Path::new("/var/lib/lasso")) {
-                    return LassoError::Config(format!(
+                if env::consts::OS == "linux" && log_root.starts_with(Path::new("/var/lib/lux")) {
+                    return LuxError::Config(format!(
                         "failed to create paths.log_root at {}: permission denied.\n\
-Linux default log root often needs a one-time setup:\n  sudo mkdir -p /var/lib/lasso/logs\n  sudo chown -R $USER /var/lib/lasso/logs\n\
-Then re-run `lasso config apply`.",
+Linux default log root often needs a one-time setup:\n  sudo mkdir -p /var/lib/lux/logs\n  sudo chown -R $USER /var/lib/lux/logs\n\
+Then re-run `lux config apply`.",
                         log_root.display()
                     ));
                 }
-                return LassoError::Config(format!(
+                return LuxError::Config(format!(
                     "failed to create paths.log_root at {}: permission denied.\n\
 Choose a writable log root outside $HOME or create this directory with sufficient permissions.",
                     log_root.display()
                 ));
             }
-            LassoError::Io(err)
+            LuxError::Io(err)
         })
     }
 
     let policy_paths = resolve_config_policy_paths(cfg)?;
     let mut envs = config_to_env(cfg, &ctx.config_path);
     envs.insert(
-        "LASSO_LOG_ROOT".to_string(),
+        "LUX_LOG_ROOT".to_string(),
         policy_paths.log_root.to_string_lossy().to_string(),
     );
     envs.insert(
-        "LASSO_WORKSPACE_ROOT".to_string(),
+        "LUX_WORKSPACE_ROOT".to_string(),
         policy_paths.workspace_root.to_string_lossy().to_string(),
     );
     write_env_file(&ctx.env_file, &envs)?;
@@ -2411,13 +2411,13 @@ Choose a writable log root outside $HOME or create this directory with sufficien
     let workspace_root = policy_paths.workspace_root;
     fs::create_dir_all(&workspace_root).map_err(|err| {
         if err.kind() == io::ErrorKind::PermissionDenied {
-            return LassoError::Config(format!(
+            return LuxError::Config(format!(
                 "failed to create paths.workspace_root at {}: permission denied.\n\
 Choose a writable workspace under $HOME.",
                 workspace_root.display()
             ));
         }
-        LassoError::Io(err)
+        LuxError::Io(err)
     })?;
     Ok((log_root, workspace_root))
 }
@@ -2438,7 +2438,7 @@ fn shell_single_quote(value: &str) -> String {
     out
 }
 
-fn write_atomic_text_file(path: &Path, content: &str, mode: Option<u32>) -> Result<(), LassoError> {
+fn write_atomic_text_file(path: &Path, content: &str, mode: Option<u32>) -> Result<(), LuxError> {
     ensure_parent(path)?;
     let parent = path.parent().unwrap_or_else(|| Path::new("."));
     let pid = std::process::id();
@@ -2450,7 +2450,7 @@ fn write_atomic_text_file(path: &Path, content: &str, mode: Option<u32>) -> Resu
         ".{}.tmp.{}.{}",
         path.file_name()
             .map(|s| s.to_string_lossy().to_string())
-            .unwrap_or_else(|| "lasso".to_string()),
+            .unwrap_or_else(|| "lux".to_string()),
         pid,
         ts
     ));
@@ -2469,7 +2469,7 @@ fn write_atomic_text_file_preserving_mode(
     path: &Path,
     content: &str,
     default_mode: u32,
-) -> Result<(), LassoError> {
+) -> Result<(), LuxError> {
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
@@ -2490,9 +2490,9 @@ fn write_provider_secrets_file(
     env_key: &str,
     value: &str,
     overwrite_allowed: bool,
-) -> Result<(), LassoError> {
+) -> Result<(), LuxError> {
     if path.exists() && !overwrite_allowed {
-        return Err(LassoError::Process(format!(
+        return Err(LuxError::Process(format!(
             "refusing to overwrite existing secrets file: {}",
             path.display()
         )));
@@ -2508,7 +2508,7 @@ fn write_provider_secrets_file(
 
     let env_key = env_key.trim();
     if env_key.is_empty() {
-        return Err(LassoError::Config(
+        return Err(LuxError::Config(
             "provider env_key must be non-empty".to_string(),
         ));
     }
@@ -2529,13 +2529,13 @@ fn is_blank_or_comment(line: &str) -> bool {
     trimmed.is_empty() || trimmed.starts_with('#')
 }
 
-fn leading_space_count(line: &str) -> Result<usize, LassoError> {
+fn leading_space_count(line: &str) -> Result<usize, LuxError> {
     let mut count = 0usize;
     for ch in line.chars() {
         match ch {
             ' ' => count += 1,
             '\t' => {
-                return Err(LassoError::Config(
+                return Err(LuxError::Config(
                     "tabs are not supported in config.yaml indentation".to_string(),
                 ))
             }
@@ -2545,7 +2545,7 @@ fn leading_space_count(line: &str) -> Result<usize, LassoError> {
     Ok(count)
 }
 
-fn match_block_key_line(line: &str, key: &str) -> Result<Option<usize>, LassoError> {
+fn match_block_key_line(line: &str, key: &str) -> Result<Option<usize>, LuxError> {
     if is_blank_or_comment(line) {
         return Ok(None);
     }
@@ -2574,7 +2574,7 @@ fn match_block_key_line(line: &str, key: &str) -> Result<Option<usize>, LassoErr
     Ok(None)
 }
 
-fn match_scalar_key_line(line: &str, key: &str) -> Result<Option<usize>, LassoError> {
+fn match_scalar_key_line(line: &str, key: &str) -> Result<Option<usize>, LuxError> {
     if is_blank_or_comment(line) {
         return Ok(None);
     }
@@ -2598,7 +2598,7 @@ fn find_block_range(
     start: usize,
     key: &str,
     expected_indent: usize,
-) -> Result<(usize, usize, usize), LassoError> {
+) -> Result<(usize, usize, usize), LuxError> {
     for (idx, line) in lines.iter().enumerate().skip(start) {
         let Some(indent) = match_block_key_line(line, key)? else {
             continue;
@@ -2622,7 +2622,7 @@ fn find_block_range(
         }
         return Ok((idx, body_start, body_end));
     }
-    Err(LassoError::Config(format!(
+    Err(LuxError::Config(format!(
         "could not find YAML mapping block '{key}:' at indent {expected_indent}"
     )))
 }
@@ -2712,7 +2712,7 @@ fn replace_yaml_scalar_value_in_line(
     line: &str,
     key: &str,
     new_value: &str,
-) -> Result<(String, bool), LassoError> {
+) -> Result<(String, bool), LuxError> {
     let indent = leading_space_count(line)?;
     let rest = &line[indent..];
     if !rest.starts_with(key) {
@@ -2731,7 +2731,7 @@ fn replace_yaml_scalar_value_in_line(
         value_start += 1;
     }
     if value_start >= line.len() {
-        return Err(LassoError::Config(format!(
+        return Err(LuxError::Config(format!(
             "expected scalar value for key '{key}'"
         )));
     }
@@ -2807,7 +2807,7 @@ fn patch_scalar_in_block(
     block_indent: usize,
     key: &str,
     new_value: &str,
-) -> Result<bool, LassoError> {
+) -> Result<bool, LuxError> {
     for idx in block_body_start..block_body_end {
         let line = &lines[idx];
         if is_blank_or_comment(line) {
@@ -2824,7 +2824,7 @@ fn patch_scalar_in_block(
         lines[idx] = patched;
         return Ok(changed);
     }
-    Err(LassoError::Config(format!(
+    Err(LuxError::Config(format!(
         "could not find scalar key '{key}:' within YAML block"
     )))
 }
@@ -2832,7 +2832,7 @@ fn patch_scalar_in_block(
 fn patch_setup_config_yaml(
     content: &str,
     edits: &SetupYamlEdits,
-) -> Result<(String, bool), LassoError> {
+) -> Result<(String, bool), LuxError> {
     let mut lines: Vec<String> = content.split('\n').map(|s| s.to_string()).collect();
     // `split('\n')` leaves a trailing empty line if the input ends with '\n'. We'll normalize to
     // always end with one newline when writing back.
@@ -2887,7 +2887,7 @@ fn patch_setup_config_yaml(
                 break;
             }
             let Some(provider_line_idx) = provider_line_idx else {
-                return Err(LassoError::Config(format!(
+                return Err(LuxError::Config(format!(
                     "could not find provider block '{}:' in config.yaml",
                     provider_name
                 )));
@@ -2926,7 +2926,7 @@ fn patch_setup_config_yaml(
 
 fn default_install_dir() -> PathBuf {
     let mut base = home_dir().unwrap_or_else(|| PathBuf::from("."));
-    base.push(".lasso");
+    base.push(".lux");
     base
 }
 
@@ -2956,7 +2956,7 @@ struct RuntimePaths {
     bin_path: PathBuf,
 }
 
-fn resolve_runtime_paths(ctx: &Context) -> Result<(RuntimePaths, bool), LassoError> {
+fn resolve_runtime_paths(ctx: &Context) -> Result<(RuntimePaths, bool), LuxError> {
     let config_exists = ctx.config_path.exists();
     let cfg = if config_exists {
         read_config(&ctx.config_path)?
@@ -2979,7 +2979,7 @@ fn resolve_runtime_paths(ctx: &Context) -> Result<(RuntimePaths, bool), LassoErr
     let versions_dir = install_dir.join("versions");
     let current_link = install_dir.join("current");
     let bin_dir = default_bin_dir();
-    let bin_path = bin_dir.join("lasso");
+    let bin_path = bin_dir.join("lux");
     Ok((
         RuntimePaths {
             config_dir,
@@ -3027,12 +3027,12 @@ fn normalize_version_tag(raw: &str) -> String {
     }
 }
 
-fn release_platform() -> Result<(String, String), LassoError> {
+fn release_platform() -> Result<(String, String), LuxError> {
     let os = match env::consts::OS {
         "macos" => "darwin",
         "linux" => "linux",
         value => {
-            return Err(LassoError::Config(format!(
+            return Err(LuxError::Config(format!(
                 "unsupported operating system for update: {value}"
             )))
         }
@@ -3041,7 +3041,7 @@ fn release_platform() -> Result<(String, String), LassoError> {
         "x86_64" => "amd64",
         "aarch64" => "arm64",
         value => {
-            return Err(LassoError::Config(format!(
+            return Err(LuxError::Config(format!(
                 "unsupported architecture for update: {value}"
             )))
         }
@@ -3050,15 +3050,15 @@ fn release_platform() -> Result<(String, String), LassoError> {
 }
 
 fn release_base_url_root() -> String {
-    let raw = env::var("LASSO_RELEASE_BASE_URL")
-        .unwrap_or_else(|_| "https://github.com/scottmaran/lasso/releases/download".to_string());
+    let raw = env::var("LUX_RELEASE_BASE_URL")
+        .unwrap_or_else(|_| "https://github.com/scottmaran/lux/releases/download".to_string());
     raw.trim_end_matches('/').to_string()
 }
 
-fn build_update_plan(paths: &RuntimePaths, target_version: &str) -> Result<UpdatePlan, LassoError> {
+fn build_update_plan(paths: &RuntimePaths, target_version: &str) -> Result<UpdatePlan, LuxError> {
     let target_version_tag = target_version.trim_start_matches('v').to_string();
     let (os, arch) = release_platform()?;
-    let bundle_name = format!("lasso_{}_{}_{}.tar.gz", target_version_tag, os, arch);
+    let bundle_name = format!("lux_{}_{}_{}.tar.gz", target_version_tag, os, arch);
     let checksum_name = format!("{bundle_name}.sha256");
     let base_url = format!("{}/{target_version}", release_base_url_root());
     Ok(UpdatePlan {
@@ -3098,7 +3098,7 @@ fn compare_version_tags(a: &str, b: &str) -> std::cmp::Ordering {
     }
 }
 
-fn list_installed_version_tags(paths: &RuntimePaths) -> Result<Vec<String>, LassoError> {
+fn list_installed_version_tags(paths: &RuntimePaths) -> Result<Vec<String>, LuxError> {
     if !paths.versions_dir.exists() {
         return Ok(Vec::new());
     }
@@ -3126,18 +3126,18 @@ fn select_previous_version(current: &str, installed_tags: &[String]) -> Option<S
     previous.map(|tag| format!("v{tag}"))
 }
 
-fn fetch_latest_release_tag() -> Result<String, LassoError> {
-    let url = "https://api.github.com/repos/scottmaran/lasso/releases/latest";
+fn fetch_latest_release_tag() -> Result<String, LuxError> {
+    let url = "https://api.github.com/repos/scottmaran/lux/releases/latest";
     let client = reqwest::blocking::Client::new();
     let response = client
         .get(url)
         .header("Accept", "application/vnd.github+json")
-        .header("User-Agent", "lasso-cli")
+        .header("User-Agent", "lux-cli")
         .send()?;
     let status = response.status();
     if !status.is_success() {
         let body = response.text().unwrap_or_default();
-        return Err(LassoError::Process(format!(
+        return Err(LuxError::Process(format!(
             "failed to resolve latest release: HTTP {} {}",
             status, body
         )));
@@ -3146,13 +3146,13 @@ fn fetch_latest_release_tag() -> Result<String, LassoError> {
     Ok(normalize_version_tag(&payload.tag_name))
 }
 
-fn download_file(url: &str, path: &Path) -> Result<(), LassoError> {
+fn download_file(url: &str, path: &Path) -> Result<(), LuxError> {
     let client = reqwest::blocking::Client::new();
-    let response = client.get(url).header("User-Agent", "lasso-cli").send()?;
+    let response = client.get(url).header("User-Agent", "lux-cli").send()?;
     let status = response.status();
     if !status.is_success() {
         let body = response.text().unwrap_or_default();
-        return Err(LassoError::Process(format!(
+        return Err(LuxError::Process(format!(
             "download failed: {} (HTTP {} {})",
             url, status, body
         )));
@@ -3175,7 +3175,7 @@ fn parse_checksum(content: &str) -> Option<String> {
     None
 }
 
-fn sha256_file(path: &Path) -> Result<String, LassoError> {
+fn sha256_file(path: &Path) -> Result<String, LuxError> {
     let path_str = path.to_string_lossy().to_string();
     let attempts: Vec<(&str, Vec<String>)> = vec![
         (
@@ -3199,22 +3199,22 @@ fn sha256_file(path: &Path) -> Result<String, LassoError> {
             return Ok(token);
         }
     }
-    Err(LassoError::Process(
+    Err(LuxError::Process(
         "no SHA256 tool found (expected shasum, sha256sum, or openssl)".to_string(),
     ))
 }
 
-fn verify_bundle_checksum(bundle_path: &Path, checksum_path: &Path) -> Result<(), LassoError> {
+fn verify_bundle_checksum(bundle_path: &Path, checksum_path: &Path) -> Result<(), LuxError> {
     let checksum_content = fs::read_to_string(checksum_path)?;
     let Some(expected) = parse_checksum(&checksum_content) else {
-        return Err(LassoError::Process(format!(
+        return Err(LuxError::Process(format!(
             "invalid checksum file: {}",
             checksum_path.display()
         )));
     };
     let actual = sha256_file(bundle_path)?;
     if expected != actual {
-        return Err(LassoError::Process(format!(
+        return Err(LuxError::Process(format!(
             "checksum mismatch for {}: expected {}, got {}",
             bundle_path.display(),
             expected,
@@ -3239,15 +3239,15 @@ fn normalize_tar_entry_path(raw: &str) -> Option<String> {
     Some(stripped.to_string())
 }
 
-fn tar_list_entries(bundle_path: &Path) -> Result<Vec<String>, LassoError> {
+fn tar_list_entries(bundle_path: &Path) -> Result<Vec<String>, LuxError> {
     let output = Command::new("tar")
         .arg("-tzf")
         .arg(bundle_path)
         .output()
-        .map_err(|err| LassoError::Process(format!("failed to run tar: {err}")))?;
+        .map_err(|err| LuxError::Process(format!("failed to run tar: {err}")))?;
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
-        return Err(LassoError::Process(format!(
+        return Err(LuxError::Process(format!(
             "tar listing failed with status {}: {}",
             output.status,
             stderr.trim()
@@ -3283,7 +3283,7 @@ fn tar_has_single_top_level_dir(entries: &[String]) -> bool {
                 }
             }
             None => {
-                // Allow only top-level directory marker entries (e.g. "lasso_0.1.0_darwin_arm64").
+                // Allow only top-level directory marker entries (e.g. "lux_0.1.0_darwin_arm64").
                 if let Some(existing) = top {
                     if existing != first {
                         return false;
@@ -3297,7 +3297,7 @@ fn tar_has_single_top_level_dir(entries: &[String]) -> bool {
     saw_nested && top.is_some()
 }
 
-fn extract_bundle(bundle_path: &Path, destination_dir: &Path) -> Result<(), LassoError> {
+fn extract_bundle(bundle_path: &Path, destination_dir: &Path) -> Result<(), LuxError> {
     fs::create_dir_all(destination_dir)?;
     let entries = tar_list_entries(bundle_path)?;
     let strip_components = tar_has_single_top_level_dir(&entries);
@@ -3311,30 +3311,30 @@ fn extract_bundle(bundle_path: &Path, destination_dir: &Path) -> Result<(), Lass
     }
     let status = cmd
         .status()
-        .map_err(|err| LassoError::Process(format!("failed to run tar: {err}")))?;
+        .map_err(|err| LuxError::Process(format!("failed to run tar: {err}")))?;
     if !status.success() {
-        return Err(LassoError::Process(format!(
+        return Err(LuxError::Process(format!(
             "tar extraction failed with status {status}"
         )));
     }
     Ok(())
 }
 
-fn force_symlink(target: &Path, link_path: &Path) -> Result<(), LassoError> {
+fn force_symlink(target: &Path, link_path: &Path) -> Result<(), LuxError> {
     ensure_parent(link_path)?;
     match fs::symlink_metadata(link_path) {
         Ok(meta) => {
             if meta.file_type().is_symlink() || meta.file_type().is_file() {
                 fs::remove_file(link_path)?;
             } else {
-                return Err(LassoError::Process(format!(
+                return Err(LuxError::Process(format!(
                     "refusing to replace directory with symlink: {}",
                     link_path.display()
                 )));
             }
         }
         Err(err) if err.kind() == io::ErrorKind::NotFound => {}
-        Err(err) => return Err(LassoError::Io(err)),
+        Err(err) => return Err(LuxError::Io(err)),
     }
     #[cfg(unix)]
     {
@@ -3342,7 +3342,7 @@ fn force_symlink(target: &Path, link_path: &Path) -> Result<(), LassoError> {
         return Ok(());
     }
     #[allow(unreachable_code)]
-    Err(LassoError::Config(
+    Err(LuxError::Config(
         "update is not supported on this platform".to_string(),
     ))
 }
@@ -3352,7 +3352,7 @@ fn temp_download_dir() -> PathBuf {
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_nanos())
         .unwrap_or(0);
-    env::temp_dir().join(format!("lasso-update-{}-{}", std::process::id(), nanos))
+    env::temp_dir().join(format!("lux-update-{}-{}", std::process::id(), nanos))
 }
 
 #[derive(Debug)]
@@ -3402,11 +3402,11 @@ fn compose_files(
     ctx: &Context,
     ui: bool,
     runtime_overrides: &[PathBuf],
-) -> Result<Vec<PathBuf>, LassoError> {
+) -> Result<Vec<PathBuf>, LuxError> {
     let files = configured_compose_files(ctx, ui, runtime_overrides);
     for path in &files {
         if !path.exists() {
-            return Err(LassoError::Config(format!(
+            return Err(LuxError::Config(format!(
                 "missing compose file: {}",
                 path.display()
             )));
@@ -3420,17 +3420,17 @@ fn compose_base_args(
     cfg: &Config,
     ui: bool,
     runtime_overrides: &[PathBuf],
-) -> Result<Vec<String>, LassoError> {
+) -> Result<Vec<String>, LuxError> {
     let files = compose_files(ctx, ui, runtime_overrides)?;
     if !ctx.env_file.exists() {
         let policy_paths = resolve_config_policy_paths(cfg)?;
         let mut envs = config_to_env(cfg, &ctx.config_path);
         envs.insert(
-            "LASSO_LOG_ROOT".to_string(),
+            "LUX_LOG_ROOT".to_string(),
             policy_paths.log_root.to_string_lossy().to_string(),
         );
         envs.insert(
-            "LASSO_WORKSPACE_ROOT".to_string(),
+            "LUX_WORKSPACE_ROOT".to_string(),
             policy_paths.workspace_root.to_string_lossy().to_string(),
         );
         write_env_file(&ctx.env_file, &envs)?;
@@ -3454,29 +3454,29 @@ fn compose_base_args(
 fn resolve_lifecycle_target(
     provider: Option<String>,
     collector_only: bool,
-) -> Result<LifecycleTarget, LassoError> {
+) -> Result<LifecycleTarget, LuxError> {
     if collector_only {
         if provider.is_some() {
-            return Err(LassoError::Config(
+            return Err(LuxError::Config(
                 "--collector-only conflicts with --provider".to_string(),
             ));
         }
         return Ok(LifecycleTarget::CollectorOnly);
     }
     let provider = provider.ok_or_else(|| {
-        LassoError::Config("missing required --provider for this command".to_string())
+        LuxError::Config("missing required --provider for this command".to_string())
     })?;
     if provider.trim().is_empty() {
-        return Err(LassoError::Config(
+        return Err(LuxError::Config(
             "--provider must be non-empty".to_string(),
         ));
     }
     Ok(LifecycleTarget::Provider(provider))
 }
 
-fn provider_from_config<'a>(cfg: &'a Config, provider: &str) -> Result<&'a Provider, LassoError> {
+fn provider_from_config<'a>(cfg: &'a Config, provider: &str) -> Result<&'a Provider, LuxError> {
     cfg.providers.get(provider).ok_or_else(|| {
-        LassoError::Config(format!(
+        LuxError::Config(format!(
             "provider '{provider}' is not defined in config.providers"
         ))
     })
@@ -3486,7 +3486,7 @@ fn active_provider_state_path(log_root: &Path) -> PathBuf {
     log_root.join(".active_provider.json")
 }
 
-fn load_active_provider_state(log_root: &Path) -> Result<Option<ActiveProviderState>, LassoError> {
+fn load_active_provider_state(log_root: &Path) -> Result<Option<ActiveProviderState>, LuxError> {
     let state_path = active_provider_state_path(log_root);
     if !state_path.exists() {
         return Ok(None);
@@ -3501,7 +3501,7 @@ fn write_active_provider_state(
     provider: &str,
     auth_mode: &AuthMode,
     run_id: &str,
-) -> Result<(), LassoError> {
+) -> Result<(), LuxError> {
     fs::create_dir_all(log_root)?;
     let state = ActiveProviderState {
         provider: provider.to_string(),
@@ -3517,7 +3517,7 @@ fn write_active_provider_state(
     Ok(())
 }
 
-fn clear_active_provider_state(log_root: &Path) -> Result<(), LassoError> {
+fn clear_active_provider_state(log_root: &Path) -> Result<(), LuxError> {
     let path = active_provider_state_path(log_root);
     if path.exists() {
         fs::remove_file(path)?;
@@ -3546,7 +3546,7 @@ fn generate_provider_runtime_compose(
     provider_name: &str,
     provider: &Provider,
     tui_cmd_override: Option<&str>,
-) -> Result<ProviderRuntimeCompose, LassoError> {
+) -> Result<ProviderRuntimeCompose, LuxError> {
     let runtime_dir = ctx
         .config_path
         .parent()
@@ -3572,12 +3572,12 @@ fn generate_provider_runtime_compose(
 
     agent
         .environment
-        .push(format!("LASSO_PROVIDER={provider_name}"));
+        .push(format!("LUX_PROVIDER={provider_name}"));
     agent
         .environment
-        .push(format!("LASSO_AUTH_MODE={}", provider.auth_mode.as_str()));
+        .push(format!("LUX_AUTH_MODE={}", provider.auth_mode.as_str()));
     agent.environment.push(format!(
-        "LASSO_PROVIDER_MOUNT_HOST_STATE_IN_API_MODE={}",
+        "LUX_PROVIDER_MOUNT_HOST_STATE_IN_API_MODE={}",
         if provider.mount_host_state_in_api_mode {
             "true"
         } else {
@@ -3585,7 +3585,7 @@ fn generate_provider_runtime_compose(
         }
     ));
     agent.environment.push(format!(
-        "LASSO_PROVIDER_ENV_KEY={}",
+        "LUX_PROVIDER_ENV_KEY={}",
         provider.auth.api_key.env_key
     ));
 
@@ -3602,15 +3602,15 @@ fn generate_provider_runtime_compose(
                 ));
                 continue;
             }
-            let mount_dst = format!("/run/lasso/provider_host_state/{host_state_count}");
+            let mount_dst = format!("/run/lux/provider_host_state/{host_state_count}");
             agent
                 .volumes
                 .push(format!("{}:{}:ro", host_path.to_string_lossy(), mount_dst));
             agent.environment.push(format!(
-                "LASSO_PROVIDER_HOST_STATE_SRC_{host_state_count}={mount_dst}"
+                "LUX_PROVIDER_HOST_STATE_SRC_{host_state_count}={mount_dst}"
             ));
             agent.environment.push(format!(
-                "LASSO_PROVIDER_HOST_STATE_DST_{host_state_count}={}",
+                "LUX_PROVIDER_HOST_STATE_DST_{host_state_count}={}",
                 resolve_host_state_destination(&host_path)
             ));
             host_state_count += 1;
@@ -3622,24 +3622,24 @@ fn generate_provider_runtime_compose(
         }
     }
     agent.environment.push(format!(
-        "LASSO_PROVIDER_HOST_STATE_COUNT={host_state_count}"
+        "LUX_PROVIDER_HOST_STATE_COUNT={host_state_count}"
     ));
 
     if provider.auth_mode == AuthMode::ApiKey {
         let secrets_file = PathBuf::from(expand_path(&provider.auth.api_key.secrets_file));
         if !secrets_file.exists() {
-            return Err(LassoError::Config(format!(
+            return Err(LuxError::Config(format!(
                 "provider '{provider_name}': API secrets file not found: {}",
                 secrets_file.display()
             )));
         }
         if !secrets_file.is_file() {
-            return Err(LassoError::Config(format!(
+            return Err(LuxError::Config(format!(
                 "provider '{provider_name}': API secrets path is not a file: {}",
                 secrets_file.display()
             )));
         }
-        let container_secrets = "/run/lasso/provider_secrets.env";
+        let container_secrets = "/run/lux/provider_secrets.env";
         agent.volumes.push(format!(
             "{}:{}:ro",
             secrets_file.to_string_lossy(),
@@ -3647,11 +3647,11 @@ fn generate_provider_runtime_compose(
         ));
         agent
             .environment
-            .push(format!("LASSO_PROVIDER_SECRETS_FILE={container_secrets}"));
+            .push(format!("LUX_PROVIDER_SECRETS_FILE={container_secrets}"));
     } else {
         agent
             .environment
-            .push("LASSO_PROVIDER_SECRETS_FILE=".to_string());
+            .push("LUX_PROVIDER_SECRETS_FILE=".to_string());
     }
 
     let mut runtime_override = ComposeRuntimeOverride::default();
@@ -3669,14 +3669,14 @@ fn generate_provider_runtime_compose(
 }
 
 fn run_id_from_now() -> String {
-    format!("lasso__{}", Utc::now().format("%Y_%m_%d_%H_%M_%S"))
+    format!("lux__{}", Utc::now().format("%Y_%m_%d_%H_%M_%S"))
 }
 
 fn active_run_state_path(log_root: &Path) -> PathBuf {
     log_root.join(".active_run.json")
 }
 
-fn load_active_run_state(log_root: &Path) -> Result<Option<ActiveRunState>, LassoError> {
+fn load_active_run_state(log_root: &Path) -> Result<Option<ActiveRunState>, LuxError> {
     let state_path = active_run_state_path(log_root);
     if !state_path.exists() {
         return Ok(None);
@@ -3690,7 +3690,7 @@ fn write_active_run_state(
     log_root: &Path,
     run_id: &str,
     workspace_root: &Path,
-) -> Result<(), LassoError> {
+) -> Result<(), LuxError> {
     fs::create_dir_all(log_root)?;
     let state = ActiveRunState {
         run_id: run_id.to_string(),
@@ -3705,7 +3705,7 @@ fn write_active_run_state(
     Ok(())
 }
 
-fn clear_active_run_state(log_root: &Path) -> Result<(), LassoError> {
+fn clear_active_run_state(log_root: &Path) -> Result<(), LuxError> {
     let path = active_run_state_path(log_root);
     if path.exists() {
         fs::remove_file(path)?;
@@ -3717,7 +3717,7 @@ fn run_root(log_root: &Path, run_id: &str) -> PathBuf {
     log_root.join(run_id)
 }
 
-fn list_run_ids(log_root: &Path) -> Result<Vec<String>, LassoError> {
+fn list_run_ids(log_root: &Path) -> Result<Vec<String>, LuxError> {
     let mut run_ids: Vec<String> = Vec::new();
     if !log_root.exists() {
         return Ok(run_ids);
@@ -3728,7 +3728,7 @@ fn list_run_ids(log_root: &Path) -> Result<Vec<String>, LassoError> {
             continue;
         }
         let name = entry.file_name().to_string_lossy().to_string();
-        if name.starts_with("lasso__") {
+        if name.starts_with("lux__") {
             run_ids.push(name);
         }
     }
@@ -3736,7 +3736,7 @@ fn list_run_ids(log_root: &Path) -> Result<Vec<String>, LassoError> {
     Ok(run_ids)
 }
 
-fn resolve_latest_run_id(log_root: &Path) -> Result<Option<String>, LassoError> {
+fn resolve_latest_run_id(log_root: &Path) -> Result<Option<String>, LuxError> {
     let runs = list_run_ids(log_root)?;
     Ok(runs.last().cloned())
 }
@@ -3747,30 +3747,30 @@ fn compose_env_for_run(
 ) -> BTreeMap<String, String> {
     let mut envs = BTreeMap::new();
     if let Some(run_id) = run_id {
-        envs.insert("LASSO_RUN_ID".to_string(), run_id.to_string());
+        envs.insert("LUX_RUN_ID".to_string(), run_id.to_string());
     }
     if let Some(workspace_root) = workspace_root {
         envs.insert(
-            "LASSO_WORKSPACE_ROOT".to_string(),
+            "LUX_WORKSPACE_ROOT".to_string(),
             workspace_root.to_string_lossy().to_string(),
         );
     }
     envs
 }
 
-fn resolve_default_run_id(log_root: &Path) -> Result<String, LassoError> {
+fn resolve_default_run_id(log_root: &Path) -> Result<String, LuxError> {
     match load_active_run_state(log_root)? {
         Some(state) => {
             if run_root(log_root, &state.run_id).exists() {
                 Ok(state.run_id)
             } else {
                 clear_active_run_state(log_root)?;
-                Err(LassoError::Process(
+                Err(LuxError::Process(
                     "no active run found; use --run-id or --latest".to_string(),
                 ))
             }
         }
-        None => Err(LassoError::Process(
+        None => Err(LuxError::Process(
             "no active run found; use --run-id or --latest".to_string(),
         )),
     }
@@ -3780,16 +3780,16 @@ fn resolve_run_id_from_selector(
     log_root: &Path,
     run_id: Option<&str>,
     latest: bool,
-) -> Result<String, LassoError> {
+) -> Result<String, LuxError> {
     if let Some(run_id) = run_id {
         if !run_root(log_root, run_id).exists() {
-            return Err(LassoError::Process(format!("run not found: {run_id}")));
+            return Err(LuxError::Process(format!("run not found: {run_id}")));
         }
         return Ok(run_id.to_string());
     }
     if latest {
         return resolve_latest_run_id(log_root)?.ok_or_else(|| {
-            LassoError::Process("no run directories found under log root".to_string())
+            LuxError::Process("no run directories found under log root".to_string())
         });
     }
     resolve_default_run_id(log_root)
@@ -3800,16 +3800,16 @@ fn validate_workspace_policy(
     home: &Path,
     log_root: &Path,
     field: &str,
-) -> Result<(), LassoError> {
+) -> Result<(), LuxError> {
     if !path_is_within(workspace_root, home) {
-        return Err(LassoError::Config(format!(
+        return Err(LuxError::Config(format!(
             "{field} must be under $HOME (home={}, workspace={})",
             home.display(),
             workspace_root.display()
         )));
     }
     if path_is_within(workspace_root, log_root) || path_is_within(log_root, workspace_root) {
-        return Err(LassoError::Config(format!(
+        return Err(LuxError::Config(format!(
             "{field} must not overlap log root (workspace={}, log_root={})",
             workspace_root.display(),
             log_root.display()
@@ -3821,7 +3821,7 @@ fn validate_workspace_policy(
 fn resolve_effective_workspace_root(
     cfg: &Config,
     workspace_override: Option<&str>,
-) -> Result<PathBuf, LassoError> {
+) -> Result<PathBuf, LuxError> {
     let policy = resolve_config_policy_paths(cfg)?;
     let mut workspace_root = policy.workspace_root;
     if let Some(raw_override) = workspace_override {
@@ -3839,7 +3839,7 @@ fn resolve_effective_workspace_root(
 fn resolve_active_run_workspace_root(
     cfg: &Config,
     active_run: &ActiveRunState,
-) -> Result<PathBuf, LassoError> {
+) -> Result<PathBuf, LuxError> {
     let policy = resolve_config_policy_paths(cfg)?;
     if let Some(raw) = active_run.workspace_root.as_deref() {
         let workspace_root = resolve_policy_path(raw, "active run workspace", &policy.home)?;
@@ -3858,23 +3858,23 @@ fn resolve_host_start_dir(
     cfg: &Config,
     workspace_root: &Path,
     start_dir: Option<&str>,
-) -> Result<PathBuf, LassoError> {
+) -> Result<PathBuf, LuxError> {
     let policy = resolve_config_policy_paths(cfg)?;
     let host_start_dir = match start_dir {
         Some(raw) => resolve_policy_path(raw, "--start-dir", &policy.home)?,
         None => {
             let cwd = env::current_dir().map_err(|err| {
-                LassoError::Process(format!(
+                LuxError::Process(format!(
                     "failed to resolve current working directory for default --start-dir: {}",
                     err
                 ))
             })?;
             canonicalize_policy_path(&cwd, "current working directory")
-                .map_err(|err| LassoError::Process(err.to_string()))?
+                .map_err(|err| LuxError::Process(err.to_string()))?
         }
     };
     if !path_is_within(&host_start_dir, workspace_root) {
-        return Err(LassoError::Config(format!(
+        return Err(LuxError::Config(format!(
             "--start-dir must be inside workspace (start_dir={}, workspace={})",
             host_start_dir.display(),
             workspace_root.display()
@@ -3886,9 +3886,9 @@ fn resolve_host_start_dir(
 fn map_host_start_dir_to_container(
     host_start_dir: &Path,
     workspace_root: &Path,
-) -> Result<String, LassoError> {
+) -> Result<String, LuxError> {
     let relative = host_start_dir.strip_prefix(workspace_root).map_err(|_| {
-        LassoError::Config(format!(
+        LuxError::Config(format!(
             "--start-dir must be inside workspace (start_dir={}, workspace={})",
             host_start_dir.display(),
             workspace_root.display()
@@ -3911,7 +3911,7 @@ fn running_services<R: DockerRunner>(
     runtime_overrides: &[PathBuf],
     env_overrides: &BTreeMap<String, String>,
     services: &[&str],
-) -> Result<Vec<String>, LassoError> {
+) -> Result<Vec<String>, LuxError> {
     let mut args = compose_base_args(ctx, cfg, ui, runtime_overrides)?;
     args.push("ps".to_string());
     args.push("--status".to_string());
@@ -3936,7 +3936,7 @@ fn provider_plane_is_running<R: DockerRunner>(
     cfg: &Config,
     ui: bool,
     env_overrides: &BTreeMap<String, String>,
-) -> Result<bool, LassoError> {
+) -> Result<bool, LuxError> {
     let running = running_services(
         ctx,
         runner,
@@ -3955,7 +3955,7 @@ fn collector_is_running<R: DockerRunner>(
     cfg: &Config,
     ui: bool,
     env_overrides: &BTreeMap<String, String>,
-) -> Result<bool, LassoError> {
+) -> Result<bool, LuxError> {
     let running = running_services(ctx, runner, cfg, ui, &[], env_overrides, &["collector"])?;
     Ok(running.iter().any(|s| s == "collector"))
 }
@@ -3987,10 +3987,10 @@ fn parse_compose_ps_output(text: &str) -> serde_json::Value {
     }
 }
 
-fn provider_mismatch_error(active_provider: &str, requested_provider: &str) -> LassoError {
-    LassoError::Process(format!(
+fn provider_mismatch_error(active_provider: &str, requested_provider: &str) -> LuxError {
+    LuxError::Process(format!(
         "provider mismatch: active provider is '{active_provider}', requested '{requested_provider}'. \
-Run `lasso down --provider {active_provider}` first."
+Run `lux down --provider {active_provider}` first."
     ))
 }
 
@@ -4117,13 +4117,13 @@ fn execute_docker<R: DockerRunner>(
     env_overrides: &BTreeMap<String, String>,
     capture_output: bool,
     passthrough_stdout: bool,
-) -> Result<CommandOutput, LassoError> {
+) -> Result<CommandOutput, LuxError> {
     let command = render_docker_command(args);
     let cmd_output = runner
         .run(args, &ctx.bundle_dir, env_overrides, capture_output)
         .map_err(|err| {
             let details = docker_spawn_error_details(&err, &command);
-            LassoError::ProcessDetailed {
+            LuxError::ProcessDetailed {
                 message: format!("failed to run command `{command}`: {err}"),
                 details,
             }
@@ -4143,7 +4143,7 @@ fn execute_docker<R: DockerRunner>(
         if let Some(ref hint_message) = hint {
             message = format!("{message}\nHint: {hint_message}");
         }
-        return Err(LassoError::ProcessDetailed {
+        return Err(LuxError::ProcessDetailed {
             message,
             details: ProcessErrorDetails {
                 error_code,
@@ -4171,7 +4171,7 @@ fn run_docker_command<R: DockerRunner>(
     env_overrides: &BTreeMap<String, String>,
     json_payload: serde_json::Value,
     capture_output: bool,
-) -> Result<(), LassoError> {
+) -> Result<(), LuxError> {
     let _ = execute_docker(ctx, runner, args, env_overrides, capture_output, true)?;
     output(ctx, json_payload)
 }
@@ -4180,7 +4180,7 @@ fn handle_ui<R: DockerRunner>(
     ctx: &Context,
     command: UiCommand,
     runner: &R,
-) -> Result<(), LassoError> {
+) -> Result<(), LuxError> {
     let cfg = read_config(&ctx.config_path)?;
     match command {
         UiCommand::Up {
@@ -4189,7 +4189,7 @@ fn handle_ui<R: DockerRunner>(
             pull,
         } => {
             if timeout_sec.is_some() && !wait {
-                return Err(LassoError::Config(
+                return Err(LuxError::Config(
                     "--timeout-sec requires --wait".to_string(),
                 ));
             }
@@ -4264,20 +4264,20 @@ fn handle_ui<R: DockerRunner>(
 }
 
 #[cfg(unix)]
-fn set_path_group(path: &Path, gid: u32) -> Result<(), LassoError> {
+fn set_path_group(path: &Path, gid: u32) -> Result<(), LuxError> {
     let status = Command::new("chgrp")
         .arg(gid.to_string())
         .arg(path)
         .status()
         .map_err(|err| {
-            LassoError::Process(format!(
+            LuxError::Process(format!(
                 "failed to run chgrp for {}: {}",
                 path.display(),
                 err
             ))
         })?;
     if !status.success() {
-        return Err(LassoError::Process(format!(
+        return Err(LuxError::Process(format!(
             "failed to set group {} on {}; check runtime_control_plane.socket_gid and filesystem permissions",
             gid,
             path.display()
@@ -4291,7 +4291,7 @@ fn ensure_runtime_permissions(
     cfg: &Config,
     runtime_dir: &Path,
     socket_path: Option<&Path>,
-) -> Result<(), LassoError> {
+) -> Result<(), LuxError> {
     use std::os::unix::fs::PermissionsExt;
 
     fs::create_dir_all(runtime_dir)?;
@@ -4341,11 +4341,11 @@ fn runtime_emit_event(
     event_type: &str,
     severity: &str,
     payload: serde_json::Value,
-) -> Result<RuntimeEvent, LassoError> {
+) -> Result<RuntimeEvent, LuxError> {
     let (lock, condvar) = &**shared;
     let mut state = lock
         .lock()
-        .map_err(|_| LassoError::Process("runtime state lock poisoned".to_string()))?;
+        .map_err(|_| LuxError::Process("runtime state lock poisoned".to_string()))?;
     state.next_event_id = state.next_event_id.saturating_add(1);
     let event = RuntimeEvent {
         id: state.next_event_id,
@@ -4377,7 +4377,7 @@ fn runtime_emit_warning(
     shared: &Arc<(Mutex<RuntimeSharedState>, Condvar)>,
     events_path: &Path,
     message: &str,
-) -> Result<(), LassoError> {
+) -> Result<(), LuxError> {
     let warning = RuntimeWarning {
         ts: Utc::now().to_rfc3339(),
         message: message.to_string(),
@@ -4386,7 +4386,7 @@ fn runtime_emit_warning(
         let (lock, _) = &**shared;
         let mut state = lock
             .lock()
-            .map_err(|_| LassoError::Process("runtime state lock poisoned".to_string()))?;
+            .map_err(|_| LuxError::Process("runtime state lock poisoned".to_string()))?;
         state.warnings.push_back(warning);
         while state.warnings.len() > 128 {
             let _ = state.warnings.pop_front();
@@ -4430,7 +4430,7 @@ fn runtime_record_command_events(
     events_path: &Path,
     argv: &[String],
     status_code: i32,
-) -> Result<(), LassoError> {
+) -> Result<(), LuxError> {
     if argv.iter().any(|item| item == "run") {
         let _ = runtime_emit_event(
             shared,
@@ -4452,23 +4452,23 @@ fn runtime_record_command_events(
     Ok(())
 }
 
-fn runtime_run_cli_subprocess(ctx: &Context, argv: &[String]) -> Result<CommandOutput, LassoError> {
+fn runtime_run_cli_subprocess(ctx: &Context, argv: &[String]) -> Result<CommandOutput, LuxError> {
     let exe = env::current_exe()?;
     let mut cmd = Command::new(exe);
     cmd.args(argv);
     cmd.env(RUNTIME_BYPASS_ENV, "1");
     cmd.env(
-        "LASSO_CONFIG",
+        "LUX_CONFIG",
         ctx.config_path.to_string_lossy().to_string(),
     );
-    cmd.env("LASSO_ENV_FILE", ctx.env_file.to_string_lossy().to_string());
+    cmd.env("LUX_ENV_FILE", ctx.env_file.to_string_lossy().to_string());
     cmd.env(
-        "LASSO_BUNDLE_DIR",
+        "LUX_BUNDLE_DIR",
         ctx.bundle_dir.to_string_lossy().to_string(),
     );
     let output = cmd
         .output()
-        .map_err(|err| LassoError::Process(format!("failed to run delegated command: {err}")))?;
+        .map_err(|err| LuxError::Process(format!("failed to run delegated command: {err}")))?;
     let status_code = output
         .status
         .code()
@@ -4507,10 +4507,10 @@ fn parse_query_map(query: &str) -> BTreeMap<String, String> {
 #[cfg(unix)]
 fn runtime_read_http_request(
     stream: &mut UnixStream,
-) -> Result<Option<RuntimeIncomingRequest>, LassoError> {
+) -> Result<Option<RuntimeIncomingRequest>, LuxError> {
     stream
         .set_read_timeout(Some(Duration::from_secs(10)))
-        .map_err(LassoError::Io)?;
+        .map_err(LuxError::Io)?;
     let mut buf = Vec::new();
     let mut header_end: Option<usize> = None;
     let mut chunk = [0u8; 1024];
@@ -4527,27 +4527,27 @@ fn runtime_read_http_request(
             header_end = Some(pos);
         }
         if buf.len() > 1024 * 1024 {
-            return Err(LassoError::Process(
+            return Err(LuxError::Process(
                 "runtime request headers too large".to_string(),
             ));
         }
     }
     let header_end = header_end.ok_or_else(|| {
-        LassoError::Process("runtime request missing header delimiter".to_string())
+        LuxError::Process("runtime request missing header delimiter".to_string())
     })?;
     let header_text = String::from_utf8_lossy(&buf[..header_end]);
     let mut lines = header_text.lines();
     let request_line = lines
         .next()
-        .ok_or_else(|| LassoError::Process("runtime request missing request line".to_string()))?;
+        .ok_or_else(|| LuxError::Process("runtime request missing request line".to_string()))?;
     let mut request_parts = request_line.split_whitespace();
     let method = request_parts
         .next()
-        .ok_or_else(|| LassoError::Process("runtime request missing method".to_string()))?
+        .ok_or_else(|| LuxError::Process("runtime request missing method".to_string()))?
         .to_string();
     let target = request_parts
         .next()
-        .ok_or_else(|| LassoError::Process("runtime request missing target".to_string()))?;
+        .ok_or_else(|| LuxError::Process("runtime request missing target".to_string()))?;
     let (path, query) = if let Some((path, query)) = target.split_once('?') {
         (path.to_string(), parse_query_map(query))
     } else {
@@ -4572,7 +4572,7 @@ fn runtime_read_http_request(
         buf.extend_from_slice(&chunk[..read]);
     }
     if buf.len() < body_start + content_length {
-        return Err(LassoError::Process(
+        return Err(LuxError::Process(
             "runtime request ended before full body was received".to_string(),
         ));
     }
@@ -4591,7 +4591,7 @@ fn runtime_write_json_response(
     stream: &mut UnixStream,
     status: u16,
     payload: &serde_json::Value,
-) -> Result<(), LassoError> {
+) -> Result<(), LuxError> {
     let status_text = match status {
         200 => "OK",
         400 => "Bad Request",
@@ -4619,7 +4619,7 @@ fn runtime_write_text_response(
     status: u16,
     content_type: &str,
     body: &str,
-) -> Result<(), LassoError> {
+) -> Result<(), LuxError> {
     let status_text = match status {
         200 => "OK",
         400 => "Bad Request",
@@ -4643,7 +4643,7 @@ fn runtime_write_text_response(
 }
 
 #[cfg(unix)]
-fn runtime_send_sse_event(stream: &mut UnixStream, event: &RuntimeEvent) -> Result<(), LassoError> {
+fn runtime_send_sse_event(stream: &mut UnixStream, event: &RuntimeEvent) -> Result<(), LuxError> {
     let data = serde_json::to_string(event)?;
     let frame = format!(
         "id: {}\nevent: {}\ndata: {}\n\n",
@@ -4657,7 +4657,7 @@ fn runtime_send_sse_event(stream: &mut UnixStream, event: &RuntimeEvent) -> Resu
 fn runtime_collect_stack_status(
     ctx: &Context,
     shared: &Arc<(Mutex<RuntimeSharedState>, Condvar)>,
-) -> Result<serde_json::Value, LassoError> {
+) -> Result<serde_json::Value, LuxError> {
     let cfg = read_config(&ctx.config_path)?;
     let runner = RealDockerRunner;
     let log_root = PathBuf::from(expand_path(&cfg.paths.log_root));
@@ -4679,7 +4679,7 @@ fn runtime_collect_stack_status(
         let (lock, _) = &**shared;
         let state = lock
             .lock()
-            .map_err(|_| LassoError::Process("runtime state lock poisoned".to_string()))?;
+            .map_err(|_| LuxError::Process("runtime state lock poisoned".to_string()))?;
         state.rotation_pending
     };
     Ok(json!({
@@ -4700,7 +4700,7 @@ fn runtime_collect_stack_status(
 fn runtime_collect_run_status(
     ctx: &Context,
     shared: &Arc<(Mutex<RuntimeSharedState>, Condvar)>,
-) -> Result<serde_json::Value, LassoError> {
+) -> Result<serde_json::Value, LuxError> {
     let cfg = read_config(&ctx.config_path)?;
     let log_root = PathBuf::from(expand_path(&cfg.paths.log_root));
     let active = load_active_run_state(&log_root)?;
@@ -4708,7 +4708,7 @@ fn runtime_collect_run_status(
         let (lock, _) = &**shared;
         let state = lock
             .lock()
-            .map_err(|_| LassoError::Process("runtime state lock poisoned".to_string()))?;
+            .map_err(|_| LuxError::Process("runtime state lock poisoned".to_string()))?;
         state.rotation_pending
     };
     if let Some(active) = active {
@@ -4725,7 +4725,7 @@ fn runtime_collect_run_status(
     }))
 }
 
-fn runtime_collect_session_job_status(ctx: &Context) -> Result<serde_json::Value, LassoError> {
+fn runtime_collect_session_job_status(ctx: &Context) -> Result<serde_json::Value, LuxError> {
     let cfg = read_config(&ctx.config_path)?;
     let log_root = PathBuf::from(expand_path(&cfg.paths.log_root));
     let active = load_active_run_state(&log_root)?;
@@ -4779,7 +4779,7 @@ fn runtime_collect_session_job_status(ctx: &Context) -> Result<serde_json::Value
     }))
 }
 
-fn runtime_collect_collector_pipeline(ctx: &Context) -> Result<serde_json::Value, LassoError> {
+fn runtime_collect_collector_pipeline(ctx: &Context) -> Result<serde_json::Value, LuxError> {
     let cfg = read_config(&ctx.config_path)?;
     let log_root = PathBuf::from(expand_path(&cfg.paths.log_root));
     let active = load_active_run_state(&log_root)?;
@@ -4828,11 +4828,11 @@ fn runtime_collect_collector_pipeline(ctx: &Context) -> Result<serde_json::Value
 
 fn runtime_collect_warnings(
     shared: &Arc<(Mutex<RuntimeSharedState>, Condvar)>,
-) -> Result<serde_json::Value, LassoError> {
+) -> Result<serde_json::Value, LuxError> {
     let (lock, _) = &**shared;
     let state = lock
         .lock()
-        .map_err(|_| LassoError::Process("runtime state lock poisoned".to_string()))?;
+        .map_err(|_| LuxError::Process("runtime state lock poisoned".to_string()))?;
     Ok(json!({
         "warnings": state.warnings,
         "recent_errors": state.events.iter().rev().filter(|event| event.severity == "error").take(20).cloned().collect::<Vec<RuntimeEvent>>()
@@ -4854,7 +4854,7 @@ fn runtime_scheduler_tick(
     ctx: &Context,
     shared: &Arc<(Mutex<RuntimeSharedState>, Condvar)>,
     events_path: &Path,
-) -> Result<(), LassoError> {
+) -> Result<(), LuxError> {
     let cfg = read_config(&ctx.config_path)?;
     let runner = RealDockerRunner;
     let log_root = PathBuf::from(expand_path(&cfg.paths.log_root));
@@ -4873,7 +4873,7 @@ fn runtime_scheduler_tick(
         let (lock, _) = &**shared;
         let mut state = lock
             .lock()
-            .map_err(|_| LassoError::Process("runtime state lock poisoned".to_string()))?;
+            .map_err(|_| LuxError::Process("runtime state lock poisoned".to_string()))?;
         if provider_running {
             state.last_provider_activity_at = Some(Utc::now().to_rfc3339());
         }
@@ -4884,7 +4884,7 @@ fn runtime_scheduler_tick(
             let (lock, _) = &**shared;
             let state = lock
                 .lock()
-                .map_err(|_| LassoError::Process("runtime state lock poisoned".to_string()))?;
+                .map_err(|_| LuxError::Process("runtime state lock poisoned".to_string()))?;
             state
                 .last_provider_activity_at
                 .as_ref()
@@ -4925,7 +4925,7 @@ fn runtime_scheduler_tick(
                 let should_emit = {
                     let (lock, _) = &**shared;
                     let mut state = lock.lock().map_err(|_| {
-                        LassoError::Process("runtime state lock poisoned".to_string())
+                        LuxError::Process("runtime state lock poisoned".to_string())
                     })?;
                     let already_pending = state.rotation_pending;
                     state.rotation_pending = true;
@@ -4965,7 +4965,7 @@ fn runtime_scheduler_tick(
                     {
                         let (lock, _) = &**shared;
                         let mut state = lock.lock().map_err(|_| {
-                            LassoError::Process("runtime state lock poisoned".to_string())
+                            LuxError::Process("runtime state lock poisoned".to_string())
                         })?;
                         state.rotation_pending = false;
                     }
@@ -5030,7 +5030,7 @@ fn runtime_handle_connection(
     ctx: Context,
     shared: Arc<(Mutex<RuntimeSharedState>, Condvar)>,
     events_path: PathBuf,
-) -> Result<(), LassoError> {
+) -> Result<(), LuxError> {
     let request = runtime_read_http_request(&mut stream)?;
     let Some(request) = request else {
         return Ok(());
@@ -5083,7 +5083,7 @@ fn runtime_handle_connection(
                 let (pending, shutdown) = {
                     let (lock, condvar) = &*shared;
                     let mut state = lock.lock().map_err(|_| {
-                        LassoError::Process("runtime state lock poisoned".to_string())
+                        LuxError::Process("runtime state lock poisoned".to_string())
                     })?;
                     let available: Vec<RuntimeEvent> = state
                         .events
@@ -5095,7 +5095,7 @@ fn runtime_handle_connection(
                         let (guard, _) = condvar
                             .wait_timeout(state, Duration::from_secs(15))
                             .map_err(|_| {
-                                LassoError::Process("runtime condition wait failed".to_string())
+                                LuxError::Process("runtime condition wait failed".to_string())
                             })?;
                         state = guard;
                     }
@@ -5127,7 +5127,7 @@ fn runtime_handle_connection(
         ("POST", "/v1/execute") => {
             let request_body: RuntimeExecuteRequest = serde_json::from_slice(&request.body)
                 .map_err(|err| {
-                    LassoError::Process(format!("invalid runtime execute request body: {err}"))
+                    LuxError::Process(format!("invalid runtime execute request body: {err}"))
                 })?;
             if request_body.argv.is_empty() {
                 return runtime_write_json_response(
@@ -5149,7 +5149,7 @@ fn runtime_handle_connection(
                 let (lock, _) = &*shared;
                 let mut state = lock
                     .lock()
-                    .map_err(|_| LassoError::Process("runtime state lock poisoned".to_string()))?;
+                    .map_err(|_| LuxError::Process("runtime state lock poisoned".to_string()))?;
                 state.last_provider_activity_at = Some(Utc::now().to_rfc3339());
             }
             runtime_write_json_response(
@@ -5167,7 +5167,7 @@ fn runtime_handle_connection(
                 let (lock, condvar) = &*shared;
                 let mut state = lock
                     .lock()
-                    .map_err(|_| LassoError::Process("runtime state lock poisoned".to_string()))?;
+                    .map_err(|_| LuxError::Process("runtime state lock poisoned".to_string()))?;
                 state.shutdown = true;
                 condvar.notify_all();
             }
@@ -5192,7 +5192,7 @@ fn runtime_handle_connection(
     Ok(())
 }
 
-fn runtime_status_payload(ctx: &Context) -> Result<serde_json::Value, LassoError> {
+fn runtime_status_payload(ctx: &Context) -> Result<serde_json::Value, LuxError> {
     let (paths, _) = resolve_runtime_paths(ctx)?;
     let running = runtime_ping(ctx).is_ok();
     let pid = read_pid_file(&paths.runtime_pid_path);
@@ -5204,11 +5204,11 @@ fn runtime_status_payload(ctx: &Context) -> Result<serde_json::Value, LassoError
     }))
 }
 
-fn runtime_up_internal(ctx: &Context, emit_output: bool) -> Result<(), LassoError> {
+fn runtime_up_internal(ctx: &Context, emit_output: bool) -> Result<(), LuxError> {
     #[cfg(not(unix))]
     {
         let _ = (ctx, emit_output);
-        return Err(LassoError::Config(
+        return Err(LuxError::Config(
             "runtime control plane is only supported on unix hosts".to_string(),
         ));
     }
@@ -5231,8 +5231,8 @@ fn runtime_up_internal(ctx: &Context, emit_output: bool) -> Result<(), LassoErro
         }
         if let Some(pid) = read_pid_file(&paths.runtime_pid_path) {
             if process_is_alive(pid) {
-                return Err(LassoError::Process(format!(
-                    "runtime pid {} is alive but socket {} is unavailable; run `lasso runtime down` and retry",
+                return Err(LuxError::Process(format!(
+                    "runtime pid {} is alive but socket {} is unavailable; run `lux runtime down` and retry",
                     pid,
                     paths.runtime_socket_path.display()
                 )));
@@ -5254,7 +5254,7 @@ fn runtime_up_internal(ctx: &Context, emit_output: bool) -> Result<(), LassoErro
         cmd.stdout(Stdio::null());
         cmd.stderr(Stdio::null());
         let mut child = cmd.spawn().map_err(|err| {
-            LassoError::Process(format!("failed to start runtime control plane: {err}"))
+            LuxError::Process(format!("failed to start runtime control plane: {err}"))
         })?;
 
         let mut started = false;
@@ -5265,14 +5265,14 @@ fn runtime_up_internal(ctx: &Context, emit_output: bool) -> Result<(), LassoErro
                 break;
             }
             if let Some(status) = child.try_wait()? {
-                return Err(LassoError::Process(format!(
-                    "runtime control plane exited before ready (status: {}); try `lasso runtime serve` for direct diagnostics",
+                return Err(LuxError::Process(format!(
+                    "runtime control plane exited before ready (status: {}); try `lux runtime serve` for direct diagnostics",
                     status
                 )));
             }
         }
         if !started {
-            return Err(LassoError::Process(format!(
+            return Err(LuxError::Process(format!(
                 "runtime control plane did not become ready at {}",
                 paths.runtime_socket_path.display()
             )));
@@ -5291,7 +5291,7 @@ fn runtime_up_internal(ctx: &Context, emit_output: bool) -> Result<(), LassoErro
     }
 }
 
-fn runtime_down_internal(ctx: &Context) -> Result<(), LassoError> {
+fn runtime_down_internal(ctx: &Context) -> Result<(), LuxError> {
     let (paths, _) = resolve_runtime_paths(ctx)?;
     if runtime_ping(ctx).is_ok() {
         let response = runtime_control_plane_request(
@@ -5302,7 +5302,7 @@ fn runtime_down_internal(ctx: &Context) -> Result<(), LassoError> {
             Some(b"{}"),
         )?;
         if response.status >= 400 {
-            return Err(LassoError::Process(format!(
+            return Err(LuxError::Process(format!(
                 "runtime down failed with status {}",
                 response.status
             )));
@@ -5321,11 +5321,11 @@ fn runtime_down_internal(ctx: &Context) -> Result<(), LassoError> {
     )
 }
 
-fn runtime_serve(ctx: &Context) -> Result<(), LassoError> {
+fn runtime_serve(ctx: &Context) -> Result<(), LuxError> {
     #[cfg(not(unix))]
     {
         let _ = ctx;
-        return Err(LassoError::Config(
+        return Err(LuxError::Config(
             "runtime control plane is only supported on unix hosts".to_string(),
         ));
     }
@@ -5369,7 +5369,7 @@ fn runtime_serve(ctx: &Context) -> Result<(), LassoError> {
                 let (lock, _) = &*shared;
                 let state = lock
                     .lock()
-                    .map_err(|_| LassoError::Process("runtime state lock poisoned".to_string()))?;
+                    .map_err(|_| LuxError::Process("runtime state lock poisoned".to_string()))?;
                 if state.shutdown {
                     break;
                 }
@@ -5415,7 +5415,7 @@ fn runtime_serve(ctx: &Context) -> Result<(), LassoError> {
     }
 }
 
-fn handle_runtime(ctx: &Context, command: RuntimeCommand) -> Result<(), LassoError> {
+fn handle_runtime(ctx: &Context, command: RuntimeCommand) -> Result<(), LuxError> {
     match command {
         RuntimeCommand::Up => runtime_up_internal(ctx, true),
         RuntimeCommand::Down => runtime_down_internal(ctx),
@@ -5424,7 +5424,7 @@ fn handle_runtime(ctx: &Context, command: RuntimeCommand) -> Result<(), LassoErr
     }
 }
 
-const SHIM_MARKER: &str = "# lasso-shim";
+const SHIM_MARKER: &str = "# lux-shim";
 
 fn normalize_shim_providers(providers: Vec<String>) -> Vec<String> {
     if providers.is_empty() {
@@ -5439,19 +5439,19 @@ fn shim_path_for_provider(provider: &str) -> PathBuf {
 
 fn shim_script(provider: &str) -> String {
     format!(
-        "#!/usr/bin/env bash\n{marker}\nset -euo pipefail\nexec lasso shim exec {provider} -- \"$@\"\n",
+        "#!/usr/bin/env bash\n{marker}\nset -euo pipefail\nexec lux shim exec {provider} -- \"$@\"\n",
         marker = SHIM_MARKER
     )
 }
 
-fn is_lasso_managed_shim(path: &Path) -> bool {
+fn is_lux_managed_shim(path: &Path) -> bool {
     fs::read_to_string(path)
         .map(|body| body.contains(SHIM_MARKER))
         .unwrap_or(false)
 }
 
 #[cfg(unix)]
-fn write_shim(path: &Path, provider: &str) -> Result<(), LassoError> {
+fn write_shim(path: &Path, provider: &str) -> Result<(), LuxError> {
     use std::os::unix::fs::PermissionsExt;
     ensure_parent(path)?;
     let body = shim_script(provider);
@@ -5461,8 +5461,8 @@ fn write_shim(path: &Path, provider: &str) -> Result<(), LassoError> {
 }
 
 #[cfg(not(unix))]
-fn write_shim(_path: &Path, _provider: &str) -> Result<(), LassoError> {
-    Err(LassoError::Config(
+fn write_shim(_path: &Path, _provider: &str) -> Result<(), LuxError> {
+    Err(LuxError::Config(
         "shim install is only supported on unix hosts".to_string(),
     ))
 }
@@ -5471,7 +5471,7 @@ fn ensure_provider_plane_for_shim<R: DockerRunner>(
     ctx: &Context,
     provider: &str,
     runner: &R,
-) -> Result<String, LassoError> {
+) -> Result<String, LuxError> {
     let cfg = read_config(&ctx.config_path)?;
     let log_root = PathBuf::from(expand_path(&cfg.paths.log_root));
     if let Some(active_provider) = load_active_provider_state(&log_root)? {
@@ -5499,15 +5499,15 @@ fn ensure_provider_plane_for_shim<R: DockerRunner>(
         runner,
     )?;
     let active_provider = load_active_provider_state(&log_root)?.ok_or_else(|| {
-        LassoError::Process("provider did not register active state after startup".to_string())
+        LuxError::Process("provider did not register active state after startup".to_string())
     })?;
     Ok(active_provider.run_id)
 }
 
-fn shim_validate_exec_args(args: &[String]) -> Result<(), LassoError> {
+fn shim_validate_exec_args(args: &[String]) -> Result<(), LuxError> {
     for arg in args {
         if Path::new(arg).is_absolute() {
-            return Err(LassoError::Process(format!(
+            return Err(LuxError::Process(format!(
                 "absolute host path arguments are unsupported in shim v1: {}",
                 arg
             )));
@@ -5520,7 +5520,7 @@ fn handle_shim<R: DockerRunner>(
     ctx: &Context,
     command: ShimCommand,
     runner: &R,
-) -> Result<(), LassoError> {
+) -> Result<(), LuxError> {
     match command {
         ShimCommand::Install { providers } => {
             let cfg = read_config(&ctx.config_path)?;
@@ -5528,9 +5528,9 @@ fn handle_shim<R: DockerRunner>(
             for provider in normalize_shim_providers(providers) {
                 let _ = provider_from_config(&cfg, &provider)?;
                 let shim_path = shim_path_for_provider(&provider);
-                if shim_path.exists() && !is_lasso_managed_shim(&shim_path) {
-                    return Err(LassoError::Process(format!(
-                        "shim install would overwrite existing non-lasso binary: {}",
+                if shim_path.exists() && !is_lux_managed_shim(&shim_path) {
+                    return Err(LuxError::Process(format!(
+                        "shim install would overwrite existing non-lux binary: {}",
                         shim_path.display()
                     )));
                 }
@@ -5543,7 +5543,7 @@ fn handle_shim<R: DockerRunner>(
             let mut removed = Vec::new();
             for provider in normalize_shim_providers(providers) {
                 let shim_path = shim_path_for_provider(&provider);
-                if shim_path.exists() && is_lasso_managed_shim(&shim_path) {
+                if shim_path.exists() && is_lux_managed_shim(&shim_path) {
                     fs::remove_file(&shim_path)?;
                     removed.push(json!({"provider": provider, "path": shim_path, "removed": true}));
                 } else {
@@ -5561,7 +5561,7 @@ fn handle_shim<R: DockerRunner>(
                 rows.push(json!({
                     "provider": provider,
                     "path": shim_path,
-                    "installed": shim_path.exists() && is_lasso_managed_shim(&shim_path)
+                    "installed": shim_path.exists() && is_lux_managed_shim(&shim_path)
                 }));
             }
             output(ctx, json!({"shims": rows}))
@@ -5584,7 +5584,7 @@ fn handle_shim<R: DockerRunner>(
             let workspace_canon = fs::canonicalize(&workspace_root).unwrap_or(workspace_root);
             let cwd_canon = fs::canonicalize(&cwd).unwrap_or(cwd);
             if !cwd_canon.starts_with(&workspace_canon) {
-                return Err(LassoError::Process(format!(
+                return Err(LuxError::Process(format!(
                     "shim execution must run from within workspace root: {}",
                     workspace_canon.display()
                 )));
@@ -5632,9 +5632,9 @@ fn handle_up<R: DockerRunner>(
     wait: bool,
     timeout_sec: Option<u64>,
     runner: &R,
-) -> Result<(), LassoError> {
+) -> Result<(), LuxError> {
     if timeout_sec.is_some() && !wait {
-        return Err(LassoError::Config(
+        return Err(LuxError::Config(
             "--timeout-sec requires --wait".to_string(),
         ));
     }
@@ -5648,13 +5648,13 @@ fn handle_up<R: DockerRunner>(
             let effective_workspace = resolve_effective_workspace_root(&cfg, workspace.as_deref())?;
             let preflight_env = compose_env_for_run(None, Some(&effective_workspace));
             if provider_plane_is_running(ctx, runner, &cfg, false, &preflight_env)? {
-                return Err(LassoError::Process(
+                return Err(LuxError::Process(
                     "provider plane is still running; stop it before starting a new collector run"
                         .to_string(),
                 ));
             }
             if collector_is_running(ctx, runner, &cfg, false, &preflight_env)? {
-                return Err(LassoError::Process(
+                return Err(LuxError::Process(
                     "collector is already running".to_string(),
                 ));
             }
@@ -5718,8 +5718,8 @@ fn handle_up<R: DockerRunner>(
                 }
             }
             let active_run = load_active_run_state(&log_root)?.ok_or_else(|| {
-                LassoError::Process(
-                    "no active run found; start collector first with `lasso up --collector-only`"
+                LuxError::Process(
+                    "no active run found; start collector first with `lux up --collector-only`"
                         .to_string(),
                 )
             })?;
@@ -5728,7 +5728,7 @@ fn handle_up<R: DockerRunner>(
                 let requested_workspace =
                     resolve_effective_workspace_root(&cfg, Some(raw_workspace))?;
                 if requested_workspace != active_workspace {
-                    return Err(LassoError::Config(format!(
+                    return Err(LuxError::Config(format!(
                         "--workspace must match active run workspace (active={}, requested={})",
                         active_workspace.display(),
                         requested_workspace.display()
@@ -5737,15 +5737,15 @@ fn handle_up<R: DockerRunner>(
             }
             if !run_root(&log_root, &active_run.run_id).exists() {
                 clear_active_run_state(&log_root)?;
-                return Err(LassoError::Process(
-                    "active run metadata points to a missing run directory; restart collector with `lasso up --collector-only`"
+                return Err(LuxError::Process(
+                    "active run metadata points to a missing run directory; restart collector with `lux up --collector-only`"
                         .to_string(),
                 ));
             }
             let run_env = compose_env_for_run(Some(&active_run.run_id), Some(&active_workspace));
             if !collector_is_running(ctx, runner, &cfg, false, &run_env)? {
-                return Err(LassoError::Process(
-                    "collector is not running; start it first with `lasso up --collector-only`"
+                return Err(LuxError::Process(
+                    "collector is not running; start it first with `lux up --collector-only`"
                         .to_string(),
                 ));
             }
@@ -5758,7 +5758,7 @@ fn handle_up<R: DockerRunner>(
                 }
             }
             if provider_plane_is_running(ctx, runner, &cfg, false, &run_env)? {
-                return Err(LassoError::Process(format!(
+                return Err(LuxError::Process(format!(
                     "provider plane is already running for '{}'",
                     provider_name
                 )));
@@ -5820,7 +5820,7 @@ fn handle_down<R: DockerRunner>(
     provider: Option<String>,
     collector_only: bool,
     runner: &R,
-) -> Result<(), LassoError> {
+) -> Result<(), LuxError> {
     let cfg = read_config(&ctx.config_path)?;
     let policy = resolve_config_policy_paths(&cfg)?;
     let log_root = policy.log_root;
@@ -5882,7 +5882,7 @@ fn handle_status<R: DockerRunner>(
     provider: Option<String>,
     collector_only: bool,
     runner: &R,
-) -> Result<(), LassoError> {
+) -> Result<(), LuxError> {
     let cfg = read_config(&ctx.config_path)?;
     let policy = resolve_config_policy_paths(&cfg)?;
     let log_root = policy.log_root;
@@ -5947,14 +5947,14 @@ fn handle_run(
     start_dir: Option<String>,
     timeout_sec: Option<u64>,
     env_list: Vec<String>,
-) -> Result<(), LassoError> {
+) -> Result<(), LuxError> {
     let cfg = read_config(&ctx.config_path)?;
     let _provider_cfg = provider_from_config(&cfg, &provider)?;
     let policy = resolve_config_policy_paths(&cfg)?;
     let log_root = policy.log_root;
     let active_provider = load_active_provider_state(&log_root)?.ok_or_else(|| {
-        LassoError::Process(
-            "no active provider plane found; start one with `lasso up --provider <name>`"
+        LuxError::Process(
+            "no active provider plane found; start one with `lux up --provider <name>`"
                 .to_string(),
         )
     })?;
@@ -5965,13 +5965,13 @@ fn handle_run(
         ));
     }
     let active_run = load_active_run_state(&log_root)?.ok_or_else(|| {
-        LassoError::Process(
-            "no active run metadata found; restart collector with `lasso up --collector-only`"
+        LuxError::Process(
+            "no active run metadata found; restart collector with `lux up --collector-only`"
                 .to_string(),
         )
     })?;
     if active_run.run_id != active_provider.run_id {
-        return Err(LassoError::Process(format!(
+        return Err(LuxError::Process(format!(
             "active run mismatch (collector run_id={}, provider run_id={}); restart provider plane",
             active_run.run_id, active_provider.run_id
         )));
@@ -6007,7 +6007,7 @@ fn handle_run(
     let status = response.status();
     let body = response.text()?;
     if !status.is_success() {
-        return Err(LassoError::Process(format!(
+        return Err(LuxError::Process(format!(
             "run failed: HTTP {}: {}",
             status, body
         )));
@@ -6033,14 +6033,14 @@ fn handle_tui<R: DockerRunner>(
     provider: String,
     start_dir: Option<String>,
     runner: &R,
-) -> Result<(), LassoError> {
+) -> Result<(), LuxError> {
     let cfg = read_config(&ctx.config_path)?;
     let provider_cfg = provider_from_config(&cfg, &provider)?;
     let policy = resolve_config_policy_paths(&cfg)?;
     let log_root = policy.log_root;
     let active_provider = load_active_provider_state(&log_root)?.ok_or_else(|| {
-        LassoError::Process(
-            "no active provider plane found; start one with `lasso up --provider <name>`"
+        LuxError::Process(
+            "no active provider plane found; start one with `lux up --provider <name>`"
                 .to_string(),
         )
     })?;
@@ -6051,13 +6051,13 @@ fn handle_tui<R: DockerRunner>(
         ));
     }
     let active_run = load_active_run_state(&log_root)?.ok_or_else(|| {
-        LassoError::Process(
-            "no active run metadata found; restart collector with `lasso up --collector-only`"
+        LuxError::Process(
+            "no active run metadata found; restart collector with `lux up --collector-only`"
                 .to_string(),
         )
     })?;
     if active_run.run_id != active_provider.run_id {
-        return Err(LassoError::Process(format!(
+        return Err(LuxError::Process(format!(
             "active run mismatch (collector run_id={}, provider run_id={}); restart provider plane",
             active_run.run_id, active_provider.run_id
         )));
@@ -6080,8 +6080,8 @@ fn handle_tui<R: DockerRunner>(
     args.push("harness".to_string());
     let env_overrides = compose_env_for_run(Some(&active_provider.run_id), Some(&workspace_root));
     if !provider_plane_is_running(ctx, runner, &cfg, false, &env_overrides)? {
-        return Err(LassoError::Process(format!(
-            "provider plane for '{provider}' is not running; start it with `lasso up --provider {provider}`"
+        return Err(LuxError::Process(format!(
+            "provider plane for '{provider}' is not running; start it with `lux up --provider {provider}`"
         )));
     }
     run_docker_command(
@@ -6094,7 +6094,7 @@ fn handle_tui<R: DockerRunner>(
     )
 }
 
-fn handle_jobs(ctx: &Context, command: JobsCommand) -> Result<(), LassoError> {
+fn handle_jobs(ctx: &Context, command: JobsCommand) -> Result<(), LuxError> {
     let cfg = read_config(&ctx.config_path)?;
     let log_root = PathBuf::from(expand_path(&cfg.paths.log_root));
     match command {
@@ -6118,7 +6118,7 @@ fn handle_jobs(ctx: &Context, command: JobsCommand) -> Result<(), LassoError> {
             let jobs_dir = run_root(&log_root, &run_id).join("harness").join("jobs");
             let status_path = jobs_dir.join(&id).join("status.json");
             if !status_path.exists() {
-                return Err(LassoError::Process(format!("job not found: {id}")));
+                return Err(LuxError::Process(format!("job not found: {id}")));
             }
             let content = fs::read_to_string(status_path)?;
             let data: serde_json::Value =
@@ -6159,7 +6159,7 @@ fn doctor_check(
     }
 }
 
-fn collect_doctor_checks(ctx: &Context, cfg: &Config) -> Result<Vec<DoctorCheck>, LassoError> {
+fn collect_doctor_checks(ctx: &Context, cfg: &Config) -> Result<Vec<DoctorCheck>, LuxError> {
     let mut checks = Vec::new();
 
     let docker_installed = which::which("docker").is_ok();
@@ -6186,7 +6186,7 @@ fn collect_doctor_checks(ctx: &Context, cfg: &Config) -> Result<Vec<DoctorCheck>
         } else {
             "docker is not installed or not in PATH"
         },
-        "Install/start Docker Desktop (or compatible Docker runtime) and rerun `lasso doctor`.",
+        "Install/start Docker Desktop (or compatible Docker runtime) and rerun `lux doctor`.",
         json!({"docker_installed": docker_installed}),
     ));
 
@@ -6212,7 +6212,7 @@ fn collect_doctor_checks(ctx: &Context, cfg: &Config) -> Result<Vec<DoctorCheck>
         } else {
             "docker compose is not available"
         },
-        "Install/enable Docker Compose and rerun `lasso doctor`.",
+        "Install/enable Docker Compose and rerun `lux doctor`.",
         json!({"docker_installed": docker_installed}),
     ));
 
@@ -6304,7 +6304,7 @@ fn collect_doctor_checks(ctx: &Context, cfg: &Config) -> Result<Vec<DoctorCheck>
         } else {
             "harness token is empty"
         },
-        "Set `harness.api_token` in config or `HARNESS_API_TOKEN` env before non-interactive `lasso run`.",
+        "Set `harness.api_token` in config or `HARNESS_API_TOKEN` env before non-interactive `lux run`.",
         json!({}),
     ));
 
@@ -6360,7 +6360,7 @@ fn collect_doctor_checks(ctx: &Context, cfg: &Config) -> Result<Vec<DoctorCheck>
     Ok(checks)
 }
 
-fn handle_doctor(ctx: &Context, strict: bool) -> Result<(), LassoError> {
+fn handle_doctor(ctx: &Context, strict: bool) -> Result<(), LuxError> {
     let cfg = read_config(&ctx.config_path)?;
     let checks = collect_doctor_checks(ctx, &cfg)?;
     let has_error = checks
@@ -6404,9 +6404,9 @@ fn handle_doctor(ctx: &Context, strict: bool) -> Result<(), LassoError> {
         return Ok(());
     }
     if strict && has_strict_warning {
-        return Err(LassoError::Process("doctor strict mode failed".to_string()));
+        return Err(LuxError::Process("doctor strict mode failed".to_string()));
     }
-    Err(LassoError::Process(
+    Err(LuxError::Process(
         checks
             .iter()
             .find(|check| !check.ok && check.severity == "error")
@@ -6416,7 +6416,7 @@ fn handle_doctor(ctx: &Context, strict: bool) -> Result<(), LassoError> {
     ))
 }
 
-fn handle_paths(ctx: &Context) -> Result<(), LassoError> {
+fn handle_paths(ctx: &Context) -> Result<(), LuxError> {
     let (paths, config_exists) = resolve_runtime_paths(ctx)?;
     let env_exists = paths.env_file.exists();
     let compose_files: Vec<String> = configured_compose_files(ctx, false, &[])
@@ -6448,7 +6448,7 @@ fn handle_paths(ctx: &Context) -> Result<(), LassoError> {
     )
 }
 
-fn handle_update(ctx: &Context, command: UpdateCommand) -> Result<(), LassoError> {
+fn handle_update(ctx: &Context, command: UpdateCommand) -> Result<(), LuxError> {
     match command {
         UpdateCommand::Check => update_check(ctx),
         UpdateCommand::Apply {
@@ -6466,7 +6466,7 @@ fn handle_update(ctx: &Context, command: UpdateCommand) -> Result<(), LassoError
     }
 }
 
-fn update_check(ctx: &Context) -> Result<(), LassoError> {
+fn update_check(ctx: &Context) -> Result<(), LuxError> {
     let (paths, _) = resolve_runtime_paths(ctx)?;
     let current_version = read_current_version(&paths);
     let latest_version = fetch_latest_release_tag()?;
@@ -6487,7 +6487,7 @@ fn update_apply(
     latest: bool,
     yes: bool,
     dry_run: bool,
-) -> Result<(), LassoError> {
+) -> Result<(), LuxError> {
     let (paths, _) = resolve_runtime_paths(ctx)?;
     let current_version = read_current_version(&paths);
     let target_version = match to {
@@ -6518,7 +6518,7 @@ fn update_apply(
         );
     }
     if !yes {
-        return Err(LassoError::Config(
+        return Err(LuxError::Config(
             "update apply requires --yes (or use --dry-run to preview)".to_string(),
         ));
     }
@@ -6540,7 +6540,7 @@ fn update_apply(
     let bundle_path = download_dir.join(&plan.bundle_name);
     let checksum_path = download_dir.join(&plan.checksum_name);
 
-    let update_result = (|| -> Result<(), LassoError> {
+    let update_result = (|| -> Result<(), LuxError> {
         download_file(&plan.bundle_url, &bundle_path)?;
         download_file(&plan.checksum_url, &checksum_path)?;
         verify_bundle_checksum(&bundle_path, &checksum_path)?;
@@ -6548,17 +6548,17 @@ fn update_apply(
             fs::remove_dir_all(&plan.target_dir)?;
         }
         extract_bundle(&bundle_path, &plan.target_dir)?;
-        let lasso_binary = plan.target_dir.join("lasso");
-        if !lasso_binary.exists() {
-            return Err(LassoError::Process(format!(
+        let lux_binary = plan.target_dir.join("lux");
+        if !lux_binary.exists() {
+            return Err(LuxError::Process(format!(
                 "bundle did not contain expected binary: {}",
-                lasso_binary.display()
+                lux_binary.display()
             )));
         }
         fs::create_dir_all(&paths.install_dir)?;
         fs::create_dir_all(&paths.bin_dir)?;
         force_symlink(&plan.target_dir, &paths.current_link)?;
-        force_symlink(&paths.current_link.join("lasso"), &paths.bin_path)?;
+        force_symlink(&paths.current_link.join("lux"), &paths.bin_path)?;
         Ok(())
     })();
     let _ = fs::remove_dir_all(&download_dir);
@@ -6583,12 +6583,12 @@ fn update_rollback(
     previous: bool,
     yes: bool,
     dry_run: bool,
-) -> Result<(), LassoError> {
+) -> Result<(), LuxError> {
     let (paths, _) = resolve_runtime_paths(ctx)?;
     let current_version = read_current_version(&paths);
     let installed_tags = list_installed_version_tags(&paths)?;
     if installed_tags.is_empty() {
-        return Err(LassoError::Process(
+        return Err(LuxError::Process(
             "no installed versions found under install directory".to_string(),
         ));
     }
@@ -6597,12 +6597,12 @@ fn update_rollback(
         None => {
             let _ = previous;
             let Some(current) = current_version.as_deref() else {
-                return Err(LassoError::Process(
+                return Err(LuxError::Process(
                     "cannot infer rollback target: current version is not set".to_string(),
                 ));
             };
             let Some(prev) = select_previous_version(current, &installed_tags) else {
-                return Err(LassoError::Process(
+                return Err(LuxError::Process(
                     "no previous installed version available for rollback".to_string(),
                 ));
             };
@@ -6612,7 +6612,7 @@ fn update_rollback(
     let target_tag = target_version.trim_start_matches('v');
     let target_dir = paths.versions_dir.join(target_tag);
     if !target_dir.exists() {
-        return Err(LassoError::Process(format!(
+        return Err(LuxError::Process(format!(
             "rollback target is not installed: {}",
             target_version
         )));
@@ -6630,7 +6630,7 @@ fn update_rollback(
         );
     }
     if !yes {
-        return Err(LassoError::Config(
+        return Err(LuxError::Config(
             "update rollback requires --yes (or use --dry-run to preview)".to_string(),
         ));
     }
@@ -6649,7 +6649,7 @@ fn update_rollback(
     fs::create_dir_all(&paths.install_dir)?;
     fs::create_dir_all(&paths.bin_dir)?;
     force_symlink(&target_dir, &paths.current_link)?;
-    force_symlink(&paths.current_link.join("lasso"), &paths.bin_path)?;
+    force_symlink(&paths.current_link.join("lux"), &paths.bin_path)?;
     output(
         ctx,
         json!({
@@ -6680,11 +6680,11 @@ fn path_exists(path: &Path) -> bool {
     fs::symlink_metadata(path).is_ok()
 }
 
-fn remove_path(path: &Path) -> Result<bool, LassoError> {
+fn remove_path(path: &Path) -> Result<bool, LuxError> {
     let meta = match fs::symlink_metadata(path) {
         Ok(meta) => meta,
         Err(err) if err.kind() == io::ErrorKind::NotFound => return Ok(false),
-        Err(err) => return Err(LassoError::Io(err)),
+        Err(err) => return Err(LuxError::Io(err)),
     };
     let file_type = meta.file_type();
     if file_type.is_symlink() || file_type.is_file() {
@@ -6709,9 +6709,9 @@ fn handle_uninstall<R: DockerRunner>(
     dry_run: bool,
     force: bool,
     runner: &R,
-) -> Result<(), LassoError> {
+) -> Result<(), LuxError> {
     if !dry_run && !yes {
-        return Err(LassoError::Config(
+        return Err(LuxError::Config(
             "uninstall requires --yes (or use --dry-run to preview)".to_string(),
         ));
     }
@@ -6723,7 +6723,7 @@ fn handle_uninstall<R: DockerRunner>(
     let versions_dir = install_dir.join("versions");
     let current_link = install_dir.join("current");
     let bin_dir = default_bin_dir();
-    let bin_path = bin_dir.join("lasso");
+    let bin_path = bin_dir.join("lux");
 
     let mut warnings: Vec<String> = Vec::new();
     let mut down_attempted = false;
@@ -6848,7 +6848,7 @@ fn handle_uninstall<R: DockerRunner>(
     )
 }
 
-fn handle_logs(ctx: &Context, command: LogsCommand) -> Result<(), LassoError> {
+fn handle_logs(ctx: &Context, command: LogsCommand) -> Result<(), LuxError> {
     match command {
         LogsCommand::Stats { run_id, latest } => logs_stats(ctx, run_id, latest),
         LogsCommand::Tail {
@@ -6860,7 +6860,7 @@ fn handle_logs(ctx: &Context, command: LogsCommand) -> Result<(), LassoError> {
     }
 }
 
-fn logs_stats(ctx: &Context, run_id: Option<String>, latest: bool) -> Result<(), LassoError> {
+fn logs_stats(ctx: &Context, run_id: Option<String>, latest: bool) -> Result<(), LuxError> {
     let cfg = read_config(&ctx.config_path)?;
     let log_root = PathBuf::from(expand_path(&cfg.paths.log_root));
     let run_id = resolve_run_id_from_selector(&log_root, run_id.as_deref(), latest)?;
@@ -6925,7 +6925,7 @@ fn logs_tail(
     file: Option<String>,
     run_id: Option<String>,
     latest: bool,
-) -> Result<(), LassoError> {
+) -> Result<(), LuxError> {
     let cfg = read_config(&ctx.config_path)?;
     let log_root = PathBuf::from(expand_path(&cfg.paths.log_root));
     let run_id = resolve_run_id_from_selector(&log_root, run_id.as_deref(), latest)?;
@@ -6940,7 +6940,7 @@ fn logs_tail(
         Some(name) => run_root.join(name),
     };
     if !target.exists() {
-        return Err(LassoError::Process(format!(
+        return Err(LuxError::Process(format!(
             "log not found: {}",
             target.display()
         )));
@@ -6964,7 +6964,7 @@ fn logs_tail(
     Ok(())
 }
 
-fn dir_size(path: PathBuf) -> Result<u64, LassoError> {
+fn dir_size(path: PathBuf) -> Result<u64, LuxError> {
     let mut size = 0;
     if path.is_file() {
         return Ok(fs::metadata(path)?.len());
@@ -6983,7 +6983,7 @@ fn dir_size(path: PathBuf) -> Result<u64, LassoError> {
     Ok(size)
 }
 
-fn resolve_token(cfg: &Config) -> Result<String, LassoError> {
+fn resolve_token(cfg: &Config) -> Result<String, LuxError> {
     if !cfg.harness.api_token.trim().is_empty() {
         return Ok(cfg.harness.api_token.clone());
     }
@@ -6992,19 +6992,19 @@ fn resolve_token(cfg: &Config) -> Result<String, LassoError> {
             return Ok(token);
         }
     }
-    Err(LassoError::Config(
+    Err(LuxError::Config(
         "HARNESS_API_TOKEN is required for server runs; set it in config.yaml or env".to_string(),
     ))
 }
 
-fn extract_process_error_details(err: &LassoError) -> Option<ProcessErrorDetails> {
+fn extract_process_error_details(err: &LuxError) -> Option<ProcessErrorDetails> {
     match err {
-        LassoError::ProcessDetailed { details, .. } => Some(details.clone()),
+        LuxError::ProcessDetailed { details, .. } => Some(details.clone()),
         _ => None,
     }
 }
 
-fn output(ctx: &Context, payload: serde_json::Value) -> Result<(), LassoError> {
+fn output(ctx: &Context, payload: serde_json::Value) -> Result<(), LuxError> {
     if ctx.json {
         let wrapper = JsonResult {
             ok: true,
@@ -7019,7 +7019,7 @@ fn output(ctx: &Context, payload: serde_json::Value) -> Result<(), LassoError> {
     Ok(())
 }
 
-fn print_json<T: Serialize>(payload: &T) -> Result<(), LassoError> {
+fn print_json<T: Serialize>(payload: &T) -> Result<(), LuxError> {
     let text = serde_json::to_string_pretty(payload)?;
     println!("{}", text);
     Ok(())
@@ -7085,7 +7085,7 @@ mod tests {
         let mut cfg = Config::default();
         cfg.paths.log_root = base.join("logs").to_string_lossy().to_string();
         cfg.paths.workspace_root = home
-            .join("lasso-test-workspace")
+            .join("lux-test-workspace")
             .to_string_lossy()
             .to_string();
         fs::write(path, serde_yaml::to_string(&cfg).unwrap()).unwrap();
@@ -7114,8 +7114,8 @@ mod tests {
 version: 2
 unknown: true
 paths:
-  log_root: ~/lasso-logs
-  workspace_root: ~/lasso-workspace
+  log_root: ~/lux-logs
+  workspace_root: ~/lux-workspace
 "#;
         let result: Result<Config, _> = serde_yaml::from_str(yaml);
         assert!(result.is_err());
@@ -7163,7 +7163,7 @@ paths:
 
     #[test]
     fn expand_tilde_works() {
-        let expanded = expand_path("~/lasso-logs");
+        let expanded = expand_path("~/lux-logs");
         assert!(!expanded.starts_with("~/"));
     }
 
@@ -7175,10 +7175,10 @@ paths:
         let envs = config_to_env(&cfg, &dir.path().join("config.yaml"));
         write_env_file(&env_path, &envs).unwrap();
         let content = fs::read_to_string(&env_path).unwrap();
-        assert!(content.contains("LASSO_VERSION="));
-        assert!(content.contains("LASSO_LOG_ROOT="));
-        assert!(content.contains("LASSO_RUNTIME_DIR="));
-        assert!(content.contains("LASSO_RUNTIME_GID="));
+        assert!(content.contains("LUX_VERSION="));
+        assert!(content.contains("LUX_LOG_ROOT="));
+        assert!(content.contains("LUX_RUNTIME_DIR="));
+        assert!(content.contains("LUX_RUNTIME_GID="));
     }
 
     #[test]
@@ -7187,8 +7187,8 @@ paths:
 version: 2
 
 paths:   # paths comment
-  log_root : ~/lasso-logs   # inline
-  workspace_root: "~/lasso-workspace"   # keep quotes
+  log_root : ~/lux-logs   # inline
+  workspace_root: "~/lux-workspace"   # keep quotes
 
 providers:
   codex:
@@ -7199,7 +7199,7 @@ providers:
       run_template: "codex exec {prompt}"
     auth:
       api_key:
-        secrets_file: ~/.config/lasso/secrets/codex.env
+        secrets_file: ~/.config/lux/secrets/codex.env
         env_key: OPENAI_API_KEY
       host_state:
         paths:
@@ -7220,7 +7220,7 @@ providers:
         assert!(patched.contains("# top comment"));
         assert!(patched.contains("paths:   # paths comment"));
         assert!(patched.contains("  log_root : /tmp/new-logs   # inline"));
-        assert!(patched.contains("  workspace_root: \"~/lasso-workspace\"   # keep quotes"));
+        assert!(patched.contains("  workspace_root: \"~/lux-workspace\"   # keep quotes"));
 
         // Unchanged provider line should remain unchanged.
         assert!(patched.contains("    auth_mode: api_key  # keep"));
@@ -7241,8 +7241,8 @@ providers:
 
         let ps_args = &calls[0].args;
         assert!(ps_args.iter().any(|x| x == "ps"));
-        assert!(calls[0].env_overrides.contains_key("LASSO_WORKSPACE_ROOT"));
-        assert!(!calls[0].env_overrides.contains_key("LASSO_RUN_ID"));
+        assert!(calls[0].env_overrides.contains_key("LUX_WORKSPACE_ROOT"));
+        assert!(!calls[0].env_overrides.contains_key("LUX_RUN_ID"));
 
         let args = &calls[2].args;
         assert!(calls[2].capture_output);
@@ -7250,8 +7250,8 @@ providers:
         assert!(args.iter().any(|x| x == "--wait"));
         let idx = args.iter().position(|x| x == "--wait-timeout").unwrap();
         assert_eq!(args[idx + 1], "45");
-        assert!(calls[2].env_overrides.contains_key("LASSO_RUN_ID"));
-        assert!(calls[2].env_overrides.contains_key("LASSO_WORKSPACE_ROOT"));
+        assert!(calls[2].env_overrides.contains_key("LUX_RUN_ID"));
+        assert!(calls[2].env_overrides.contains_key("LUX_WORKSPACE_ROOT"));
     }
 
     #[test]
@@ -7356,7 +7356,7 @@ providers:
     #[test]
     fn parse_checksum_reads_first_token() {
         let hash = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
-        let content = format!("{hash}  lasso_0.1.0_linux_amd64.tar.gz");
+        let content = format!("{hash}  lux_0.1.0_linux_amd64.tar.gz");
         assert_eq!(parse_checksum(&content), Some(hash.to_string()));
     }
 
@@ -7451,7 +7451,7 @@ providers:
             .expect_err("docker command should fail");
 
         match err {
-            LassoError::ProcessDetailed { message, details } => {
+            LuxError::ProcessDetailed { message, details } => {
                 assert!(message
                     .contains("while running `docker compose --env-file /tmp/compose.env ps`"));
                 assert_eq!(details.error_code, "docker_compose_unavailable");
@@ -7493,7 +7493,7 @@ providers:
         let err = execute_docker(&ctx, &runner, &args, &BTreeMap::new(), true, false)
             .expect_err("missing docker should fail");
         match err {
-            LassoError::ProcessDetailed { message, details } => {
+            LuxError::ProcessDetailed { message, details } => {
                 assert!(message.contains("failed to run command `docker compose ps`"));
                 assert_eq!(details.error_code, "docker_not_found");
                 assert!(details.hint.unwrap_or_default().contains("Install Docker"));

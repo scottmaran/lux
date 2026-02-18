@@ -1,19 +1,19 @@
 services:
   agent:
     environment:
-      - LASSO_PROVIDER=codex
-      - LASSO_AUTH_MODE=host_state
-      - LASSO_PROVIDER_MOUNT_HOST_STATE_IN_API_MODE=false
-      - LASSO_PROVIDER_SECRETS_FILE=
-      - LASSO_PROVIDER_ENV_KEY=OPENAI_API_KEY
-      - LASSO_PROVIDER_HOST_STATE_COUNT=2
-      - LASSO_PROVIDER_HOST_STATE_SRC_0=/run/lasso/provider_host_state/0
-      - LASSO_PROVIDER_HOST_STATE_DST_0=/home/agent/.codex/auth.json
-      - LASSO_PROVIDER_HOST_STATE_SRC_1=/run/lasso/provider_host_state/1
-      - LASSO_PROVIDER_HOST_STATE_DST_1=/home/agent/.codex/skills
+      - LUX_PROVIDER=codex
+      - LUX_AUTH_MODE=host_state
+      - LUX_PROVIDER_MOUNT_HOST_STATE_IN_API_MODE=false
+      - LUX_PROVIDER_SECRETS_FILE=
+      - LUX_PROVIDER_ENV_KEY=OPENAI_API_KEY
+      - LUX_PROVIDER_HOST_STATE_COUNT=2
+      - LUX_PROVIDER_HOST_STATE_SRC_0=/run/lux/provider_host_state/0
+      - LUX_PROVIDER_HOST_STATE_DST_0=/home/agent/.codex/auth.json
+      - LUX_PROVIDER_HOST_STATE_SRC_1=/run/lux/provider_host_state/1
+      - LUX_PROVIDER_HOST_STATE_DST_1=/home/agent/.codex/skills
     volumes:
-      - ${HOME}/.codex/auth.json:/run/lasso/provider_host_state/0:ro
-      - ${HOME}/.codex/skills:/run/lasso/provider_host_state/1:ro
+      - ${HOME}/.codex/auth.json:/run/lux/provider_host_state/0:ro
+      - ${HOME}/.codex/skills:/run/lux/provider_host_state/1:ro
 
   harness:
     environment:

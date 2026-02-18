@@ -1,4 +1,4 @@
-# Lasso Test Principles
+# Lux Test Principles
 
 This file is a concise supplement to `tests/README.md`.
 If there is a conflict, `tests/README.md` is authoritative.

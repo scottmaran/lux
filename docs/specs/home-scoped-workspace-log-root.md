@@ -26,17 +26,17 @@ leading to user confusion and potential invariant violations.
 - Supporting non-macOS/non-Linux host defaults.
 
 ## User Experience
-- `lasso setup`, `lasso config init`, and other config-bootstrap paths produce OS-specific defaults:
-  - macOS log root: `/Users/Shared/Lasso/logs`
-  - Linux log root: `/var/lib/lasso/logs`
+- `lux setup`, `lux config init`, and other config-bootstrap paths produce OS-specific defaults:
+  - macOS log root: `/Users/Shared/Lux/logs`
+  - Linux log root: `/var/lib/lux/logs`
   - workspace: `$HOME`
 - Unsupported host OS fails fast with an actionable error (macOS/Linux only).
 - New/updated CLI flags:
-  - `lasso up --collector-only [--workspace <host-path>]`
-  - `lasso up --provider <name> [--workspace <host-path>]`
-  - `lasso run --provider <name> [--start-dir <host-path>] <prompt>`
-  - `lasso tui --provider <name> [--start-dir <host-path>]`
-- `lasso run --cwd` is removed and replaced by `--start-dir`.
+  - `lux up --collector-only [--workspace <host-path>]`
+  - `lux up --provider <name> [--workspace <host-path>]`
+  - `lux run --provider <name> [--start-dir <host-path>] <prompt>`
+  - `lux tui --provider <name> [--start-dir <host-path>]`
+- `lux run --cwd` is removed and replaced by `--start-dir`.
 - If `--start-dir` is omitted, default is the host current working directory.
 - Hard errors for invalid paths with actionable messages.
 - Agent mount surface remains minimal and explicit:
@@ -48,13 +48,13 @@ leading to user confusion and potential invariant violations.
   - Add a shared helper that computes defaults for `paths.log_root` and `paths.workspace_root`
     from `(os, home)`.
   - Supported host OS values:
-    - macOS: `log_root=/Users/Shared/Lasso/logs`, `workspace_root=$HOME`
-    - Linux: `log_root=/var/lib/lasso/logs`, `workspace_root=$HOME`
+    - macOS: `log_root=/Users/Shared/Lux/logs`, `workspace_root=$HOME`
+    - Linux: `log_root=/var/lib/lux/logs`, `workspace_root=$HOME`
     - other: hard error (unsupported host OS for defaults)
   - This helper becomes the source of truth for defaults and is used by:
-    - `lasso config init`
-    - `lasso setup` when config is missing
-    - `lasso config edit` when config is missing
+    - `lux config init`
+    - `lux setup` when config is missing
+    - `lux config edit` when config is missing
     - runtime defaults used by `Config::default()` / `Paths::default()`
     - installer bootstrap path (config creation)
 - Path canonicalization and validation:
@@ -91,7 +91,7 @@ leading to user confusion and potential invariant violations.
 - Log root creation:
   - If missing, create during `apply_config`.
   - If creation fails, error with instructions (Linux likely requires a one-time
-    `sudo mkdir -p /var/lib/lasso/logs` + `sudo chown -R $USER /var/lib/lasso/logs`).
+    `sudo mkdir -p /var/lib/lux/logs` + `sudo chown -R $USER /var/lib/lux/logs`).
 - Runtime mount wiring:
   - Workspace mount targets the run-effective workspace.
   - `/logs` remains read-only in agent and writable only in trusted components as today.
@@ -130,7 +130,7 @@ leading to user confusion and potential invariant violations.
 - Config validation rejects workspace/log_root overlap in either direction.
 - `--workspace` and `--start-dir` behavior matches command scope and precedence above.
 - Collector/provider startup for a run uses one consistent effective workspace.
-- `lasso run --cwd` is removed; `--start-dir` is the supported flag.
+- `lux run --cwd` is removed; `--start-dir` is the supported flag.
 - Invalid start-dir/cwd is a hard error in both CLI and harness API surfaces.
 - Agent container mount contract remains secure:
   - `/logs` read-only in agent,
@@ -139,12 +139,12 @@ leading to user confusion and potential invariant violations.
 - All tests in the test suite pass.
 
 ## Test Plan
-- Rust unit tests (`lasso`):
+- Rust unit tests (`lux`):
   - default-path helper behavior (macOS/Linux/unsupported OS)
   - path canonicalization and validation (workspace under home, log root outside home,
     overlap rejection, missing HOME, relative path rejection, symlink-escape edge cases)
   - run-effective workspace persistence and mismatch checks
-- CLI tests (`lasso/tests/cli.rs`):
+- CLI tests (`lux/tests/cli.rs`):
   - config bootstrap defaults under controlled HOME
   - `--workspace` / `--start-dir` parsing and precedence
   - `--cwd` removal behavior
@@ -159,7 +159,7 @@ leading to user confusion and potential invariant violations.
   - for invalid-path tests, intentionally use outside-HOME paths and assert hard errors
 - Regression tests:
   - prevent workspace/log_root overlap and evidence write access regressions
-- Manual verification: optional spot-check in `lasso setup` for default paths.
+- Manual verification: optional spot-check in `lux setup` for default paths.
 
 ## Rollout
 - Behavior-changing defaults and CLI surface:

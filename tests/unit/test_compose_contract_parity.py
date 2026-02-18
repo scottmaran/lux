@@ -119,7 +119,7 @@ def test_compose_base_runtime_contract() -> None:
     assert harness_volumes.get("/harness/keys") == "rw"
 
     assert {
-        "LASSO_RUN_ID",
+        "LUX_RUN_ID",
         "COLLECTOR_AUDIT_LOG",
         "COLLECTOR_EBPF_OUTPUT",
         "COLLECTOR_FILTER_OUTPUT",
@@ -133,7 +133,7 @@ def test_compose_base_runtime_contract() -> None:
         _env_keys(collector)
     )
     assert {
-        "LASSO_RUN_ID",
+        "LUX_RUN_ID",
         "HARNESS_AGENT_HOST",
         "HARNESS_AGENT_PORT",
         "HARNESS_AGENT_USER",

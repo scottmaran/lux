@@ -55,19 +55,19 @@ def build_fake_release_bundle(
     server_root: Path,
     repo_root: Path,
     version: str,
-    lasso_binary: Path,
+    lux_binary: Path,
 ) -> dict[str, Path | str]:
     """
     Create a fake GitHub-release-like bundle under:
-      server_root/<version>/lasso_<ver>_<os>_<arch>.tar.gz (+ .sha256)
+      server_root/<version>/lux_<ver>_<os>_<arch>.tar.gz (+ .sha256)
 
     The tarball contains a top-level directory exactly like the release workflow:
-      lasso_<ver>_<os>_<arch>/...
+      lux_<ver>_<os>_<arch>/...
     """
     version, version_tag = normalize_version_tag(version)
     os_name, arch = detect_release_platform()
 
-    bundle_dir_name = f"lasso_{version_tag}_{os_name}_{arch}"
+    bundle_dir_name = f"lux_{version_tag}_{os_name}_{arch}"
     bundle_name = f"{bundle_dir_name}.tar.gz"
     checksum_name = f"{bundle_name}.sha256"
 
@@ -80,14 +80,14 @@ def build_fake_release_bundle(
         shutil.rmtree(staging_dir)
     (staging_dir / "config").mkdir(parents=True, exist_ok=True)
 
-    shutil.copy2(lasso_binary, staging_dir / "lasso")
+    shutil.copy2(lux_binary, staging_dir / "lux")
     # Ensure the copied binary is executable even if the underlying FS drops mode bits.
-    os.chmod(staging_dir / "lasso", 0o755)
+    os.chmod(staging_dir / "lux", 0o755)
 
     for compose in ("compose.yml", "compose.ui.yml"):
         shutil.copy2(repo_root / compose, staging_dir / compose)
 
-    shutil.copy2(repo_root / "lasso" / "config" / "default.yaml", staging_dir / "config" / "default.yaml")
+    shutil.copy2(repo_root / "lux" / "config" / "default.yaml", staging_dir / "config" / "default.yaml")
 
     # Optional but keeps artifacts closer to the real release workflow.
     (staging_dir / "VERSION").write_text(f"{version_tag}\n", encoding="utf-8")

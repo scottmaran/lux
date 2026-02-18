@@ -1,4 +1,4 @@
-# Lasso: Agent Operating Contract
+# Lux: Agent Operating Contract
 Layer: Contract
 
 This repo is designed for AI-driven autonomous development. If you are an AI agent
@@ -15,7 +15,7 @@ working in this repo, treat this document as normative.
 - Observation must not depend on agent cooperation (provider-agnostic).
 
 ## Non-Negotiable Product Invariants
-- We log everything an agent does within Lasso's observable scope.
+- We log everything an agent does within Lux's observable scope.
 - The user can be confident that the agent can't tamper with the logs.
 - Each log must be attributable to a specific agent/session.
 - We are independent of the agent program itself (Codex/Claude/etc).
@@ -37,9 +37,9 @@ Normative (must be kept correct):
 - `docs/specs/*`: implementable change contracts for non-trivial work.
 - `INVARIANTS.md`: product invariants and trust model.
 - `tests/README.md`: the test suite is the specification for observable behavior.
-- `docs/contracts/*`: user-facing behavior of the `lasso` CLI and runtime.
+- `docs/contracts/*`: user-facing behavior of the `lux` CLI and runtime.
 - Component docs: `agent/README.md`, `harness/README.md`, `collector/README.md`,
-  `ui/README.md`, `lasso/README.md`.
+  `ui/README.md`, `lux/README.md`.
 - Schema contracts under `docs/contracts/schemas/*` (raw/filtered/timeline formats).
 
 Reference / background (useful, but not a contract):
@@ -49,7 +49,7 @@ Reference / background (useful, but not a contract):
   then translate conclusions into repo-native contracts (specs/tests).
 
 ## Abstraction Level (Doc Layers)
-Lasso is an agent observability system. Current implementation details (Docker/VM,
+Lux is an agent observability system. Current implementation details (Docker/VM,
 specific sensors, file paths, component wiring) are not the product and may change.
 
 When writing or editing docs/specs, explicitly choose the layer:
@@ -91,7 +91,7 @@ Canonical local commands:
 - `uv run python scripts/all_tests.py --lane full`
 
 ## Repo Map (Quick Orientation)
-- `lasso/`: Rust CLI source.
+- `lux/`: Rust CLI source.
 - `collector/`: auditd/eBPF capture plus filter/summarize/merge pipeline.
 - `harness/`: session/job runner (PTY/TUI + API) and artifact writer.
 - `agent/`: agent container and provider auth bootstrapping.

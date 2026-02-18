@@ -1,7 +1,7 @@
-# Lasso Test Suite
+# Lux Test Suite
 
 ## Why This Exists
-The test suite is the specification for observable Lasso behavior.
+The test suite is the specification for observable Lux behavior.
 
 Passing the suite means:
 - No known requirement violations in the supported environments.
@@ -25,7 +25,7 @@ In scope:
 Out of scope:
 - Throughput benchmarking and performance tuning
 - Agent model quality
-- Host tamper-resistance guarantees outside Lasso's trust model
+- Host tamper-resistance guarantees outside Lux's trust model
 
 ## Non-Negotiable Properties
 1. Reproducible verdicts (bounded nondeterminism): expectations are explicit; reruns
@@ -153,8 +153,8 @@ uv run pytest -q
 Manual external install smoke (not part of CI):
 
 ```bash
-LASSO_RUN_EXTERNAL_INSTALL=1 \
-LASSO_EXTERNAL_INSTALL_VERSION=v0.1.6 \
+LUX_RUN_EXTERNAL_INSTALL=1 \
+LUX_EXTERNAL_INSTALL_VERSION=v0.1.6 \
 uv run pytest -m external_install -q
 ```
 
@@ -170,10 +170,10 @@ Integration gate note:
   - `tests/integration/test_cli_update.py`
   - `tests/integration/test_cli_paths_uninstall.py`
 - Installer/update/uninstall tests run with an isolated temporary `HOME` and
-  use a local release server hook (`LASSO_RELEASE_BASE_URL`) so they do not
-  touch a developer machine’s real `~/.lasso`, `~/.local/bin`, or `~/.config/lasso`.
+  use a local release server hook (`LUX_RELEASE_BASE_URL`) so they do not
+  touch a developer machine’s real `~/.lux`, `~/.local/bin`, or `~/.config/lux`.
 - Local Codex coverage includes `tests/integration/test_agent_codex_cli_tui.py`,
-  which validates interactive Codex behavior through `lasso tui --provider codex`.
+  which validates interactive Codex behavior through `lux tui --provider codex`.
 
 Marker-based selection:
 

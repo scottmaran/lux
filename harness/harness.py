@@ -164,11 +164,11 @@ def set_pty_size(fd: int, size: os.terminal_size | None = None) -> None:
 
 
 def root_pid_path(run_id: str) -> str:
-    return f"/tmp/lasso_root_pid_{run_id}.txt"
+    return f"/tmp/lux_root_pid_{run_id}.txt"
 
 
 def root_sid_path(run_id: str) -> str:
-    return f"/tmp/lasso_root_sid_{run_id}.txt"
+    return f"/tmp/lux_root_sid_{run_id}.txt"
 
 
 def root_pid_prefix(pid_path: str) -> str:

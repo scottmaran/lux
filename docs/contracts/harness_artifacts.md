@@ -4,7 +4,7 @@ Layer: Contract
 This document describes the files the harness writes under `HARNESS_LOG_DIR`.
 
 In run-scoped deployments, `compose.yml` sets:
-- `HARNESS_LOG_DIR=/logs/${LASSO_RUN_ID:-lasso__adhoc}/harness`
+- `HARNESS_LOG_DIR=/logs/${LUX_RUN_ID:-lux__adhoc}/harness`
 - Host-path equivalent: `<log_root>/<run_id>/harness`
 
 ## Directory Layout

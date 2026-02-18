@@ -26,8 +26,8 @@ from tests.fixture.conftest import discover_cases, validate_case_structure
 STAGES = ["audit_filter", "ebpf_filter", "summary", "merge", "pipeline"]
 
 RUNTIME_PREFIXES = [
-    "lasso/src/",
-    "install_lasso.sh",
+    "lux/src/",
+    "install_lux.sh",
     "collector/scripts/",
     "collector/config/",
     "collector/ebpf/",

@@ -24,8 +24,8 @@ COMPOSE_BASE = ROOT_DIR / "compose.yml"
 COMPOSE_TEST_OVERRIDE = ROOT_DIR / "tests" / "integration" / "compose.test.override.yml"
 
 
-def _run_lasso(
-    lasso_bin: Path,
+def _run_lux(
+    lux_bin: Path,
     *,
     config_path: Path,
     compose_files: tuple[Path, ...],
@@ -34,7 +34,7 @@ def _run_lasso(
     timeout: float,
     check: bool = True,
 ) -> subprocess.CompletedProcess[str]:
-    cmd: list[str] = [str(lasso_bin), "--config", str(config_path)]
+    cmd: list[str] = [str(lux_bin), "--config", str(config_path)]
     for compose_file in compose_files:
         cmd.extend(["--compose-file", str(compose_file)])
     cmd.extend(args)
@@ -49,7 +49,7 @@ def _run_lasso(
     )
     if check and result.returncode != 0:
         raise AssertionError(
-            "lasso command failed.\n"
+            "lux command failed.\n"
             f"cmd={' '.join(cmd)}\n"
             f"returncode={result.returncode}\n"
             f"stdout:\n{result.stdout}\n"
@@ -91,7 +91,7 @@ def _write_cli_config(
                 '      run_template: "codex -C /work -s danger-full-access exec --skip-git-repo-check {prompt}"',
                 "    auth:",
                 "      api_key:",
-                "        secrets_file: ~/.config/lasso/secrets/codex.env",
+                "        secrets_file: ~/.config/lux/secrets/codex.env",
                 "        env_key: OPENAI_API_KEY",
                 "      host_state:",
                 "        paths:",
@@ -129,7 +129,7 @@ def _read_jsonl(path: Path) -> list[dict[str, Any]]:
 def _extract_run_id_from_up(result: subprocess.CompletedProcess[str]) -> str:
     payload = result.stdout or ""
     if not payload.strip():
-        raise AssertionError("lasso up did not return payload with run_id")
+        raise AssertionError("lux up did not return payload with run_id")
     for raw_line in reversed(payload.splitlines()):
         line = raw_line.strip()
         if not line:
@@ -141,7 +141,7 @@ def _extract_run_id_from_up(result: subprocess.CompletedProcess[str]) -> str:
         run_id = parsed.get("run_id")
         if isinstance(run_id, str) and run_id:
             return run_id
-    raise AssertionError(f"lasso up payload missing run_id: {payload}")
+    raise AssertionError(f"lux up payload missing run_id: {payload}")
 
 
 def _drain_pty(master_fd: int, chunks: list[str]) -> None:
@@ -168,19 +168,19 @@ def _read_tail(chunks: list[str], max_chars: int = 4000) -> str:
 
 
 @pytest.fixture(scope="session")
-def lasso_cli_binary_for_codex() -> Path:
-    run_cmd(["cargo", "build", "--bin", "lasso"], cwd=ROOT_DIR / "lasso", timeout=1800)
-    bin_path = ROOT_DIR / "lasso" / "target" / "debug" / "lasso"
+def lux_cli_binary_for_codex() -> Path:
+    run_cmd(["cargo", "build", "--bin", "lux"], cwd=ROOT_DIR / "lux", timeout=1800)
+    bin_path = ROOT_DIR / "lux" / "target" / "debug" / "lux"
     if not bin_path.exists():
-        raise AssertionError(f"Built lasso binary is missing at {bin_path}")
+        raise AssertionError(f"Built lux binary is missing at {bin_path}")
     return bin_path
 
 
-def test_codex_tui_via_lasso_cli_produces_prompt_driven_session_evidence(
+def test_codex_tui_via_lux_cli_produces_prompt_driven_session_evidence(
     tmp_path: Path,
     ensure_codex_credentials,
     build_local_images,
-    lasso_cli_binary_for_codex: Path,
+    lux_cli_binary_for_codex: Path,
 ) -> None:
     """
     CLI-driven Codex TUI path should run with default harness TUI command,
@@ -190,7 +190,7 @@ def test_codex_tui_via_lasso_cli_produces_prompt_driven_session_evidence(
     env = os.environ.copy()
     home_root = Path(env.get("HOME", str(Path.home())))
     log_root = runtime_root / "logs"
-    workspace_root = home_root / f".lasso-test-workspace-{uuid.uuid4().hex[:8]}"
+    workspace_root = home_root / f".lux-test-workspace-{uuid.uuid4().hex[:8]}"
     config_dir = runtime_root / "config"
     config_dir.mkdir(parents=True, exist_ok=True)
     log_root.mkdir(parents=True, exist_ok=True)
@@ -198,7 +198,7 @@ def test_codex_tui_via_lasso_cli_produces_prompt_driven_session_evidence(
 
     config_path = config_dir / "config.yaml"
     env_file = config_dir / "compose.env"
-    project_name = f"lasso-cli-codex-{uuid.uuid4().hex[:8]}"
+    project_name = f"lux-cli-codex-{uuid.uuid4().hex[:8]}"
     harness_port = find_free_port()
     api_token = f"token-{uuid.uuid4().hex}"
     compose_files = (COMPOSE_BASE, COMPOSE_TEST_OVERRIDE)
@@ -211,14 +211,14 @@ def test_codex_tui_via_lasso_cli_produces_prompt_driven_session_evidence(
         api_token=api_token,
     )
 
-    env["LASSO_ENV_FILE"] = str(env_file)
-    env["LASSO_BUNDLE_DIR"] = str(ROOT_DIR)
+    env["LUX_ENV_FILE"] = str(env_file)
+    env["LUX_BUNDLE_DIR"] = str(ROOT_DIR)
 
     # Ensure the strict default CLI behavior: no ambient TUI command override.
     env.pop("HARNESS_TUI_CMD", None)
 
-    _run_lasso(
-        lasso_cli_binary_for_codex,
+    _run_lux(
+        lux_cli_binary_for_codex,
         config_path=config_path,
         compose_files=compose_files,
         args=["config", "apply"],
@@ -235,16 +235,16 @@ def test_codex_tui_via_lasso_cli_produces_prompt_driven_session_evidence(
     run_root: Path | None = None
     sessions_root: Path | None = None
     try:
-        up_result = _run_lasso(
-            lasso_cli_binary_for_codex,
+        up_result = _run_lux(
+            lux_cli_binary_for_codex,
             config_path=config_path,
             compose_files=compose_files,
             args=["up", "--collector-only", "--wait", "--timeout-sec", "240"],
             env=env,
             timeout=600,
         )
-        _run_lasso(
-            lasso_cli_binary_for_codex,
+        _run_lux(
+            lux_cli_binary_for_codex,
             config_path=config_path,
             compose_files=compose_files,
             args=["up", "--provider", "codex", "--wait", "--timeout-sec", "240"],
@@ -257,7 +257,7 @@ def test_codex_tui_via_lasso_cli_produces_prompt_driven_session_evidence(
         before_sessions = _session_dirs(sessions_root)
 
         master_fd, slave_fd = pty.openpty()
-        cmd: list[str] = [str(lasso_cli_binary_for_codex), "--config", str(config_path)]
+        cmd: list[str] = [str(lux_cli_binary_for_codex), "--config", str(config_path)]
         for compose_file in compose_files:
             cmd.extend(["--compose-file", str(compose_file)])
         cmd.extend(["tui", "--provider", "codex", "--start-dir", str(workspace_root)])
@@ -291,7 +291,7 @@ def test_codex_tui_via_lasso_cli_produces_prompt_driven_session_evidence(
 
             if proc.poll() is not None and created_session is None:
                 raise AssertionError(
-                    "lasso tui --provider codex exited before session creation.\n"
+                    "lux tui --provider codex exited before session creation.\n"
                     f"returncode={proc.returncode}\npty_tail:\n{_read_tail(pty_chunks)}"
                 )
 
@@ -346,8 +346,8 @@ def test_codex_tui_via_lasso_cli_produces_prompt_driven_session_evidence(
             except OSError:
                 pass
 
-        _run_lasso(
-            lasso_cli_binary_for_codex,
+        _run_lux(
+            lux_cli_binary_for_codex,
             config_path=config_path,
             compose_files=compose_files,
             args=["down", "--provider", "codex"],
@@ -355,8 +355,8 @@ def test_codex_tui_via_lasso_cli_produces_prompt_driven_session_evidence(
             timeout=240,
             check=False,
         )
-        _run_lasso(
-            lasso_cli_binary_for_codex,
+        _run_lux(
+            lux_cli_binary_for_codex,
             config_path=config_path,
             compose_files=compose_files,
             args=["down", "--collector-only"],
@@ -367,7 +367,7 @@ def test_codex_tui_via_lasso_cli_produces_prompt_driven_session_evidence(
         shutil.rmtree(workspace_root, ignore_errors=True)
 
     assert created_session, f"Expected exactly one created session.\npty_tail:\n{_read_tail(pty_chunks)}"
-    assert run_root is not None, "Expected run root from lasso up output."
+    assert run_root is not None, "Expected run root from lux up output."
 
     session_dir = run_root / "harness" / "sessions" / created_session
     meta_path = session_dir / "meta.json"

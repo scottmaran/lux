@@ -45,7 +45,7 @@ def _run(
 
 def test_update_apply_and_rollback_against_local_release_server(
     tmp_path: Path,
-    lasso_cli_binary: Path,
+    lux_cli_binary: Path,
 ) -> None:
     home = tmp_path / "home"
     home.mkdir(parents=True, exist_ok=True)
@@ -56,32 +56,32 @@ def test_update_apply_and_rollback_against_local_release_server(
         server_root=server_root,
         repo_root=ROOT_DIR,
         version="v0.1.0",
-        lasso_binary=lasso_cli_binary,
+        lux_binary=lux_cli_binary,
     )
     build_fake_release_bundle(
         server_root=server_root,
         repo_root=ROOT_DIR,
         version="v0.2.0",
-        lasso_binary=lasso_cli_binary,
+        lux_binary=lux_cli_binary,
     )
 
     with serve_directory(server_root) as base_url:
         env = os.environ.copy()
         env["HOME"] = str(home)
-        env["LASSO_RELEASE_BASE_URL"] = base_url
+        env["LUX_RELEASE_BASE_URL"] = base_url
 
         _run(
-            ["bash", str(ROOT_DIR / "install_lasso.sh"), "--version", "v0.1.0"],
+            ["bash", str(ROOT_DIR / "install_lux.sh"), "--version", "v0.1.0"],
             cwd=ROOT_DIR,
             env=env,
             timeout=300,
         )
 
-        lasso = home / ".local" / "bin" / "lasso"
-        assert lasso.exists(), "Expected installed lasso binary symlink."
+        lux = home / ".local" / "bin" / "lux"
+        assert lux.exists(), "Expected installed lux binary symlink."
 
         update = _run(
-            [str(lasso), "--json", "update", "apply", "--to", "v0.2.0", "--yes"],
+            [str(lux), "--json", "update", "apply", "--to", "v0.2.0", "--yes"],
             cwd=ROOT_DIR,
             env=env,
             timeout=300,
@@ -91,13 +91,13 @@ def test_update_apply_and_rollback_against_local_release_server(
         assert payload["result"]["action"] == "update_apply"
         assert payload["result"]["updated"] is True
 
-        current_link = home / ".lasso" / "current"
+        current_link = home / ".lux" / "current"
         assert current_link.is_symlink()
         assert current_link.resolve().name == "0.2.0"
-        assert (home / ".lasso" / "versions" / "0.2.0" / "lasso").exists()
+        assert (home / ".lux" / "versions" / "0.2.0" / "lux").exists()
 
         rollback = _run(
-            [str(lasso), "--json", "update", "rollback", "--previous", "--yes"],
+            [str(lux), "--json", "update", "rollback", "--previous", "--yes"],
             cwd=ROOT_DIR,
             env=env,
             timeout=120,

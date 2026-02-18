@@ -1,7 +1,7 @@
 # Contracts
 Layer: Contract
 
-This directory is the canonical source for Lasso's externally visible behavior
+This directory is the canonical source for Lux's externally visible behavior
 (what users and other components can rely on).
 
 If you change behavior covered by a contract, update the relevant tests and the

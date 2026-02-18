@@ -1,9 +1,9 @@
-# Lasso
+# Lux
 
 Agent Harness is an OS‑level observation system for third‑party agents: it runs the agent in a container, uses auditd + eBPF inside the Docker Desktop VM to capture exec/fs/network/IPC metadata, and correlates that into a session‑tagged timeline. The stack includes a harness (PTY + API), a collector pipeline (filter → summary → merge), a dedicated container to run the agent, and a UI for log review.
 
-## Lasso CLI (beta)
-The recommended way to run the stack is via the `lasso` CLI, which pulls the
+## Lux CLI (beta)
+The recommended way to run the stack is via the `lux` CLI, which pulls the
 versioned Docker images from GHCR and manages config + compose wiring.
 
 Temporary support note (February 2026): 
@@ -15,25 +15,25 @@ See platform support/caveats: `docs/contracts/platform.md`.
 Run the versioned installer:
 ```bash
 VERSION=vX.Y.Z
-curl -fsSL "https://raw.githubusercontent.com/scottmaran/lasso/${VERSION}/install_lasso.sh" | bash -s -- --version "${VERSION}"
+curl -fsSL "https://raw.githubusercontent.com/scottmaran/lux/${VERSION}/install_lux.sh" | bash -s -- --version "${VERSION}"
 ```
 To run the interactive setup wizard automatically after install:
 ```bash
 VERSION=vX.Y.Z
-curl -fsSL "https://raw.githubusercontent.com/scottmaran/lasso/${VERSION}/install_lasso.sh" | bash -s -- --version "${VERSION}" --setup
+curl -fsSL "https://raw.githubusercontent.com/scottmaran/lux/${VERSION}/install_lux.sh" | bash -s -- --version "${VERSION}" --setup
 ```
 Private repo note: if the repo or release assets are private, unauthenticated
 `curl` downloads may return 404. In that case, download the release bundle with
-`gh release download` and run `install_lasso.sh` with `--bundle/--checksum`.
-If `lasso` is "command not found" after install, ensure `~/.local/bin` is in your `PATH`.
-This installs the CLI bundle but does **not** create log/workspace directories. Run `lasso setup` to configure `config.yaml` (paths + provider auth) and generate the runtime `compose.env`.
+`gh release download` and run `install_lux.sh` with `--bundle/--checksum`.
+If `lux` is "command not found" after install, ensure `~/.local/bin` is in your `PATH`.
+This installs the CLI bundle but does **not** create log/workspace directories. Run `lux setup` to configure `config.yaml` (paths + provider auth) and generate the runtime `compose.env`.
 
 Quick start (after install):
 ```bash
-lasso setup
-lasso runtime up
-lasso ui up --wait
-lasso shim install codex claude
+lux setup
+lux runtime up
+lux ui up --wait
+lux shim install codex claude
 codex
 ```
 
@@ -43,11 +43,11 @@ Collector lifecycle is separate (`--collector-only`).
 To view more info about user configs, see `docs/contracts/config.md`.
 
 ## Run-scoped logs
-Each `lasso up` creates a new run directory under `paths.log_root`, for example:
+Each `lux up` creates a new run directory under `paths.log_root`, for example:
 
 ```text
-~/lasso-logs/
-  lasso__2026_02_12_12_23_54/
+~/lux-logs/
+  lux__2026_02_12_12_23_54/
     collector/raw/
     collector/filtered/
     harness/sessions/
@@ -55,7 +55,7 @@ Each `lasso up` creates a new run directory under `paths.log_root`, for example:
     harness/labels/
 ```
 
-`lasso logs tail` and `lasso jobs ...` default to the active run. If no run is
+`lux logs tail` and `lux jobs ...` default to the active run. If no run is
 active, use `--run-id <id>` or `--latest`.
 
 ## Docs

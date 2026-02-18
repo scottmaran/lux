@@ -1,6 +1,6 @@
-# Lasso Testing Suite Implementation Prompt (Subagent)
+# Lux Testing Suite Implementation Prompt (Subagent)
 
-You are implementing the Lasso test suite on branch `robust_test_suite`.
+You are implementing the Lux test suite on branch `robust_test_suite`.
 This is an implementation task, not a design discussion.
 Ship a strict, runnable suite with enforceable CI behavior.
 
@@ -56,7 +56,7 @@ Read these files before editing:
 18. `tests/unit/test_compose_contract_parity.py`
 19. `scripts/all_tests.py`
 20. `scripts/verify_test_delta.py`
-21. `install_lasso.sh` and `tests/integration/test_cli_*.py` (installer/update/uninstall and CLI lifecycle coverage)
+21. `install_lux.sh` and `tests/integration/test_cli_*.py` (installer/update/uninstall and CLI lifecycle coverage)
 22. `example_logs/<run_id>/collector/raw/audit.log` (see `example_logs/.active_run.json`)
 23. `example_logs/<run_id>/collector/raw/ebpf.jsonl` (see `example_logs/.active_run.json`)
 24. `.github/workflows/release.yml`

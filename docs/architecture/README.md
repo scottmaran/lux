@@ -1,7 +1,7 @@
 # Architecture (Implementation Layer)
 Layer: Implementation
 
-This directory describes how Lasso works today. It is allowed to change as the
+This directory describes how Lux works today. It is allowed to change as the
 implementation evolves.
 
 For externally visible behavior, see `docs/contracts/`.

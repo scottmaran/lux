@@ -1,4 +1,4 @@
-# Lasso VM Layout (VM + Containers, Host Sink)
+# Lux VM Layout (VM + Containers, Host Sink)
 Layer: Implementation
 
 ## Purpose
@@ -8,7 +8,7 @@ Layer: Implementation
 ## Topology (conceptual)
 ```text
 Host OS
-  ├─ Log sink (default: ~/lasso-logs)
+  ├─ Log sink (default: ~/lux-logs)
   └─ Linux VM
       ├─ Harness container (orchestrates agent)
       ├─ Agent container (third-party agent)
@@ -33,16 +33,16 @@ Host OS
 - Log sink (storage)
   - Host directory outside the VM.
   - Writable by harness/collector; read-only to the agent.
-  - Runtime artifacts are grouped by run under `/logs/lasso__YYYY_MM_DD_HH_MM_SS/...`.
+  - Runtime artifacts are grouped by run under `/logs/lux__YYYY_MM_DD_HH_MM_SS/...`.
 
 ## Mounts and permissions (exact model)
 Host directories
-- ~/lasso-workspace  (user workspace, normal read/write; default)
-- ~/lasso-logs       (log sink, protected; default)
+- ~/lux-workspace  (user workspace, normal read/write; default)
+- ~/lux-logs       (log sink, protected; default)
 
 VM mounts
-- /vm/workspace  -> host ~/lasso-workspace (rw)
-- /vm/logs       -> host ~/lasso-logs      (rw for harness/collector)
+- /vm/workspace  -> host ~/lux-workspace (rw)
+- /vm/logs       -> host ~/lux-logs      (rw for harness/collector)
 
 Agent container mounts
 - /work  -> /vm/workspace (rw for agent)
@@ -78,22 +78,22 @@ Collector container mounts
 version: "3.8"
 services:
   agent:
-    image: ghcr.io/scottmaran/lasso-agent:${LASSO_VERSION}
+    image: ghcr.io/scottmaran/lux-agent:${LUX_VERSION}
     volumes:
       - /vm/workspace:/work:rw
       - /vm/logs:/logs:ro
       - harness_keys:/config:ro
 
   harness:
-    image: ghcr.io/scottmaran/lasso-harness:${LASSO_VERSION}
+    image: ghcr.io/scottmaran/lux-harness:${LUX_VERSION}
     volumes:
       - /vm/workspace:/work:rw
       - /vm/logs:/logs:rw
       - harness_keys:/harness/keys:rw
     environment:
-      - LASSO_RUN_ID=lasso__2026_02_12_12_23_54
-      - HARNESS_LOG_DIR=/logs/${LASSO_RUN_ID}/harness
-      - HARNESS_TIMELINE_PATH=/logs/${LASSO_RUN_ID}/collector/filtered/filtered_timeline.jsonl
+      - LUX_RUN_ID=lux__2026_02_12_12_23_54
+      - HARNESS_LOG_DIR=/logs/${LUX_RUN_ID}/harness
+      - HARNESS_TIMELINE_PATH=/logs/${LUX_RUN_ID}/collector/filtered/filtered_timeline.jsonl
       - HARNESS_AGENT_WORKDIR=/work
     ports:
       - 127.0.0.1:8081:8081
@@ -102,7 +102,7 @@ services:
     # Harness connects to the agent via SSH for TTY and non-interactive runs.
 
   collector:
-    image: ghcr.io/scottmaran/lasso-collector:${LASSO_VERSION}
+    image: ghcr.io/scottmaran/lux-collector:${LUX_VERSION}
     privileged: true
     pid: "host"
     volumes:
@@ -112,9 +112,9 @@ services:
       - /sys/kernel/tracing:/sys/kernel/tracing:rw
       - /sys/kernel/debug:/sys/kernel/debug:rw
     environment:
-      - LASSO_RUN_ID=lasso__2026_02_12_12_23_54
-      - COLLECTOR_AUDIT_LOG=/logs/${LASSO_RUN_ID}/collector/raw/audit.log
-      - COLLECTOR_EBPF_OUTPUT=/logs/${LASSO_RUN_ID}/collector/raw/ebpf.jsonl
+      - LUX_RUN_ID=lux__2026_02_12_12_23_54
+      - COLLECTOR_AUDIT_LOG=/logs/${LUX_RUN_ID}/collector/raw/audit.log
+      - COLLECTOR_EBPF_OUTPUT=/logs/${LUX_RUN_ID}/collector/raw/ebpf.jsonl
 
 volumes:
   harness_keys:
@@ -128,5 +128,5 @@ volumes:
 - Only one audit daemon can consume audit events; the collector should be the sole audit consumer in the VM.
 - Auditd emits raw audit logs; normalization to JSONL happens in a later processing step.
 - Trust boundary: the host is trusted; the agent container is untrusted; VM root is out of scope.
-- Host log export is the host-mounted `~/lasso-logs` directory by default (configurable via `LASSO_LOG_ROOT`).
+- Host log export is the host-mounted `~/lux-logs` directory by default (configurable via `LUX_LOG_ROOT`).
 - If you add an HTTP proxy later, enforce its use with firewall rules so the agent cannot bypass it.

@@ -49,7 +49,7 @@ merge:
 Several shipped config files include "flat" defaults like `/logs/filtered_*.jsonl`
 and `/logs/sessions`. In real runs, `compose.yml` sets env vars so the
 collector reads/writes run-scoped paths under
-`/logs/${LASSO_RUN_ID:-lasso__adhoc}/...` (host equivalent:
+`/logs/${LUX_RUN_ID:-lux__adhoc}/...` (host equivalent:
 `<log_root>/<run_id>/...`).
 
 If you are debugging attribution issues, these env vars matter:

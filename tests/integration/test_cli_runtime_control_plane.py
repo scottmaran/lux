@@ -47,7 +47,7 @@ def _runtime_healthz(socket_path: Path) -> tuple[int, dict]:
         sock.connect(str(socket_path))
         request = (
             "GET /v1/healthz HTTP/1.1\r\n"
-            "Host: lasso-runtime\r\n"
+            "Host: lux-runtime\r\n"
             "Connection: close\r\n"
             "\r\n"
         )
@@ -101,7 +101,7 @@ def _write_minimal_config(config_path: Path, *, log_root: Path, workspace_root: 
     )
 
 
-def test_runtime_up_status_down_exposes_healthz(tmp_path: Path, lasso_cli_binary: Path) -> None:
+def test_runtime_up_status_down_exposes_healthz(tmp_path: Path, lux_cli_binary: Path) -> None:
     config_path = tmp_path / "config.yaml"
     home, log_root, workspace_root = _policy_paths(tmp_path)
     _write_minimal_config(config_path, log_root=log_root, workspace_root=workspace_root)
@@ -109,13 +109,13 @@ def test_runtime_up_status_down_exposes_healthz(tmp_path: Path, lasso_cli_binary
     env["HOME"] = str(home)
 
     _run(
-        [str(lasso_cli_binary), "--json", "--config", str(config_path), "runtime", "up"],
+        [str(lux_cli_binary), "--json", "--config", str(config_path), "runtime", "up"],
         cwd=ROOT_DIR,
         env=env,
         timeout=60,
     )
     status = _run(
-        [str(lasso_cli_binary), "--json", "--config", str(config_path), "runtime", "status"],
+        [str(lux_cli_binary), "--json", "--config", str(config_path), "runtime", "status"],
         cwd=ROOT_DIR,
         env=env,
         timeout=30,
@@ -130,7 +130,7 @@ def test_runtime_up_status_down_exposes_healthz(tmp_path: Path, lasso_cli_binary
     assert health_payload.get("ok") is True
 
     down = _run(
-        [str(lasso_cli_binary), "--json", "--config", str(config_path), "runtime", "down"],
+        [str(lux_cli_binary), "--json", "--config", str(config_path), "runtime", "down"],
         cwd=ROOT_DIR,
         env=env,
         timeout=30,
@@ -142,7 +142,7 @@ def test_runtime_up_status_down_exposes_healthz(tmp_path: Path, lasso_cli_binary
 
 def test_runtime_auto_starts_for_routed_cli_command(
     tmp_path: Path,
-    lasso_cli_binary: Path,
+    lux_cli_binary: Path,
 ) -> None:
     config_path = tmp_path / "config.yaml"
     home, log_root, workspace_root = _policy_paths(tmp_path)
@@ -151,7 +151,7 @@ def test_runtime_auto_starts_for_routed_cli_command(
     env["HOME"] = str(home)
 
     _run(
-        [str(lasso_cli_binary), "--json", "--config", str(config_path), "runtime", "down"],
+        [str(lux_cli_binary), "--json", "--config", str(config_path), "runtime", "down"],
         cwd=ROOT_DIR,
         env=env,
         timeout=30,
@@ -160,7 +160,7 @@ def test_runtime_auto_starts_for_routed_cli_command(
 
     run_result = _run(
         [
-            str(lasso_cli_binary),
+            str(lux_cli_binary),
             "--json",
             "--config",
             str(config_path),
@@ -180,7 +180,7 @@ def test_runtime_auto_starts_for_routed_cli_command(
     assert "provider plane" in (run_payload.get("error") or "").lower()
 
     status = _run(
-        [str(lasso_cli_binary), "--json", "--config", str(config_path), "runtime", "status"],
+        [str(lux_cli_binary), "--json", "--config", str(config_path), "runtime", "status"],
         cwd=ROOT_DIR,
         env=env,
         timeout=30,
@@ -190,7 +190,7 @@ def test_runtime_auto_starts_for_routed_cli_command(
     assert payload["result"]["running"] is True
 
     _run(
-        [str(lasso_cli_binary), "--json", "--config", str(config_path), "runtime", "down"],
+        [str(lux_cli_binary), "--json", "--config", str(config_path), "runtime", "down"],
         cwd=ROOT_DIR,
         env=env,
         timeout=30,

@@ -9,7 +9,7 @@ jobs:
   stress_full:
     runs-on: ubuntu-latest
     env:
-      LASSO_STRESS_TRIALS: "15"
+      LUX_STRESS_TRIALS: "15"
     steps:
       - name: Checkout
         uses: actions/checkout@v4

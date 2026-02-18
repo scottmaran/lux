@@ -24,13 +24,13 @@ def _row_mentions_path_in_cmd(row: dict, path: str) -> bool:
 
 
 def _trial_count() -> int:
-    raw = os.getenv("LASSO_STRESS_TRIALS", "3").strip()
+    raw = os.getenv("LUX_STRESS_TRIALS", "3").strip()
     try:
         value = int(raw)
     except ValueError as exc:
-        raise AssertionError(f"Invalid LASSO_STRESS_TRIALS={raw}") from exc
+        raise AssertionError(f"Invalid LUX_STRESS_TRIALS={raw}") from exc
     if value < 1:
-        raise AssertionError("LASSO_STRESS_TRIALS must be >= 1")
+        raise AssertionError("LUX_STRESS_TRIALS must be >= 1")
     return value
 
 

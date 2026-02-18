@@ -1,6 +1,6 @@
 services:
   collector:
-    image: ghcr.io/scottmaran/lasso-collector:${LASSO_VERSION}
+    image: ghcr.io/scottmaran/lux-collector:${LUX_VERSION}
     #  Grants the container essentially full host‑level capabilities (all Linux capabilities + device access).
     #  Needed here so the collector can load eBPF programs and access kernel audit interfaces.
     privileged: true
@@ -9,29 +9,29 @@ services:
     pid: "host"
     # Each entry is host_path:container_path:mode
     volumes:
-      - ${LASSO_LOG_ROOT:-./logs}:/logs:rw
-      - ${LASSO_WORKSPACE_ROOT:-./workspace}:/work:ro
+      - ${LUX_LOG_ROOT:-./logs}:/logs:rw
+      - ${LUX_WORKSPACE_ROOT:-./workspace}:/work:ro
       - /sys/fs/bpf:/sys/fs/bpf:rw
       - /sys/kernel/tracing:/sys/kernel/tracing:rw
       - /sys/kernel/debug:/sys/kernel/debug:rw
     environment:
-      - LASSO_RUN_ID=${LASSO_RUN_ID:-lasso__adhoc}
-      - COLLECTOR_AUDIT_LOG=/logs/${LASSO_RUN_ID:-lasso__adhoc}/collector/raw/audit.log
-      - COLLECTOR_EBPF_OUTPUT=/logs/${LASSO_RUN_ID:-lasso__adhoc}/collector/raw/ebpf.jsonl
-      - COLLECTOR_FILTER_OUTPUT=/logs/${LASSO_RUN_ID:-lasso__adhoc}/collector/filtered/filtered_audit.jsonl
-      - COLLECTOR_EBPF_FILTER_OUTPUT=/logs/${LASSO_RUN_ID:-lasso__adhoc}/collector/filtered/filtered_ebpf.jsonl
-      - COLLECTOR_EBPF_SUMMARY_OUTPUT=/logs/${LASSO_RUN_ID:-lasso__adhoc}/collector/filtered/filtered_ebpf_summary.jsonl
-      - COLLECTOR_MERGE_FILTER_OUTPUT=/logs/${LASSO_RUN_ID:-lasso__adhoc}/collector/filtered/filtered_timeline.jsonl
-      - COLLECTOR_SESSIONS_DIR=/logs/${LASSO_RUN_ID:-lasso__adhoc}/harness/sessions
-      - COLLECTOR_JOBS_DIR=/logs/${LASSO_RUN_ID:-lasso__adhoc}/harness/jobs
+      - LUX_RUN_ID=${LUX_RUN_ID:-lux__adhoc}
+      - COLLECTOR_AUDIT_LOG=/logs/${LUX_RUN_ID:-lux__adhoc}/collector/raw/audit.log
+      - COLLECTOR_EBPF_OUTPUT=/logs/${LUX_RUN_ID:-lux__adhoc}/collector/raw/ebpf.jsonl
+      - COLLECTOR_FILTER_OUTPUT=/logs/${LUX_RUN_ID:-lux__adhoc}/collector/filtered/filtered_audit.jsonl
+      - COLLECTOR_EBPF_FILTER_OUTPUT=/logs/${LUX_RUN_ID:-lux__adhoc}/collector/filtered/filtered_ebpf.jsonl
+      - COLLECTOR_EBPF_SUMMARY_OUTPUT=/logs/${LUX_RUN_ID:-lux__adhoc}/collector/filtered/filtered_ebpf_summary.jsonl
+      - COLLECTOR_MERGE_FILTER_OUTPUT=/logs/${LUX_RUN_ID:-lux__adhoc}/collector/filtered/filtered_timeline.jsonl
+      - COLLECTOR_SESSIONS_DIR=/logs/${LUX_RUN_ID:-lux__adhoc}/harness/sessions
+      - COLLECTOR_JOBS_DIR=/logs/${LUX_RUN_ID:-lux__adhoc}/harness/jobs
       - COLLECTOR_ROOT_COMM=${COLLECTOR_ROOT_COMM:-}
 
   agent:
-    image: ghcr.io/scottmaran/lasso-agent:${LASSO_VERSION}
+    image: ghcr.io/scottmaran/lux-agent:${LUX_VERSION}
     # agent has read-only access to logs
     volumes:
-      - ${LASSO_WORKSPACE_ROOT:-./workspace}:/work:rw
-      - ${LASSO_LOG_ROOT:-./logs}:/logs:ro
+      - ${LUX_WORKSPACE_ROOT:-./workspace}:/work:rw
+      - ${LUX_LOG_ROOT:-./logs}:/logs:ro
       # the named docker volume to store the keys
       - harness_keys:/config:ro
     # prevent remounting /logs as rw inside the container
@@ -41,10 +41,10 @@ services:
       - no-new-privileges:true
 
   harness:
-    image: ghcr.io/scottmaran/lasso-harness:${LASSO_VERSION}
+    image: ghcr.io/scottmaran/lux-harness:${LUX_VERSION}
     volumes:
-      - ${LASSO_WORKSPACE_ROOT:-./workspace}:/work:rw
-      - ${LASSO_LOG_ROOT:-./logs}:/logs:rw
+      - ${LUX_WORKSPACE_ROOT:-./workspace}:/work:rw
+      - ${LUX_LOG_ROOT:-./logs}:/logs:rw
       - harness_keys:/harness/keys:rw
     # host_ip:host_port:container_port
     ports:
@@ -54,7 +54,7 @@ services:
       # internal Docker network.
       - "127.0.0.1:${HARNESS_HOST_PORT:-8081}:8081"
     environment:
-      - LASSO_RUN_ID=${LASSO_RUN_ID:-lasso__adhoc}
+      - LUX_RUN_ID=${LUX_RUN_ID:-lux__adhoc}
       - HARNESS_AGENT_HOST=agent
       - HARNESS_AGENT_PORT=22
       - HARNESS_AGENT_USER=agent
@@ -62,8 +62,8 @@ services:
       - HARNESS_HTTP_PORT=8081
       - HARNESS_API_TOKEN=${HARNESS_API_TOKEN}
       - HARNESS_AGENT_WORKDIR=/work
-      - HARNESS_LOG_DIR=/logs/${LASSO_RUN_ID:-lasso__adhoc}/harness
-      - HARNESS_TIMELINE_PATH=/logs/${LASSO_RUN_ID:-lasso__adhoc}/collector/filtered/filtered_timeline.jsonl
+      - HARNESS_LOG_DIR=/logs/${LUX_RUN_ID:-lux__adhoc}/harness
+      - HARNESS_TIMELINE_PATH=/logs/${LUX_RUN_ID:-lux__adhoc}/collector/filtered/filtered_timeline.jsonl
       - HARNESS_TUI_CMD=${HARNESS_TUI_CMD:-}
       - HARNESS_RUN_CMD_TEMPLATE=${HARNESS_RUN_CMD_TEMPLATE:-}
     depends_on:

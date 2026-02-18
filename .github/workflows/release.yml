@@ -80,8 +80,8 @@ jobs:
           fi
 
           EXPECTED="${VERSION#v}"
-          CARGO_VERSION=$(sed -n 's/^version = "\(.*\)"/\1/p' lasso/Cargo.toml | head -n 1)
-          LOCK_VERSION=$(awk 'f && /^version = /{gsub(/version = "|"/,"");print;exit} /^name = "lasso"$/{f=1}' lasso/Cargo.lock)
+          CARGO_VERSION=$(sed -n 's/^version = "\(.*\)"/\1/p' lux/Cargo.toml | head -n 1)
+          LOCK_VERSION=$(awk 'f && /^version = /{gsub(/version = "|"/,"");print;exit} /^name = "lux"$/{f=1}' lux/Cargo.lock)
           PYPROJECT_VERSION=$(sed -n 's/^version = "\(.*\)"/\1/p' pyproject.toml | head -n 1)
 
           echo "release input:  $VERSION"
@@ -90,12 +90,12 @@ jobs:
           echo "pyproject ver:  $PYPROJECT_VERSION"
 
           if [[ "$CARGO_VERSION" != "$EXPECTED" ]]; then
-            echo "lasso/Cargo.toml version ($CARGO_VERSION) must equal $EXPECTED" >&2
+            echo "lux/Cargo.toml version ($CARGO_VERSION) must equal $EXPECTED" >&2
             exit 1
           fi
 
           if [[ "$LOCK_VERSION" != "$EXPECTED" ]]; then
-            echo "lasso/Cargo.lock package version ($LOCK_VERSION) must equal $EXPECTED" >&2
+            echo "lux/Cargo.lock package version ($LOCK_VERSION) must equal $EXPECTED" >&2
             exit 1
           fi
 
@@ -169,31 +169,31 @@ jobs:
       - name: Build CLI
         run: |
           cargo build --release --locked --target ${{ matrix.target }}
-        working-directory: lasso
+        working-directory: lux
 
       - name: Assemble bundle
         run: |
           set -euo pipefail
           VERSION_TAG=${VERSION#v}
-          BUNDLE_DIR=dist/lasso_${VERSION_TAG}_${{ matrix.os }}_${{ matrix.arch }}
+          BUNDLE_DIR=dist/lux_${VERSION_TAG}_${{ matrix.os }}_${{ matrix.arch }}
           mkdir -p "$BUNDLE_DIR/config"
-          cp lasso/target/${{ matrix.target }}/release/lasso "$BUNDLE_DIR/"
+          cp lux/target/${{ matrix.target }}/release/lux "$BUNDLE_DIR/"
           cp compose.yml "$BUNDLE_DIR/"
           cp compose.ui.yml "$BUNDLE_DIR/"
-          cp lasso/config/default.yaml "$BUNDLE_DIR/config/default.yaml"
+          cp lux/config/default.yaml "$BUNDLE_DIR/config/default.yaml"
           mkdir -p "$BUNDLE_DIR/docs/contracts"
           cp docs/contracts/cli.md "$BUNDLE_DIR/docs/contracts/cli.md"
           cp docs/contracts/config.md "$BUNDLE_DIR/docs/contracts/config.md"
           cp README.md "$BUNDLE_DIR/README.md"
           if [ -f LICENSE ]; then cp LICENSE "$BUNDLE_DIR/LICENSE"; fi
           echo "${VERSION#v}" > "$BUNDLE_DIR/VERSION"
-          (cd dist && tar -czf lasso_${VERSION_TAG}_${{ matrix.os }}_${{ matrix.arch }}.tar.gz "$(basename "$BUNDLE_DIR")")
-          (cd dist && if command -v shasum >/dev/null 2>&1; then shasum -a 256 lasso_${VERSION_TAG}_${{ matrix.os }}_${{ matrix.arch }}.tar.gz; else sha256sum lasso_${VERSION_TAG}_${{ matrix.os }}_${{ matrix.arch }}.tar.gz; fi > lasso_${VERSION_TAG}_${{ matrix.os }}_${{ matrix.arch }}.tar.gz.sha256)
+          (cd dist && tar -czf lux_${VERSION_TAG}_${{ matrix.os }}_${{ matrix.arch }}.tar.gz "$(basename "$BUNDLE_DIR")")
+          (cd dist && if command -v shasum >/dev/null 2>&1; then shasum -a 256 lux_${VERSION_TAG}_${{ matrix.os }}_${{ matrix.arch }}.tar.gz; else sha256sum lux_${VERSION_TAG}_${{ matrix.os }}_${{ matrix.arch }}.tar.gz; fi > lux_${VERSION_TAG}_${{ matrix.os }}_${{ matrix.arch }}.tar.gz.sha256)
 
       - name: Upload bundle artifact
         uses: actions/upload-artifact@v4
         with:
-          name: lasso-${{ matrix.os }}-${{ matrix.arch }}
+          name: lux-${{ matrix.os }}-${{ matrix.arch }}
           path: dist/*.tar.gz*
 
   build-images:
@@ -225,20 +225,20 @@ jobs:
           set -euo pipefail
           VERSION_TAG=${VERSION#v}
           docker buildx build --platform linux/amd64,linux/arm64 \
-            -t ghcr.io/${{ github.repository_owner }}/lasso-agent:${VERSION} \
-            -t ghcr.io/${{ github.repository_owner }}/lasso-agent:${VERSION_TAG} \
+            -t ghcr.io/${{ github.repository_owner }}/lux-agent:${VERSION} \
+            -t ghcr.io/${{ github.repository_owner }}/lux-agent:${VERSION_TAG} \
             -f agent/Dockerfile --push agent
           docker buildx build --platform linux/amd64,linux/arm64 \
-            -t ghcr.io/${{ github.repository_owner }}/lasso-harness:${VERSION} \
-            -t ghcr.io/${{ github.repository_owner }}/lasso-harness:${VERSION_TAG} \
+            -t ghcr.io/${{ github.repository_owner }}/lux-harness:${VERSION} \
+            -t ghcr.io/${{ github.repository_owner }}/lux-harness:${VERSION_TAG} \
             -f harness/Dockerfile --push harness
           docker buildx build --platform linux/amd64,linux/arm64 \
-            -t ghcr.io/${{ github.repository_owner }}/lasso-collector:${VERSION} \
-            -t ghcr.io/${{ github.repository_owner }}/lasso-collector:${VERSION_TAG} \
+            -t ghcr.io/${{ github.repository_owner }}/lux-collector:${VERSION} \
+            -t ghcr.io/${{ github.repository_owner }}/lux-collector:${VERSION_TAG} \
             -f collector/Dockerfile --push collector
           docker buildx build --platform linux/amd64,linux/arm64 \
-            -t ghcr.io/${{ github.repository_owner }}/lasso-ui:${VERSION} \
-            -t ghcr.io/${{ github.repository_owner }}/lasso-ui:${VERSION_TAG} \
+            -t ghcr.io/${{ github.repository_owner }}/lux-ui:${VERSION} \
+            -t ghcr.io/${{ github.repository_owner }}/lux-ui:${VERSION_TAG} \
             -f ui/Dockerfile --push ui
 
   publish-release:

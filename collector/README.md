@@ -9,7 +9,7 @@ It writes raw logs to the sink and runs a pipeline to produce a unified,
 UI-friendly timeline.
 
 ## Pipeline (run-scoped files)
-In normal `lasso up` usage, outputs are run-scoped under:
+In normal `lux up` usage, outputs are run-scoped under:
 `<log_root>/<run_id>/collector/...`.
 
 Stages and files:

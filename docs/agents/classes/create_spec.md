@@ -2,7 +2,7 @@
 Layer: Contract
 
 ## Mission
-Produce an implementable, testable spec for a change to Lasso.
+Produce an implementable, testable spec for a change to Lux.
 
 ## When To Use
 - A new feature, refactor, behavioral change, or non-trivial bugfix needs a durable contract.

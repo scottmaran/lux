@@ -14,7 +14,7 @@ pytestmark = pytest.mark.integration
 
 
 ROOT_DIR = Path(__file__).resolve().parents[2]
-COLLECTOR_IMAGE = "lasso-test-collector:local"
+COLLECTOR_IMAGE = "lux-test-collector:local"
 
 
 def _tail(path: Path, *, lines: int = 40) -> str:
@@ -89,7 +89,7 @@ def test_collector_only_raw_log_smoke_includes_fs_net_dns_unix_signals(
     workspace.mkdir(parents=True, exist_ok=True)
     logs.mkdir(parents=True, exist_ok=True)
 
-    collector_name = f"lasso-collector-smoke-{uuid.uuid4().hex[:10]}"
+    collector_name = f"lux-collector-smoke-{uuid.uuid4().hex[:10]}"
     audit_path = logs / "audit.log"
     ebpf_path = logs / "ebpf.jsonl"
 

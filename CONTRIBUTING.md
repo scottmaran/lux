@@ -1,4 +1,4 @@
-# Contributing to Lasso
+# Contributing to Lux
 
 ## Before You Start
 

@@ -112,7 +112,7 @@ jobs:
     if: ${{ false }}
     runs-on: ubuntu-latest
     env:
-      LASSO_STRESS_TRIALS: "3"
+      LUX_STRESS_TRIALS: "3"
     steps:
       - name: Checkout
         uses: actions/checkout@v4

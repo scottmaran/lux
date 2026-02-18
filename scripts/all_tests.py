@@ -11,7 +11,7 @@ ROOT_DIR = Path(__file__).resolve().parents[1]
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Canonical Lasso test runner.")
+    parser = argparse.ArgumentParser(description="Canonical Lux test runner.")
     parser.add_argument(
         "--lane",
         choices=["fast", "pr", "full", "codex", "claude", "local-full"],
@@ -78,14 +78,14 @@ def lane_steps(args: argparse.Namespace) -> list[tuple[list[str], dict[str, str]
     smoke_steps: list[tuple[list[str], dict[str, str] | None]] = [
         (
             ["uv", "run", "pytest", "tests/stress", "-q"],
-            {"LASSO_STRESS_TRIALS": str(args.smoke_trials)},
+            {"LUX_STRESS_TRIALS": str(args.smoke_trials)},
         ),
     ]
 
     full_steps: list[tuple[list[str], dict[str, str] | None]] = [
         (
             ["uv", "run", "pytest", "tests/stress", "-q"],
-            {"LASSO_STRESS_TRIALS": str(args.full_trials)},
+            {"LUX_STRESS_TRIALS": str(args.full_trials)},
         ),
     ]
 

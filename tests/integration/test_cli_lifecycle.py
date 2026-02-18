@@ -18,8 +18,8 @@ COMPOSE_BASE = ROOT_DIR / "compose.yml"
 COMPOSE_TEST_OVERRIDE = ROOT_DIR / "tests" / "integration" / "compose.test.override.yml"
 
 
-def _run_lasso(
-    lasso_bin: Path,
+def _run_lux(
+    lux_bin: Path,
     *,
     config_path: Path,
     compose_files: tuple[Path, ...],
@@ -28,7 +28,7 @@ def _run_lasso(
     timeout: float,
     check: bool = True,
 ) -> subprocess.CompletedProcess[str]:
-    cmd: list[str] = [str(lasso_bin), "--json", "--config", str(config_path)]
+    cmd: list[str] = [str(lux_bin), "--json", "--config", str(config_path)]
     for compose_file in compose_files:
         cmd.extend(["--compose-file", str(compose_file)])
     cmd.extend(args)
@@ -43,7 +43,7 @@ def _run_lasso(
     )
     if check and result.returncode != 0:
         raise AssertionError(
-            "lasso command failed.\n"
+            "lux command failed.\n"
             f"cmd={' '.join(cmd)}\n"
             f"returncode={result.returncode}\n"
             f"stdout:\n{result.stdout}\n"
@@ -85,7 +85,7 @@ def _write_cli_config(
                 '      run_template: "codex -C /work -s danger-full-access exec {prompt}"',
                 "    auth:",
                 "      api_key:",
-                "        secrets_file: ~/.config/lasso/secrets/codex.env",
+                "        secrets_file: ~/.config/lux/secrets/codex.env",
                 "        env_key: OPENAI_API_KEY",
                 "      host_state:",
                 "        paths:",
@@ -114,7 +114,7 @@ def _cleanup_project(project_name: str) -> None:
 def test_cli_up_wait_status_down_removes_volumes(
     tmp_path: Path,
     build_local_images,
-    lasso_cli_binary: Path,
+    lux_cli_binary: Path,
 ) -> None:
     runtime_root = tmp_path / f"cli-lifecycle-{uuid.uuid4().hex[:8]}"
     home_root = runtime_root / "home"
@@ -128,7 +128,7 @@ def test_cli_up_wait_status_down_removes_volumes(
 
     config_path = config_dir / "config.yaml"
     env_file = config_dir / "compose.env"
-    project_name = f"lasso-cli-{uuid.uuid4().hex[:8]}"
+    project_name = f"lux-cli-{uuid.uuid4().hex[:8]}"
     harness_port = find_free_port()
     api_token = f"token-{uuid.uuid4().hex}"
     compose_files = (COMPOSE_BASE, COMPOSE_TEST_OVERRIDE)
@@ -149,13 +149,13 @@ def test_cli_up_wait_status_down_removes_volumes(
         env["DOCKER_CONFIG"] = docker_config
     else:
         env["DOCKER_CONFIG"] = str(Path.home() / ".docker")
-    env["LASSO_ENV_FILE"] = str(env_file)
-    env["LASSO_BUNDLE_DIR"] = str(ROOT_DIR)
+    env["LUX_ENV_FILE"] = str(env_file)
+    env["LUX_BUNDLE_DIR"] = str(ROOT_DIR)
     env["HARNESS_HOST_PORT"] = str(harness_port)
 
     try:
-        _run_lasso(
-            lasso_cli_binary,
+        _run_lux(
+            lux_cli_binary,
             config_path=config_path,
             compose_files=compose_files,
             args=["config", "apply"],
@@ -163,8 +163,8 @@ def test_cli_up_wait_status_down_removes_volumes(
             timeout=120,
         )
 
-        up_collector = _run_lasso(
-            lasso_cli_binary,
+        up_collector = _run_lux(
+            lux_cli_binary,
             config_path=config_path,
             compose_files=compose_files,
             args=["up", "--collector-only", "--wait", "--timeout-sec", "240"],
@@ -176,8 +176,8 @@ def test_cli_up_wait_status_down_removes_volumes(
         assert payload["result"].get("run_id"), f"Expected run_id in up payload: {payload}"
         run_id = payload["result"]["run_id"]
 
-        up_provider = _run_lasso(
-            lasso_cli_binary,
+        up_provider = _run_lux(
+            lux_cli_binary,
             config_path=config_path,
             compose_files=compose_files,
             args=["up", "--provider", "codex", "--wait", "--timeout-sec", "240"],
@@ -189,8 +189,8 @@ def test_cli_up_wait_status_down_removes_volumes(
         assert payload["result"].get("run_id") == run_id
         assert payload["result"].get("provider") == "codex"
 
-        collector_status = _run_lasso(
-            lasso_cli_binary,
+        collector_status = _run_lux(
+            lux_cli_binary,
             config_path=config_path,
             compose_files=compose_files,
             args=["status", "--collector-only"],
@@ -203,8 +203,8 @@ def test_cli_up_wait_status_down_removes_volumes(
         assert isinstance(services, list)
         assert services, f"Expected running collector after up, got: {payload}"
 
-        provider_status = _run_lasso(
-            lasso_cli_binary,
+        provider_status = _run_lux(
+            lux_cli_binary,
             config_path=config_path,
             compose_files=compose_files,
             args=["status", "--provider", "codex"],
@@ -227,8 +227,8 @@ def test_cli_up_wait_status_down_removes_volumes(
         )
         assert volume_name in (volume_ls.stdout or "").splitlines()
 
-        _run_lasso(
-            lasso_cli_binary,
+        _run_lux(
+            lux_cli_binary,
             config_path=config_path,
             compose_files=compose_files,
             args=["down", "--provider", "codex"],
@@ -236,8 +236,8 @@ def test_cli_up_wait_status_down_removes_volumes(
             timeout=240,
         )
 
-        status = _run_lasso(
-            lasso_cli_binary,
+        status = _run_lux(
+            lux_cli_binary,
             config_path=config_path,
             compose_files=compose_files,
             args=["status", "--provider", "codex"],
@@ -249,8 +249,8 @@ def test_cli_up_wait_status_down_removes_volumes(
         assert payload["result"] == []
 
         # Collector should remain running while the provider plane is down.
-        collector_status = _run_lasso(
-            lasso_cli_binary,
+        collector_status = _run_lux(
+            lux_cli_binary,
             config_path=config_path,
             compose_files=compose_files,
             args=["status", "--collector-only"],
@@ -261,8 +261,8 @@ def test_cli_up_wait_status_down_removes_volumes(
         assert payload["ok"] is True
         assert payload["result"] != []
 
-        _run_lasso(
-            lasso_cli_binary,
+        _run_lux(
+            lux_cli_binary,
             config_path=config_path,
             compose_files=compose_files,
             args=["down", "--collector-only"],
@@ -270,8 +270,8 @@ def test_cli_up_wait_status_down_removes_volumes(
             timeout=240,
         )
 
-        status = _run_lasso(
-            lasso_cli_binary,
+        status = _run_lux(
+            lux_cli_binary,
             config_path=config_path,
             compose_files=compose_files,
             args=["status", "--collector-only"],
