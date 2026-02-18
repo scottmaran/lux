@@ -67,6 +67,7 @@ This:
 **Note:** The installer does **not** create log/workspace directories. The
 recommended next step is `lasso setup`, which configures paths + auth and runs
 `lasso config apply` for you.
+By default, setup uses workspace=`$HOME` and an OS-specific log root outside `$HOME`.
 
 If `lasso` is "command not found" after install, ensure `~/.local/bin` is in
 your `PATH`.

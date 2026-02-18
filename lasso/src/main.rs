@@ -1318,6 +1318,7 @@ fn handle_setup(
 
     let mut pending_secrets: Vec<PendingSecretWrite> = Vec::new();
     let mut missing_api_key_secrets: Vec<(String, String, PathBuf)> = Vec::new();
+    let default_paths = computed_default_paths_for_current_os()?;
 
     let (patched_yaml, cfg_after_yaml, should_write_config) = loop {
         warnings.clear();
@@ -1327,41 +1328,49 @@ fn handle_setup(
         print_step(1, total_steps, "Paths");
         println!(
             "{}",
-            style("This will be where your logs are stored (on your computer/host).").dim()
+            style("This is where logs are stored on your host machine.").dim()
         );
         println!(
             "{}",
             style(
-                "These logs can grow to be large. 
-We recommend putting it in your root directory with our default name."
+                "Path policy:
+- logs must be outside $HOME
+- workspace must be under $HOME
+- logs and workspace must not overlap"
             )
             .dim()
         );
+        println!(
+            "{}",
+            style(format!(
+                "Default log root for this host: {}",
+                default_paths.log_root
+            ))
+            .dim()
+        );
         log_root_state = Input::<String>::with_theme(&theme)
-            .with_prompt("What directory do you want your logs to be stored?")
+            .with_prompt("Select log root (outside $HOME)")
             .default(log_root_state.clone())
             .interact_text()?;
         println!("{}", style("Great! Now choose your agent's workspace"));
         println!(
             "{}",
             style(
-                "This will be where your agents have access
-Lasso works by creating a separate Docker container for your agents to work in
-(that way they don't have unfettered access to your personal machine).
-
-The safest way would be to create a new, empty directory (e.g. ~/lasso-workspace)
-that your agents can access from the isolatd container.
-
-If you want your agent to retain access to all of your files, you can set the workspace
-as something like your user root directory (e.g. ~/ ).
-
-We recommend using your best judgement.
-"
+                "This is the host directory mounted into the agent container at /work.
+For safety and policy compliance, workspace must be under $HOME."
             )
             .dim()
         );
+        println!(
+            "{}",
+            style(format!(
+                "Default workspace for this host: {}",
+                default_paths.workspace_root
+            ))
+            .dim()
+        );
         workspace_root_state = Input::<String>::with_theme(&theme)
-            .with_prompt("Select your agent's workspace folder.")
+            .with_prompt("Select workspace root (under $HOME)")
             .default(workspace_root_state.clone())
             .interact_text()?;
 
@@ -1551,6 +1560,21 @@ if you're using an API key or a subscription-based plan"
                 }
             };
         }
+        let resolved_policy_paths = match resolve_config_policy_paths(&desired_cfg) {
+            Ok(paths) => paths,
+            Err(err) => {
+                println!();
+                println!("{}", style("Path validation error").bold().red());
+                println!("{}", style(err.to_string()).red());
+                println!(
+                    "{}",
+                    style("Please update the path values and try again.")
+                        .yellow()
+                        .dim()
+                );
+                continue;
+            }
+        };
         validate_config(&desired_cfg)?;
 
         let mut yaml_edits = SetupYamlEdits::default();
@@ -1597,6 +1621,11 @@ if you're using an API key or a subscription-based plan"
                 style(&desired_cfg.paths.log_root).green()
             );
         }
+        println!(
+            "  {} {}",
+            style("resolved log root:").dim(),
+            style(resolved_policy_paths.log_root.display()).dim()
+        );
         if desired_cfg.paths.workspace_root == base_cfg.paths.workspace_root {
             println!(
                 "  {} {}",
@@ -1612,6 +1641,11 @@ if you're using an API key or a subscription-based plan"
                 style(&desired_cfg.paths.workspace_root).green()
             );
         }
+        println!(
+            "  {} {}",
+            style("resolved workspace root:").dim(),
+            style(resolved_policy_paths.workspace_root.display()).dim()
+        );
 
         println!("\n{}", style("Provider Auth").bold());
         for (provider_name, provider) in &desired_cfg.providers {
@@ -1793,7 +1827,7 @@ if you're using an API key or a subscription-based plan"
     );
     println!(
         "{}",
-        style("Run codex or cluade through our ```lasso tui ``` command.").dim()
+        style("Run codex or claude through our ```lasso tui ``` command.").dim()
     );
 
     println!();
@@ -1880,6 +1914,27 @@ fn handle_config(ctx: &Context, command: ConfigCommand) -> Result<(), LassoError
 }
 
 fn apply_config(ctx: &Context, cfg: &Config) -> Result<(PathBuf, PathBuf), LassoError> {
+    fn create_log_root_with_guidance(log_root: &Path) -> Result<(), LassoError> {
+        fs::create_dir_all(log_root).map_err(|err| {
+            if err.kind() == io::ErrorKind::PermissionDenied {
+                if env::consts::OS == "linux" && log_root.starts_with(Path::new("/var/lib/lasso")) {
+                    return LassoError::Config(format!(
+                        "failed to create paths.log_root at {}: permission denied.\n\
+Linux default log root often needs a one-time setup:\n  sudo mkdir -p /var/lib/lasso/logs\n  sudo chown -R $USER /var/lib/lasso/logs\n\
+Then re-run `lasso config apply`.",
+                        log_root.display()
+                    ));
+                }
+                return LassoError::Config(format!(
+                    "failed to create paths.log_root at {}: permission denied.\n\
+Choose a writable log root outside $HOME or create this directory with sufficient permissions.",
+                    log_root.display()
+                ));
+            }
+            LassoError::Io(err)
+        })
+    }
+
     let policy_paths = resolve_config_policy_paths(cfg)?;
     let mut envs = config_to_env(cfg);
     envs.insert(
@@ -1892,9 +1947,18 @@ fn apply_config(ctx: &Context, cfg: &Config) -> Result<(PathBuf, PathBuf), Lasso
     );
     write_env_file(&ctx.env_file, &envs)?;
     let log_root = policy_paths.log_root;
-    fs::create_dir_all(&log_root)?;
+    create_log_root_with_guidance(&log_root)?;
     let workspace_root = policy_paths.workspace_root;
-    fs::create_dir_all(&workspace_root)?;
+    fs::create_dir_all(&workspace_root).map_err(|err| {
+        if err.kind() == io::ErrorKind::PermissionDenied {
+            return LassoError::Config(format!(
+                "failed to create paths.workspace_root at {}: permission denied.\n\
+Choose a writable workspace under $HOME.",
+                workspace_root.display()
+            ));
+        }
+        LassoError::Io(err)
+    })?;
     Ok((log_root, workspace_root))
 }
 

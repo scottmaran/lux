@@ -196,6 +196,8 @@ cat <<EOFMSG
 
 Next steps:
 1) Run setup wizard: ${INSTALL_DIR}/current/lasso setup
+   - workspace default: \$HOME (must stay under \$HOME)
+   - log root default: OS-specific outside \$HOME
 2) Start stack:
    - lasso up --collector-only --wait
    - lasso up --provider codex --wait

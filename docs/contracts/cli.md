@@ -25,6 +25,11 @@ lasso tui --provider codex
 Interactive setup wizard that updates `config.yaml` in place (preserving
 comments/formatting) and optionally creates provider secrets files.
 
+Path policy enforced by setup:
+- `paths.workspace_root` must be under `$HOME`
+- `paths.log_root` must be outside `$HOME`
+- log/workspace paths must not overlap
+
 Flags:
 - `--defaults`: non-interactive mode (for scripts/CI)
 - `--dry-run`: show planned changes without writing
