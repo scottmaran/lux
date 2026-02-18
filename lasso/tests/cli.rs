@@ -272,6 +272,11 @@ fn doctor_reports_missing_docker_in_json() {
     assert!(!value["ok"].as_bool().unwrap());
     let error = value["error"].as_str().unwrap_or_default();
     assert!(error.contains("docker"));
+    assert_eq!(value["result"]["checks"]["docker"].as_bool(), Some(false));
+    assert_eq!(
+        value["result"]["checks"]["docker_compose"].as_bool(),
+        Some(false)
+    );
 }
 
 #[test]
@@ -284,10 +289,48 @@ fn status_fails_when_docker_missing() {
         .env("PATH", "")
         .arg("--config")
         .arg(&config_path)
+        .arg("--compose-file")
+        .arg("../compose.yml")
+        .arg("--compose-file")
+        .arg("../tests/integration/compose.test.override.yml")
         .arg("status")
         .arg("--collector-only")
         .assert()
         .failure();
+}
+
+#[test]
+fn status_json_includes_structured_docker_error_details() {
+    let dir = tempdir().unwrap();
+    let config_path = dir.path().join("config.yaml");
+    fs::write(&config_path, "version: 2\n").unwrap();
+
+    let output = bin()
+        .env("PATH", "")
+        .arg("--json")
+        .arg("--config")
+        .arg(&config_path)
+        .arg("--compose-file")
+        .arg("../compose.yml")
+        .arg("--compose-file")
+        .arg("../tests/integration/compose.test.override.yml")
+        .arg("status")
+        .arg("--collector-only")
+        .assert()
+        .failure()
+        .get_output()
+        .stdout
+        .clone();
+
+    let value = parse_json(&output);
+    assert!(!value["ok"].as_bool().unwrap());
+    assert_eq!(value["error_details"]["error_code"], "docker_not_found");
+    let command = value["error_details"]["command"]
+        .as_str()
+        .unwrap_or_default();
+    assert!(command.contains("docker compose"));
+    let hint = value["error_details"]["hint"].as_str().unwrap_or_default();
+    assert!(hint.contains("Install Docker"));
 }
 
 #[test]

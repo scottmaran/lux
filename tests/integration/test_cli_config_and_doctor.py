@@ -199,6 +199,9 @@ def test_doctor_reports_missing_docker_in_json(tmp_path: Path, lasso_cli_binary:
     payload = json.loads(result.stdout)
     assert payload["ok"] is False
     assert "docker" in (payload.get("error") or "").lower()
+    checks = ((payload.get("result") or {}).get("checks") or {})
+    assert checks.get("docker") is False
+    assert checks.get("docker_compose") is False
 
 
 def test_doctor_reports_log_root_unwritable_in_json(tmp_path: Path, lasso_cli_binary: Path) -> None:
@@ -242,13 +245,26 @@ def test_status_fails_when_docker_missing(tmp_path: Path, lasso_cli_binary: Path
     env["PATH"] = ""
 
     result = _run(
-        [str(lasso_cli_binary), "--config", str(config_path), "status", "--collector-only"],
+        [
+            str(lasso_cli_binary),
+            "--json",
+            "--config",
+            str(config_path),
+            "status",
+            "--collector-only",
+        ],
         cwd=ROOT_DIR,
         env=env,
         timeout=30,
         check=False,
     )
     assert result.returncode != 0
+    payload = json.loads(result.stdout)
+    assert payload["ok"] is False
+    details = payload.get("error_details") or {}
+    assert details.get("error_code") == "docker_not_found"
+    assert "docker compose" in (details.get("command") or "")
+    assert "Install Docker" in (details.get("hint") or "")
 
 
 def test_config_apply_rewrites_env_file_when_release_tag_changes(

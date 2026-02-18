@@ -98,7 +98,10 @@ Notes:
 
 ### `doctor`
 
-Checks local prerequisites (Docker availability and writable log root).
+Checks local prerequisites:
+- Docker daemon availability (`checks.docker`)
+- Docker Compose availability (`checks.docker_compose`)
+- Writable log root (`checks.log_root_writable`)
 
 ### `paths`
 
@@ -134,3 +137,16 @@ Options:
 - `--compose-file <path>` (repeatable)
 - `--bundle-dir <path>` (advanced/dev)
 - `--env-file <path>` (advanced/dev)
+
+## JSON Error Envelope
+
+When `--json` is enabled, failures keep the existing top-level fields:
+- `ok: false`
+- `result: null`
+- `error: "<string>"`
+
+Process/command failures may also include additive structured details:
+- `error_details.error_code` (stable identifier)
+- `error_details.hint` (actionable remediation when available)
+- `error_details.command` (failed command context)
+- `error_details.raw_stderr` (raw stderr excerpt when available)

@@ -217,6 +217,11 @@ enum LassoError {
     Json(#[from] serde_json::Error),
     #[error("process error: {0}")]
     Process(String),
+    #[error("process error: {message}")]
+    ProcessDetailed {
+        message: String,
+        details: ProcessErrorDetails,
+    },
     #[error("http error: {0}")]
     Http(#[from] reqwest::Error),
 }
@@ -500,6 +505,19 @@ struct JsonResult<T: Serialize> {
     ok: bool,
     result: Option<T>,
     error: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    error_details: Option<ProcessErrorDetails>,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+struct ProcessErrorDetails {
+    error_code: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    hint: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    command: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    raw_stderr: Option<String>,
 }
 
 #[derive(Debug)]
@@ -681,6 +699,7 @@ fn main() -> Result<(), LassoError> {
                 ok: false,
                 result: None,
                 error: Some(err.to_string()),
+                error_details: extract_process_error_details(&err),
             };
             print_json(&payload)?;
         } else {
@@ -3436,6 +3455,122 @@ Run `lasso down --provider {active_provider}` first."
     ))
 }
 
+fn render_docker_command(args: &[String]) -> String {
+    fn shell_quote(part: &str) -> String {
+        if part.is_empty() {
+            return "\"\"".to_string();
+        }
+        if part.chars().any(|c| c.is_whitespace()) {
+            return format!("\"{}\"", part.replace('"', "\\\""));
+        }
+        part.to_string()
+    }
+    let mut parts = Vec::with_capacity(args.len() + 1);
+    parts.push("docker".to_string());
+    parts.extend(args.iter().map(|arg| shell_quote(arg)));
+    parts.join(" ")
+}
+
+fn docker_spawn_error_details(err: &io::Error, command: &str) -> ProcessErrorDetails {
+    if err.kind() == io::ErrorKind::NotFound {
+        return ProcessErrorDetails {
+            error_code: "docker_not_found".to_string(),
+            hint: Some("Install Docker and ensure `docker` is on your PATH.".to_string()),
+            command: Some(command.to_string()),
+            raw_stderr: None,
+        };
+    }
+    ProcessErrorDetails {
+        error_code: "process_command_failed".to_string(),
+        hint: None,
+        command: Some(command.to_string()),
+        raw_stderr: None,
+    }
+}
+
+fn classify_docker_command_failure(stderr: &str) -> (String, Option<String>) {
+    let lower = stderr.to_lowercase();
+
+    if lower.contains("unknown command: docker compose")
+        || lower.contains("is not a docker command")
+        || lower.contains("unknown flag: --env-file")
+        || lower.contains("unknown shorthand flag: 'f' in -f")
+    {
+        return (
+            "docker_compose_unavailable".to_string(),
+            Some(
+                "Docker Compose is unavailable. If HOME is overridden, set DOCKER_CONFIG to a directory containing Docker CLI plugins (for example ~/.docker)."
+                    .to_string(),
+            ),
+        );
+    }
+
+    if lower.contains("cannot connect to the docker daemon")
+        || lower.contains("is the docker daemon running")
+        || lower.contains("failed to connect to the docker api")
+        || lower.contains("error during connect")
+    {
+        return (
+            "docker_daemon_unreachable".to_string(),
+            Some(
+                "Docker daemon is unreachable. Start Docker Desktop (or dockerd) and retry."
+                    .to_string(),
+            ),
+        );
+    }
+
+    if lower.contains("unknown flag: --wait") || lower.contains("unknown flag: --wait-timeout") {
+        return (
+            "docker_compose_flag_unsupported".to_string(),
+            Some(
+                "Your Docker Compose version does not support required flags. Upgrade Docker/Compose and retry."
+                    .to_string(),
+            ),
+        );
+    }
+
+    if lower.contains("port is already allocated")
+        || lower.contains("bind: address already in use")
+        || lower.contains("address already in use")
+    {
+        return (
+            "docker_port_conflict".to_string(),
+            Some(
+                "A required host port is already in use. Free the conflicting port or update config/overrides."
+                    .to_string(),
+            ),
+        );
+    }
+
+    if lower.contains("timed out waiting")
+        || lower.contains("timeout waiting")
+        || lower.contains("did not become healthy")
+        || lower.contains("didn't become healthy")
+        || lower.contains("context deadline exceeded")
+        || lower.contains("application not healthy")
+    {
+        return (
+            "docker_compose_wait_timeout".to_string(),
+            Some(
+                "Compose wait timed out. Check `docker compose ps` and `docker compose logs`, then retry with a larger --timeout-sec."
+                    .to_string(),
+            ),
+        );
+    }
+
+    if lower.contains("denied")
+        || lower.contains("unauthorized")
+        || lower.contains("authentication")
+    {
+        return (
+            "docker_registry_auth".to_string(),
+            Some("Authenticate with `docker login ghcr.io` for private images.".to_string()),
+        );
+    }
+
+    ("process_command_failed".to_string(), None)
+}
+
 fn execute_docker<R: DockerRunner>(
     ctx: &Context,
     runner: &R,
@@ -3444,27 +3579,44 @@ fn execute_docker<R: DockerRunner>(
     capture_output: bool,
     passthrough_stdout: bool,
 ) -> Result<CommandOutput, LassoError> {
+    let command = render_docker_command(args);
     let cmd_output = runner
         .run(args, &ctx.bundle_dir, env_overrides, capture_output)
-        .map_err(|err| LassoError::Process(format!("failed to run command: {err}")))?;
+        .map_err(|err| {
+            let details = docker_spawn_error_details(&err, &command);
+            LassoError::ProcessDetailed {
+                message: format!("failed to run command `{command}`: {err}"),
+                details,
+            }
+        })?;
     if !cmd_output.success() {
         let stderr = String::from_utf8_lossy(&cmd_output.stderr)
             .trim()
             .to_string();
-        let mut message = format!("command failed with status {}", cmd_output.status_code);
+        let (error_code, hint) = classify_docker_command_failure(&stderr);
+        let mut message = format!(
+            "command failed with status {} while running `{}`",
+            cmd_output.status_code, command
+        );
         if !stderr.is_empty() {
             message = format!("{message}: {stderr}");
-            let lower = stderr.to_lowercase();
-            if lower.contains("denied")
-                || lower.contains("unauthorized")
-                || lower.contains("authentication")
-            {
-                message = format!(
-                    "{message}\nHint: authenticate with `docker login ghcr.io` for private images."
-                );
-            }
         }
-        return Err(LassoError::Process(message));
+        if let Some(ref hint_message) = hint {
+            message = format!("{message}\nHint: {hint_message}");
+        }
+        return Err(LassoError::ProcessDetailed {
+            message,
+            details: ProcessErrorDetails {
+                error_code,
+                hint,
+                command: Some(command),
+                raw_stderr: if stderr.is_empty() {
+                    None
+                } else {
+                    Some(stderr)
+                },
+            },
+        });
     }
     if capture_output && passthrough_stdout && !cmd_output.stdout.is_empty() && !ctx.json {
         let stdout = String::from_utf8_lossy(&cmd_output.stdout);
@@ -3771,6 +3923,7 @@ fn handle_status<R: DockerRunner>(
             ok: true,
             result: Some(rows),
             error: None,
+            error_details: None,
         };
         print_json(&payload)?;
         return Ok(());
@@ -3863,6 +4016,7 @@ fn handle_run(
             ok: true,
             result: Some(payload),
             error: None,
+            error_details: None,
         };
         print_json(&wrapper)?;
     } else {
@@ -3973,28 +4127,44 @@ fn handle_jobs(ctx: &Context, command: JobsCommand) -> Result<(), LassoError> {
 
 fn handle_doctor(ctx: &Context) -> Result<(), LassoError> {
     let mut checks = BTreeMap::new();
-    let docker_ok = match which::which("docker") {
-        Ok(_) => {
-            let output = Command::new("docker")
-                .arg("info")
-                .stdout(Stdio::null())
-                .stderr(Stdio::null())
-                .status();
-            output.map(|s| s.success()).unwrap_or(false)
-        }
-        Err(_) => false,
+    let docker_present = which::which("docker").is_ok();
+    let docker_ok = if docker_present {
+        let output = Command::new("docker")
+            .arg("info")
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status();
+        output.map(|s| s.success()).unwrap_or(false)
+    } else {
+        false
+    };
+    let docker_compose_ok = if docker_present {
+        let output = Command::new("docker")
+            .arg("compose")
+            .arg("version")
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status();
+        output.map(|s| s.success()).unwrap_or(false)
+    } else {
+        false
     };
     checks.insert("docker".to_string(), docker_ok);
+    checks.insert("docker_compose".to_string(), docker_compose_ok);
 
     let cfg = read_config(&ctx.config_path)?;
     let log_root = PathBuf::from(expand_path(&cfg.paths.log_root));
     let log_ok = host_dir_writable(&log_root);
     checks.insert("log_root_writable".to_string(), log_ok);
-    let ok = docker_ok && log_ok;
+    let ok = docker_ok && docker_compose_ok && log_ok;
     let error = if ok {
         None
+    } else if !docker_ok && !docker_compose_ok {
+        Some("docker is not available; docker compose is not available".to_string())
     } else if !docker_ok {
         Some("docker is not available".to_string())
+    } else if !docker_compose_ok {
+        Some("docker compose is not available".to_string())
     } else {
         Some("log root is not writable".to_string())
     };
@@ -4004,6 +4174,7 @@ fn handle_doctor(ctx: &Context) -> Result<(), LassoError> {
             ok,
             result: Some(json!({ "checks": checks })),
             error,
+            error_details: None,
         };
         print_json(&payload)?;
         return Ok(());
@@ -4018,11 +4189,24 @@ fn handle_doctor(ctx: &Context) -> Result<(), LassoError> {
         }
     );
     println!(
+        "Docker Compose: {}",
+        if docker_compose_ok {
+            "ok"
+        } else {
+            "missing or not running"
+        }
+    );
+    println!(
         "Log root: {}",
         if log_ok { "writable" } else { "not writable" }
     );
     if !docker_ok {
         return Err(LassoError::Process("docker is not available".to_string()));
+    }
+    if !docker_compose_ok {
+        return Err(LassoError::Process(
+            "docker compose is not available".to_string(),
+        ));
     }
     if !log_ok {
         return Err(LassoError::Process("log root is not writable".to_string()));
@@ -4560,6 +4744,7 @@ fn logs_tail(
             ok: true,
             result: Some(json!({"run_id": run_id, "path": target})),
             error: None,
+            error_details: None,
         };
         print_json(&payload)?;
         return Ok(());
@@ -4606,12 +4791,20 @@ fn resolve_token(cfg: &Config) -> Result<String, LassoError> {
     ))
 }
 
+fn extract_process_error_details(err: &LassoError) -> Option<ProcessErrorDetails> {
+    match err {
+        LassoError::ProcessDetailed { details, .. } => Some(details.clone()),
+        _ => None,
+    }
+}
+
 fn output(ctx: &Context, payload: serde_json::Value) -> Result<(), LassoError> {
     if ctx.json {
         let wrapper = JsonResult {
             ok: true,
             result: Some(payload),
             error: None,
+            error_details: None,
         };
         print_json(&wrapper)?;
     } else {
@@ -4998,5 +5191,88 @@ providers:
         assert!(err
             .to_string()
             .contains("--start-dir must be inside workspace"));
+    }
+
+    #[test]
+    fn classify_docker_command_failure_detects_compose_unavailable() {
+        let (code, hint) = classify_docker_command_failure(
+            "unknown flag: --env-file\n\nUsage:  docker [OPTIONS] COMMAND [ARG...]",
+        );
+        assert_eq!(code, "docker_compose_unavailable");
+        assert!(hint.unwrap_or_default().contains("DOCKER_CONFIG"));
+    }
+
+    #[test]
+    fn execute_docker_nonzero_exit_surfaces_structured_details() {
+        let dir = tempdir().unwrap();
+        write_minimal_config(&dir.path().join("config.yaml"));
+        write_default_compose_files(dir.path());
+        let ctx = make_context(dir.path());
+        let runner = MockDockerRunner::default();
+        runner.push_output(CommandOutput {
+            status_code: 125,
+            stdout: Vec::new(),
+            stderr: b"unknown flag: --env-file".to_vec(),
+        });
+        let args = vec![
+            "compose".to_string(),
+            "--env-file".to_string(),
+            "/tmp/compose.env".to_string(),
+            "ps".to_string(),
+        ];
+        let err = execute_docker(&ctx, &runner, &args, &BTreeMap::new(), true, false)
+            .expect_err("docker command should fail");
+
+        match err {
+            LassoError::ProcessDetailed { message, details } => {
+                assert!(message
+                    .contains("while running `docker compose --env-file /tmp/compose.env ps`"));
+                assert_eq!(details.error_code, "docker_compose_unavailable");
+                assert!(details.hint.unwrap_or_default().contains("DOCKER_CONFIG"));
+                assert_eq!(
+                    details.command.unwrap_or_default(),
+                    "docker compose --env-file /tmp/compose.env ps"
+                );
+                assert!(details
+                    .raw_stderr
+                    .unwrap_or_default()
+                    .contains("unknown flag: --env-file"));
+            }
+            other => panic!("unexpected error variant: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn execute_docker_spawn_not_found_sets_docker_not_found_code() {
+        struct NotFoundRunner;
+        impl DockerRunner for NotFoundRunner {
+            fn run(
+                &self,
+                _args: &[String],
+                _cwd: &Path,
+                _env_overrides: &BTreeMap<String, String>,
+                _capture_output: bool,
+            ) -> Result<CommandOutput, io::Error> {
+                Err(io::Error::new(io::ErrorKind::NotFound, "docker not found"))
+            }
+        }
+
+        let dir = tempdir().unwrap();
+        write_minimal_config(&dir.path().join("config.yaml"));
+        write_default_compose_files(dir.path());
+        let ctx = make_context(dir.path());
+        let runner = NotFoundRunner;
+        let args = vec!["compose".to_string(), "ps".to_string()];
+        let err = execute_docker(&ctx, &runner, &args, &BTreeMap::new(), true, false)
+            .expect_err("missing docker should fail");
+        match err {
+            LassoError::ProcessDetailed { message, details } => {
+                assert!(message.contains("failed to run command `docker compose ps`"));
+                assert_eq!(details.error_code, "docker_not_found");
+                assert!(details.hint.unwrap_or_default().contains("Install Docker"));
+                assert_eq!(details.command.unwrap_or_default(), "docker compose ps");
+            }
+            other => panic!("unexpected error variant: {other:?}"),
+        }
     }
 }
