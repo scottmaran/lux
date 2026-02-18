@@ -4,6 +4,7 @@ import errno
 import json
 import os
 import pty
+import shutil
 import select
 import subprocess
 import time
@@ -186,8 +187,10 @@ def test_codex_tui_via_lasso_cli_produces_prompt_driven_session_evidence(
     accept interactive input, and emit session/timeline evidence.
     """
     runtime_root = tmp_path / f"cli-codex-tui-{uuid.uuid4().hex[:8]}"
+    env = os.environ.copy()
+    home_root = Path(env.get("HOME", str(Path.home())))
     log_root = runtime_root / "logs"
-    workspace_root = runtime_root / "workspace"
+    workspace_root = home_root / f".lasso-test-workspace-{uuid.uuid4().hex[:8]}"
     config_dir = runtime_root / "config"
     config_dir.mkdir(parents=True, exist_ok=True)
     log_root.mkdir(parents=True, exist_ok=True)
@@ -208,7 +211,6 @@ def test_codex_tui_via_lasso_cli_produces_prompt_driven_session_evidence(
         api_token=api_token,
     )
 
-    env = os.environ.copy()
     env["LASSO_ENV_FILE"] = str(env_file)
     env["LASSO_BUNDLE_DIR"] = str(ROOT_DIR)
 
@@ -258,7 +260,7 @@ def test_codex_tui_via_lasso_cli_produces_prompt_driven_session_evidence(
         cmd: list[str] = [str(lasso_cli_binary_for_codex), "--config", str(config_path)]
         for compose_file in compose_files:
             cmd.extend(["--compose-file", str(compose_file)])
-        cmd.extend(["tui", "--provider", "codex"])
+        cmd.extend(["tui", "--provider", "codex", "--start-dir", str(workspace_root)])
         proc = subprocess.Popen(
             cmd,
             cwd=str(ROOT_DIR),
@@ -362,6 +364,7 @@ def test_codex_tui_via_lasso_cli_produces_prompt_driven_session_evidence(
             timeout=240,
             check=False,
         )
+        shutil.rmtree(workspace_root, ignore_errors=True)
 
     assert created_session, f"Expected exactly one created session.\npty_tail:\n{_read_tail(pty_chunks)}"
     assert run_root is not None, "Expected run root from lasso up output."

@@ -40,9 +40,21 @@ def _run(
     return result
 
 
+def _policy_paths(base: Path) -> tuple[Path, Path, Path]:
+    home = base / "home"
+    log_root = base / "logs"
+    workspace_root = home / "work"
+    home.mkdir(parents=True, exist_ok=True)
+    log_root.mkdir(parents=True, exist_ok=True)
+    workspace_root.mkdir(parents=True, exist_ok=True)
+    return home, log_root, workspace_root
+
+
 def test_config_init_creates_and_preserves_existing(tmp_path: Path, lasso_cli_binary: Path) -> None:
     config_dir = tmp_path / "config"
+    home, _, _ = _policy_paths(tmp_path)
     env = os.environ.copy()
+    env["HOME"] = str(home)
     env["LASSO_CONFIG_DIR"] = str(config_dir)
 
     result = _run(
@@ -102,8 +114,7 @@ def test_config_validate_rejects_unknown_fields(tmp_path: Path, lasso_cli_binary
 
 
 def test_config_apply_writes_env_file_and_creates_dirs(tmp_path: Path, lasso_cli_binary: Path) -> None:
-    log_root = tmp_path / "logs"
-    work_root = tmp_path / "work"
+    home, log_root, work_root = _policy_paths(tmp_path)
     env_file = tmp_path / "compose.env"
     config_path = tmp_path / "config.yaml"
     config_path.write_text(
@@ -120,6 +131,7 @@ def test_config_apply_writes_env_file_and_creates_dirs(tmp_path: Path, lasso_cli
     )
 
     env = os.environ.copy()
+    env["HOME"] = str(home)
     env["LASSO_ENV_FILE"] = str(env_file)
 
     _run(
@@ -160,20 +172,22 @@ def test_config_apply_invalid_config_is_actionable(tmp_path: Path, lasso_cli_bin
 
 
 def test_doctor_reports_missing_docker_in_json(tmp_path: Path, lasso_cli_binary: Path) -> None:
+    home, log_root, work_root = _policy_paths(tmp_path)
     config_path = tmp_path / "config.yaml"
     config_path.write_text(
         "\n".join(
             [
                 "version: 2",
                 "paths:",
-                f"  log_root: {tmp_path / 'logs'}",
-                f"  workspace_root: {tmp_path / 'work'}",
+                f"  log_root: {log_root}",
+                f"  workspace_root: {work_root}",
                 "",
             ]
         ),
         encoding="utf-8",
     )
     env = os.environ.copy()
+    env["HOME"] = str(home)
     env["PATH"] = ""
 
     result = _run(
@@ -185,9 +199,17 @@ def test_doctor_reports_missing_docker_in_json(tmp_path: Path, lasso_cli_binary:
     payload = json.loads(result.stdout)
     assert payload["ok"] is False
     assert "docker" in (payload.get("error") or "").lower()
+    checks = ((payload.get("result") or {}).get("checks") or [])
+    docker_runtime = next((row for row in checks if row.get("id") == "docker_runtime"), None)
+    assert docker_runtime is not None
+    assert docker_runtime.get("ok") is False
+    docker_compose = next((row for row in checks if row.get("id") == "docker_compose"), None)
+    assert docker_compose is not None
+    assert docker_compose.get("ok") is False
 
 
 def test_doctor_reports_log_root_unwritable_in_json(tmp_path: Path, lasso_cli_binary: Path) -> None:
+    home, _, work_root = _policy_paths(tmp_path)
     config_path = tmp_path / "config.yaml"
     config_path.write_text(
         "\n".join(
@@ -195,13 +217,14 @@ def test_doctor_reports_log_root_unwritable_in_json(tmp_path: Path, lasso_cli_bi
                 "version: 2",
                 "paths:",
                 "  log_root: /root/lasso-denied",
-                f"  workspace_root: {tmp_path / 'work'}",
+                f"  workspace_root: {work_root}",
                 "",
             ]
         ),
         encoding="utf-8",
     )
     env = os.environ.copy()
+    env["HOME"] = str(home)
 
     result = _run(
         [str(lasso_cli_binary), "--json", "--config", str(config_path), "doctor"],
@@ -211,35 +234,70 @@ def test_doctor_reports_log_root_unwritable_in_json(tmp_path: Path, lasso_cli_bi
     )
     payload = json.loads(result.stdout)
     assert payload["ok"] is False
-    assert "log root" in (payload.get("error") or "").lower()
+    checks = ((payload.get("result") or {}).get("checks") or [])
+    log_sink = next((row for row in checks if row.get("id") == "log_sink_permissions"), None)
+    assert log_sink is not None
+    assert log_sink.get("ok") is False
+    error = (payload.get("error") or "").lower()
+    assert ("log root" in error) or ("docker" in error)
 
 
 def test_status_fails_when_docker_missing(tmp_path: Path, lasso_cli_binary: Path) -> None:
+    home, log_root, work_root = _policy_paths(tmp_path)
     config_path = tmp_path / "config.yaml"
-    config_path.write_text("version: 2\n", encoding="utf-8")
+    config_path.write_text(
+        "\n".join(
+            [
+                "version: 2",
+                "paths:",
+                f"  log_root: {log_root}",
+                f"  workspace_root: {work_root}",
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
     env = os.environ.copy()
+    env["HOME"] = str(home)
     env["PATH"] = ""
 
     result = _run(
-        [str(lasso_cli_binary), "--config", str(config_path), "status", "--collector-only"],
+        [
+            str(lasso_cli_binary),
+            "--json",
+            "--config",
+            str(config_path),
+            "--compose-file",
+            str(ROOT_DIR / "compose.yml"),
+            "--compose-file",
+            str(ROOT_DIR / "tests" / "integration" / "compose.test.override.yml"),
+            "status",
+            "--collector-only",
+        ],
         cwd=ROOT_DIR,
         env=env,
         timeout=30,
         check=False,
     )
     assert result.returncode != 0
+    payload = json.loads(result.stdout)
+    assert payload["ok"] is False
+    details = payload.get("error_details") or {}
+    assert details.get("error_code") == "docker_not_found"
+    assert "docker compose" in (details.get("command") or "")
+    assert "Install Docker" in (details.get("hint") or "")
 
 
 def test_config_apply_rewrites_env_file_when_release_tag_changes(
     tmp_path: Path,
     lasso_cli_binary: Path,
 ) -> None:
+    home, log_root, work_root = _policy_paths(tmp_path)
     config_path = tmp_path / "config.yaml"
     env_file = tmp_path / "compose.env"
-    log_root = tmp_path / "logs"
-    work_root = tmp_path / "work"
 
     env = os.environ.copy()
+    env["HOME"] = str(home)
     env["LASSO_ENV_FILE"] = str(env_file)
 
     config_path.write_text(

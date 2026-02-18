@@ -1,8 +1,9 @@
 version: 2
 
 paths:
-  log_root: ~/lasso-logs
-  workspace_root: ~/lasso-workspace
+  # `lasso config init`/`lasso setup` rewrite these using host-OS defaults.
+  log_root: /var/lib/lasso/logs
+  workspace_root: ~/
 
 release:
   tag: ""

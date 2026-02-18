@@ -7,8 +7,8 @@ installation for users who prefer not to run scripts.
 ## Prerequisites
 
 - Docker installed and running:
-  - macOS: Docker Desktop (supported).
-  - Linux: may work, but is currently not guaranteed (see `docs/contracts/platform.md`).
+  - macOS: Docker Desktop.
+  - Linux: Docker Engine or Docker Desktop.
 - Access to GHCR for private images (run `docker login ghcr.io`).
 
 ## Install (Recommended)
@@ -62,11 +62,12 @@ This:
 - Installs the CLI bundle under `~/.lasso/versions/<ver>`
 - Creates `~/.lasso/current` symlink
 - Installs `lasso` into `~/.local/bin`
-- Creates `~/.config/lasso/config.yaml` if missing
+- Creates `~/.config/lasso/config.yaml` (via `lasso config init`) if missing
 
 **Note:** The installer does **not** create log/workspace directories. The
 recommended next step is `lasso setup`, which configures paths + auth and runs
 `lasso config apply` for you.
+By default, setup uses workspace=`$HOME` and an OS-specific log root outside `$HOME`.
 
 If `lasso` is "command not found" after install, ensure `~/.local/bin` is in
 your `PATH`.
@@ -116,7 +117,7 @@ ln -sfn ~/.lasso/current/lasso ~/.local/bin/lasso
 
 ```bash
 mkdir -p ~/.config/lasso
-cp ~/.lasso/current/config/default.yaml ~/.config/lasso/config.yaml
+~/.local/bin/lasso --config ~/.config/lasso/config.yaml config init
 ```
 
 ## Configure + Run

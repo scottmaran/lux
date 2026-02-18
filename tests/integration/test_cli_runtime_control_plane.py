@@ -76,14 +76,24 @@ def _runtime_healthz(socket_path: Path) -> tuple[int, dict]:
     return status_code, payload
 
 
-def _write_minimal_config(config_path: Path, tmp_path: Path) -> None:
+def _policy_paths(base: Path) -> tuple[Path, Path, Path]:
+    home = base / "home"
+    log_root = base / "logs"
+    workspace_root = home / "work"
+    home.mkdir(parents=True, exist_ok=True)
+    log_root.mkdir(parents=True, exist_ok=True)
+    workspace_root.mkdir(parents=True, exist_ok=True)
+    return home, log_root, workspace_root
+
+
+def _write_minimal_config(config_path: Path, *, log_root: Path, workspace_root: Path) -> None:
     config_path.write_text(
         "\n".join(
             [
                 "version: 2",
                 "paths:",
-                f"  log_root: {tmp_path / 'logs'}",
-                f"  workspace_root: {tmp_path / 'work'}",
+                f"  log_root: {log_root}",
+                f"  workspace_root: {workspace_root}",
                 "",
             ]
         ),
@@ -93,8 +103,10 @@ def _write_minimal_config(config_path: Path, tmp_path: Path) -> None:
 
 def test_runtime_up_status_down_exposes_healthz(tmp_path: Path, lasso_cli_binary: Path) -> None:
     config_path = tmp_path / "config.yaml"
-    _write_minimal_config(config_path, tmp_path)
+    home, log_root, workspace_root = _policy_paths(tmp_path)
+    _write_minimal_config(config_path, log_root=log_root, workspace_root=workspace_root)
     env = os.environ.copy()
+    env["HOME"] = str(home)
 
     _run(
         [str(lasso_cli_binary), "--json", "--config", str(config_path), "runtime", "up"],
@@ -133,8 +145,10 @@ def test_runtime_auto_starts_for_routed_cli_command(
     lasso_cli_binary: Path,
 ) -> None:
     config_path = tmp_path / "config.yaml"
-    _write_minimal_config(config_path, tmp_path)
+    home, log_root, workspace_root = _policy_paths(tmp_path)
+    _write_minimal_config(config_path, log_root=log_root, workspace_root=workspace_root)
     env = os.environ.copy()
+    env["HOME"] = str(home)
 
     _run(
         [str(lasso_cli_binary), "--json", "--config", str(config_path), "runtime", "down"],

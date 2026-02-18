@@ -69,6 +69,8 @@ enum Commands {
         provider: Option<String>,
         #[arg(long, default_value_t = false, conflicts_with = "provider")]
         collector_only: bool,
+        #[arg(long)]
+        workspace: Option<String>,
         #[arg(long, value_parser = ["always", "never", "missing"]) ]
         pull: Option<String>,
         #[arg(long)]
@@ -107,7 +109,7 @@ enum Commands {
         #[arg(long)]
         capture_input: Option<bool>,
         #[arg(long)]
-        cwd: Option<String>,
+        start_dir: Option<String>,
         #[arg(long)]
         timeout_sec: Option<u64>,
         #[arg(long)]
@@ -116,6 +118,8 @@ enum Commands {
     Tui {
         #[arg(long)]
         provider: String,
+        #[arg(long)]
+        start_dir: Option<String>,
     },
     Jobs {
         #[command(subcommand)]
@@ -272,6 +276,11 @@ enum LassoError {
     Json(#[from] serde_json::Error),
     #[error("process error: {0}")]
     Process(String),
+    #[error("process error: {message}")]
+    ProcessDetailed {
+        message: String,
+        details: ProcessErrorDetails,
+    },
     #[error("http error: {0}")]
     Http(#[from] reqwest::Error),
 }
@@ -407,9 +416,21 @@ impl Default for Config {
 
 impl Default for Paths {
     fn default() -> Self {
+        if let Ok(paths) = computed_default_paths_for_current_os() {
+            return paths;
+        }
+        let workspace_root = home_dir()
+            .map(|path| path.to_string_lossy().to_string())
+            .unwrap_or_else(|| "~".to_string());
+        let log_root = match env::consts::OS {
+            "macos" => "/Users/Shared/Lasso/logs",
+            "linux" => "/var/lib/lasso/logs",
+            _ => "/var/lib/lasso/logs",
+        }
+        .to_string();
         Self {
-            log_root: "~/lasso-logs".to_string(),
-            workspace_root: "~/lasso-workspace".to_string(),
+            log_root,
+            workspace_root,
         }
     }
 }
@@ -581,6 +602,19 @@ struct JsonResult<T: Serialize> {
     ok: bool,
     result: Option<T>,
     error: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    error_details: Option<ProcessErrorDetails>,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+struct ProcessErrorDetails {
+    error_code: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    hint: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    command: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    raw_stderr: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -596,6 +630,8 @@ struct Context {
 struct ActiveRunState {
     run_id: String,
     started_at: String,
+    #[serde(default)]
+    workspace_root: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -720,6 +756,7 @@ fn main() -> Result<(), LassoError> {
             Commands::Up {
                 provider,
                 collector_only,
+                workspace,
                 pull,
                 wait,
                 timeout_sec,
@@ -727,6 +764,7 @@ fn main() -> Result<(), LassoError> {
                 &ctx,
                 provider,
                 collector_only,
+                workspace,
                 pull,
                 wait,
                 timeout_sec,
@@ -747,11 +785,22 @@ fn main() -> Result<(), LassoError> {
                 provider,
                 prompt,
                 capture_input,
-                cwd,
+                start_dir,
                 timeout_sec,
                 env,
-            } => handle_run(&ctx, provider, prompt, capture_input, cwd, timeout_sec, env),
-            Commands::Tui { provider } => handle_tui(&ctx, provider, &runner),
+            } => handle_run(
+                &ctx,
+                provider,
+                prompt,
+                capture_input,
+                start_dir,
+                timeout_sec,
+                env,
+            ),
+            Commands::Tui {
+                provider,
+                start_dir,
+            } => handle_tui(&ctx, provider, start_dir, &runner),
             Commands::Jobs { command } => handle_jobs(&ctx, command),
             Commands::Doctor { strict } => handle_doctor(&ctx, strict),
             Commands::Paths => handle_paths(&ctx),
@@ -781,6 +830,7 @@ fn main() -> Result<(), LassoError> {
                 ok: false,
                 result: None,
                 error: Some(err.to_string()),
+                error_details: extract_process_error_details(&err),
             };
             print_json(&payload)?;
         } else {
@@ -869,6 +919,185 @@ fn resolve_compose_overrides(overrides: &[PathBuf]) -> Vec<PathBuf> {
             }
         })
         .collect()
+}
+
+#[derive(Debug, Clone)]
+struct PolicyPaths {
+    home: PathBuf,
+    log_root: PathBuf,
+    workspace_root: PathBuf,
+}
+
+fn required_home_dir() -> Result<PathBuf, LassoError> {
+    let home = home_dir().ok_or_else(|| {
+        LassoError::Config("unable to resolve $HOME; set HOME to an existing directory".to_string())
+    })?;
+    if !home.is_absolute() {
+        return Err(LassoError::Config(format!(
+            "resolved HOME path is not absolute: {}",
+            home.display()
+        )));
+    }
+    if !home.exists() {
+        return Err(LassoError::Config(format!(
+            "resolved HOME path does not exist: {}",
+            home.display()
+        )));
+    }
+    fs::canonicalize(&home).map_err(|err| {
+        LassoError::Config(format!(
+            "failed to canonicalize HOME directory {}: {}",
+            home.display(),
+            err
+        ))
+    })
+}
+
+fn default_paths_for_os(os: &str, home: &Path) -> Result<Paths, LassoError> {
+    match os {
+        "macos" => Ok(Paths {
+            log_root: "/Users/Shared/Lasso/logs".to_string(),
+            workspace_root: home.to_string_lossy().to_string(),
+        }),
+        "linux" => Ok(Paths {
+            log_root: "/var/lib/lasso/logs".to_string(),
+            workspace_root: home.to_string_lossy().to_string(),
+        }),
+        other => Err(LassoError::Config(format!(
+            "unsupported host operating system '{}' for default path computation; supported: macos, linux",
+            other
+        ))),
+    }
+}
+
+fn computed_default_paths_for_current_os() -> Result<Paths, LassoError> {
+    let home = required_home_dir()?;
+    default_paths_for_os(env::consts::OS, &home)
+}
+
+fn build_default_config_yaml() -> Result<String, LassoError> {
+    let defaults = computed_default_paths_for_current_os()?;
+    let mut edits = SetupYamlEdits::default();
+    edits.log_root = Some(defaults.log_root);
+    edits.workspace_root = Some(defaults.workspace_root);
+    let (patched, _changed) = patch_setup_config_yaml(DEFAULT_CONFIG_YAML, &edits)?;
+    Ok(patched)
+}
+
+fn expand_home_path(input: &str, home: &Path, field: &str) -> Result<PathBuf, LassoError> {
+    let trimmed = input.trim();
+    if trimmed.is_empty() {
+        return Err(LassoError::Config(format!(
+            "{field} must be a non-empty absolute path"
+        )));
+    }
+    if trimmed == "~" {
+        return Ok(home.to_path_buf());
+    }
+    if let Some(stripped) = trimmed.strip_prefix("~/") {
+        return Ok(home.join(stripped));
+    }
+    if trimmed.starts_with('~') {
+        return Err(LassoError::Config(format!(
+            "{field} uses unsupported '~' syntax; use '~/' or an absolute path"
+        )));
+    }
+    Ok(PathBuf::from(trimmed))
+}
+
+fn canonicalize_policy_path(path: &Path, field: &str) -> Result<PathBuf, LassoError> {
+    if !path.is_absolute() {
+        return Err(LassoError::Config(format!(
+            "{field} must be an absolute path: {}",
+            path.display()
+        )));
+    }
+    if path.exists() {
+        return fs::canonicalize(path).map_err(|err| {
+            LassoError::Config(format!(
+                "failed to canonicalize {field} ({}): {}",
+                path.display(),
+                err
+            ))
+        });
+    }
+
+    let mut cursor = path.to_path_buf();
+    let mut tail: Vec<std::ffi::OsString> = Vec::new();
+    while !cursor.exists() {
+        let name = cursor.file_name().ok_or_else(|| {
+            LassoError::Config(format!(
+                "{field} is not canonicalizable: {}",
+                path.display()
+            ))
+        })?;
+        tail.push(name.to_os_string());
+        cursor = cursor
+            .parent()
+            .ok_or_else(|| {
+                LassoError::Config(format!(
+                    "{field} is not canonicalizable: {}",
+                    path.display()
+                ))
+            })?
+            .to_path_buf();
+    }
+
+    let mut canonical = fs::canonicalize(&cursor).map_err(|err| {
+        LassoError::Config(format!(
+            "failed to canonicalize {field} ancestor ({}): {}",
+            cursor.display(),
+            err
+        ))
+    })?;
+    for segment in tail.iter().rev() {
+        canonical.push(segment);
+    }
+    Ok(canonical)
+}
+
+fn resolve_policy_path(input: &str, field: &str, home: &Path) -> Result<PathBuf, LassoError> {
+    let expanded = expand_home_path(input, home, field)?;
+    canonicalize_policy_path(&expanded, field)
+}
+
+fn path_is_within(path: &Path, root: &Path) -> bool {
+    path == root || path.starts_with(root)
+}
+
+fn resolve_config_policy_paths(cfg: &Config) -> Result<PolicyPaths, LassoError> {
+    let home = required_home_dir()?;
+    let workspace_root =
+        resolve_policy_path(&cfg.paths.workspace_root, "paths.workspace_root", &home)?;
+    let log_root = resolve_policy_path(&cfg.paths.log_root, "paths.log_root", &home)?;
+
+    if !path_is_within(&workspace_root, &home) {
+        return Err(LassoError::Config(format!(
+            "paths.workspace_root must be under $HOME (home={}, workspace={})",
+            home.display(),
+            workspace_root.display()
+        )));
+    }
+    if path_is_within(&log_root, &home) {
+        return Err(LassoError::Config(format!(
+            "paths.log_root must be outside $HOME to protect evidence integrity (home={}, log_root={})",
+            home.display(),
+            log_root.display()
+        )));
+    }
+    if path_is_within(&workspace_root, &log_root) || path_is_within(&log_root, &workspace_root) {
+        return Err(LassoError::Config(format!(
+            "paths.workspace_root and paths.log_root must not overlap (workspace={}, log_root={})",
+            workspace_root.display(),
+            log_root.display()
+        )));
+    }
+
+    Ok(PolicyPaths {
+        home,
+        log_root,
+        workspace_root,
+    })
 }
 
 fn default_config_dir() -> PathBuf {
@@ -1074,6 +1303,13 @@ fn read_config(path: &Path) -> Result<Config, LassoError> {
 }
 
 fn validate_config(cfg: &Config) -> Result<(), LassoError> {
+    if env::consts::OS != "macos" && env::consts::OS != "linux" {
+        return Err(LassoError::Config(format!(
+            "unsupported host operating system '{}'; supported: macos, linux",
+            env::consts::OS
+        )));
+    }
+    let _ = resolve_config_policy_paths(cfg)?;
     if cfg.collector.idle_timeout_min == 0 {
         return Err(LassoError::Config(
             "collector.idle_timeout_min must be greater than 0".to_string(),
@@ -1224,7 +1460,9 @@ fn runtime_socket_fallback_path(config_dir: &Path) -> PathBuf {
             .join(format!("lasso-runtime-u{uid}"))
             .join(format!("{hash:016x}"))
             .join("control_plane.sock"),
-        PathBuf::from(format!("/tmp/lasso-runtime-u{uid}/{hash:016x}/control_plane.sock")),
+        PathBuf::from(format!(
+            "/tmp/lasso-runtime-u{uid}/{hash:016x}/control_plane.sock"
+        )),
         PathBuf::from(format!("/tmp/lasso-{hash:016x}/control_plane.sock")),
     ];
     for candidate in candidates {
@@ -1379,7 +1617,7 @@ fn handle_setup(
     let mut base_yaml = if config_exists {
         fs::read_to_string(config_path)?
     } else {
-        DEFAULT_CONFIG_YAML.to_string()
+        build_default_config_yaml()?
     };
     if !base_yaml.ends_with('\n') {
         base_yaml.push('\n');
@@ -1530,6 +1768,7 @@ fn handle_setup(
 
     let mut pending_secrets: Vec<PendingSecretWrite> = Vec::new();
     let mut missing_api_key_secrets: Vec<(String, String, PathBuf)> = Vec::new();
+    let default_paths = computed_default_paths_for_current_os()?;
 
     let (patched_yaml, cfg_after_yaml, should_write_config) = loop {
         warnings.clear();
@@ -1539,41 +1778,49 @@ fn handle_setup(
         print_step(1, total_steps, "Paths");
         println!(
             "{}",
-            style("This will be where your logs are stored (on your computer/host).").dim()
+            style("This is where logs are stored on your host machine.").dim()
         );
         println!(
             "{}",
             style(
-                "These logs can grow to be large. 
-We recommend putting it in your root directory with our default name."
+                "Path policy:
+- logs must be outside $HOME
+- workspace must be under $HOME
+- logs and workspace must not overlap"
             )
             .dim()
         );
+        println!(
+            "{}",
+            style(format!(
+                "Default log root for this host: {}",
+                default_paths.log_root
+            ))
+            .dim()
+        );
         log_root_state = Input::<String>::with_theme(&theme)
-            .with_prompt("What directory do you want your logs to be stored?")
+            .with_prompt("Select log root (outside $HOME)")
             .default(log_root_state.clone())
             .interact_text()?;
         println!("{}", style("Great! Now choose your agent's workspace"));
         println!(
             "{}",
             style(
-                "This will be where your agents have access
-Lasso works by creating a separate Docker container for your agents to work in
-(that way they don't have unfettered access to your personal machine).
-
-The safest way would be to create a new, empty directory (e.g. ~/lasso-workspace)
-that your agents can access from the isolatd container.
-
-If you want your agent to retain access to all of your files, you can set the workspace
-as something like your user root directory (e.g. ~/ ).
-
-We recommend using your best judgement.
-"
+                "This is the host directory mounted into the agent container at /work.
+For safety and policy compliance, workspace must be under $HOME."
             )
             .dim()
         );
+        println!(
+            "{}",
+            style(format!(
+                "Default workspace for this host: {}",
+                default_paths.workspace_root
+            ))
+            .dim()
+        );
         workspace_root_state = Input::<String>::with_theme(&theme)
-            .with_prompt("Select your agent's workspace folder.")
+            .with_prompt("Select workspace root (under $HOME)")
             .default(workspace_root_state.clone())
             .interact_text()?;
 
@@ -1763,6 +2010,21 @@ if you're using an API key or a subscription-based plan"
                 }
             };
         }
+        let resolved_policy_paths = match resolve_config_policy_paths(&desired_cfg) {
+            Ok(paths) => paths,
+            Err(err) => {
+                println!();
+                println!("{}", style("Path validation error").bold().red());
+                println!("{}", style(err.to_string()).red());
+                println!(
+                    "{}",
+                    style("Please update the path values and try again.")
+                        .yellow()
+                        .dim()
+                );
+                continue;
+            }
+        };
         validate_config(&desired_cfg)?;
 
         let mut yaml_edits = SetupYamlEdits::default();
@@ -1809,6 +2071,11 @@ if you're using an API key or a subscription-based plan"
                 style(&desired_cfg.paths.log_root).green()
             );
         }
+        println!(
+            "  {} {}",
+            style("resolved log root:").dim(),
+            style(resolved_policy_paths.log_root.display()).dim()
+        );
         if desired_cfg.paths.workspace_root == base_cfg.paths.workspace_root {
             println!(
                 "  {} {}",
@@ -1824,6 +2091,11 @@ if you're using an API key or a subscription-based plan"
                 style(&desired_cfg.paths.workspace_root).green()
             );
         }
+        println!(
+            "  {} {}",
+            style("resolved workspace root:").dim(),
+            style(resolved_policy_paths.workspace_root.display()).dim()
+        );
 
         println!("\n{}", style("Provider Auth").bold());
         for (provider_name, provider) in &desired_cfg.providers {
@@ -2051,13 +2323,13 @@ fn handle_config(ctx: &Context, command: ConfigCommand) -> Result<(), LassoError
                 return output(ctx, json!({"path": ctx.config_path, "created": false}));
             }
             ensure_parent(&ctx.config_path)?;
-            fs::write(&ctx.config_path, DEFAULT_CONFIG_YAML)?;
+            fs::write(&ctx.config_path, build_default_config_yaml()?)?;
             output(ctx, json!({"path": ctx.config_path, "created": true}))
         }
         ConfigCommand::Edit => {
             if !ctx.config_path.exists() {
                 ensure_parent(&ctx.config_path)?;
-                fs::write(&ctx.config_path, DEFAULT_CONFIG_YAML)?;
+                fs::write(&ctx.config_path, build_default_config_yaml()?)?;
             }
             let editor = env::var("VISUAL").ok().or_else(|| env::var("EDITOR").ok());
             if let Some(editor) = editor {
@@ -2102,12 +2374,51 @@ fn handle_config(ctx: &Context, command: ConfigCommand) -> Result<(), LassoError
 }
 
 fn apply_config(ctx: &Context, cfg: &Config) -> Result<(PathBuf, PathBuf), LassoError> {
-    let envs = config_to_env(cfg, &ctx.config_path);
+    fn create_log_root_with_guidance(log_root: &Path) -> Result<(), LassoError> {
+        fs::create_dir_all(log_root).map_err(|err| {
+            if err.kind() == io::ErrorKind::PermissionDenied {
+                if env::consts::OS == "linux" && log_root.starts_with(Path::new("/var/lib/lasso")) {
+                    return LassoError::Config(format!(
+                        "failed to create paths.log_root at {}: permission denied.\n\
+Linux default log root often needs a one-time setup:\n  sudo mkdir -p /var/lib/lasso/logs\n  sudo chown -R $USER /var/lib/lasso/logs\n\
+Then re-run `lasso config apply`.",
+                        log_root.display()
+                    ));
+                }
+                return LassoError::Config(format!(
+                    "failed to create paths.log_root at {}: permission denied.\n\
+Choose a writable log root outside $HOME or create this directory with sufficient permissions.",
+                    log_root.display()
+                ));
+            }
+            LassoError::Io(err)
+        })
+    }
+
+    let policy_paths = resolve_config_policy_paths(cfg)?;
+    let mut envs = config_to_env(cfg, &ctx.config_path);
+    envs.insert(
+        "LASSO_LOG_ROOT".to_string(),
+        policy_paths.log_root.to_string_lossy().to_string(),
+    );
+    envs.insert(
+        "LASSO_WORKSPACE_ROOT".to_string(),
+        policy_paths.workspace_root.to_string_lossy().to_string(),
+    );
     write_env_file(&ctx.env_file, &envs)?;
-    let log_root = PathBuf::from(expand_path(&cfg.paths.log_root));
-    fs::create_dir_all(&log_root)?;
-    let workspace_root = PathBuf::from(expand_path(&cfg.paths.workspace_root));
-    fs::create_dir_all(&workspace_root)?;
+    let log_root = policy_paths.log_root;
+    create_log_root_with_guidance(&log_root)?;
+    let workspace_root = policy_paths.workspace_root;
+    fs::create_dir_all(&workspace_root).map_err(|err| {
+        if err.kind() == io::ErrorKind::PermissionDenied {
+            return LassoError::Config(format!(
+                "failed to create paths.workspace_root at {}: permission denied.\n\
+Choose a writable workspace under $HOME.",
+                workspace_root.display()
+            ));
+        }
+        LassoError::Io(err)
+    })?;
     Ok((log_root, workspace_root))
 }
 
@@ -2650,8 +2961,11 @@ fn resolve_runtime_paths(ctx: &Context) -> Result<(RuntimePaths, bool), LassoErr
     let cfg = if config_exists {
         read_config(&ctx.config_path)?
     } else {
-        Config::default()
+        let mut cfg = Config::default();
+        cfg.paths = computed_default_paths_for_current_os()?;
+        cfg
     };
+    let policy_paths = resolve_config_policy_paths(&cfg)?;
     let config_dir = ctx
         .config_path
         .parent()
@@ -2676,8 +2990,8 @@ fn resolve_runtime_paths(ctx: &Context) -> Result<(RuntimePaths, bool), LassoErr
             runtime_socket_path: runtime_socket_path.clone(),
             runtime_pid_path: runtime_dir.join("control_plane.pid"),
             runtime_events_path: runtime_dir.join("events.jsonl"),
-            log_root: PathBuf::from(expand_path(&cfg.paths.log_root)),
-            workspace_root: PathBuf::from(expand_path(&cfg.paths.workspace_root)),
+            log_root: policy_paths.log_root,
+            workspace_root: policy_paths.workspace_root,
             install_dir,
             versions_dir,
             current_link,
@@ -3109,7 +3423,16 @@ fn compose_base_args(
 ) -> Result<Vec<String>, LassoError> {
     let files = compose_files(ctx, ui, runtime_overrides)?;
     if !ctx.env_file.exists() {
-        let envs = config_to_env(cfg, &ctx.config_path);
+        let policy_paths = resolve_config_policy_paths(cfg)?;
+        let mut envs = config_to_env(cfg, &ctx.config_path);
+        envs.insert(
+            "LASSO_LOG_ROOT".to_string(),
+            policy_paths.log_root.to_string_lossy().to_string(),
+        );
+        envs.insert(
+            "LASSO_WORKSPACE_ROOT".to_string(),
+            policy_paths.workspace_root.to_string_lossy().to_string(),
+        );
         write_env_file(&ctx.env_file, &envs)?;
     }
     let mut args = vec![
@@ -3363,11 +3686,16 @@ fn load_active_run_state(log_root: &Path) -> Result<Option<ActiveRunState>, Lass
     Ok(Some(parsed))
 }
 
-fn write_active_run_state(log_root: &Path, run_id: &str) -> Result<(), LassoError> {
+fn write_active_run_state(
+    log_root: &Path,
+    run_id: &str,
+    workspace_root: &Path,
+) -> Result<(), LassoError> {
     fs::create_dir_all(log_root)?;
     let state = ActiveRunState {
         run_id: run_id.to_string(),
         started_at: Utc::now().to_rfc3339(),
+        workspace_root: Some(workspace_root.to_string_lossy().to_string()),
     };
     let path = active_run_state_path(log_root);
     let tmp_path = path.with_extension("json.tmp");
@@ -3413,10 +3741,19 @@ fn resolve_latest_run_id(log_root: &Path) -> Result<Option<String>, LassoError> 
     Ok(runs.last().cloned())
 }
 
-fn compose_env_for_run(run_id: Option<&str>) -> BTreeMap<String, String> {
+fn compose_env_for_run(
+    run_id: Option<&str>,
+    workspace_root: Option<&Path>,
+) -> BTreeMap<String, String> {
     let mut envs = BTreeMap::new();
     if let Some(run_id) = run_id {
         envs.insert("LASSO_RUN_ID".to_string(), run_id.to_string());
+    }
+    if let Some(workspace_root) = workspace_root {
+        envs.insert(
+            "LASSO_WORKSPACE_ROOT".to_string(),
+            workspace_root.to_string_lossy().to_string(),
+        );
     }
     envs
 }
@@ -3456,6 +3793,114 @@ fn resolve_run_id_from_selector(
         });
     }
     resolve_default_run_id(log_root)
+}
+
+fn validate_workspace_policy(
+    workspace_root: &Path,
+    home: &Path,
+    log_root: &Path,
+    field: &str,
+) -> Result<(), LassoError> {
+    if !path_is_within(workspace_root, home) {
+        return Err(LassoError::Config(format!(
+            "{field} must be under $HOME (home={}, workspace={})",
+            home.display(),
+            workspace_root.display()
+        )));
+    }
+    if path_is_within(workspace_root, log_root) || path_is_within(log_root, workspace_root) {
+        return Err(LassoError::Config(format!(
+            "{field} must not overlap log root (workspace={}, log_root={})",
+            workspace_root.display(),
+            log_root.display()
+        )));
+    }
+    Ok(())
+}
+
+fn resolve_effective_workspace_root(
+    cfg: &Config,
+    workspace_override: Option<&str>,
+) -> Result<PathBuf, LassoError> {
+    let policy = resolve_config_policy_paths(cfg)?;
+    let mut workspace_root = policy.workspace_root;
+    if let Some(raw_override) = workspace_override {
+        workspace_root = resolve_policy_path(raw_override, "--workspace", &policy.home)?;
+        validate_workspace_policy(
+            &workspace_root,
+            &policy.home,
+            &policy.log_root,
+            "--workspace",
+        )?;
+    }
+    Ok(workspace_root)
+}
+
+fn resolve_active_run_workspace_root(
+    cfg: &Config,
+    active_run: &ActiveRunState,
+) -> Result<PathBuf, LassoError> {
+    let policy = resolve_config_policy_paths(cfg)?;
+    if let Some(raw) = active_run.workspace_root.as_deref() {
+        let workspace_root = resolve_policy_path(raw, "active run workspace", &policy.home)?;
+        validate_workspace_policy(
+            &workspace_root,
+            &policy.home,
+            &policy.log_root,
+            "active run workspace",
+        )?;
+        return Ok(workspace_root);
+    }
+    Ok(policy.workspace_root)
+}
+
+fn resolve_host_start_dir(
+    cfg: &Config,
+    workspace_root: &Path,
+    start_dir: Option<&str>,
+) -> Result<PathBuf, LassoError> {
+    let policy = resolve_config_policy_paths(cfg)?;
+    let host_start_dir = match start_dir {
+        Some(raw) => resolve_policy_path(raw, "--start-dir", &policy.home)?,
+        None => {
+            let cwd = env::current_dir().map_err(|err| {
+                LassoError::Process(format!(
+                    "failed to resolve current working directory for default --start-dir: {}",
+                    err
+                ))
+            })?;
+            canonicalize_policy_path(&cwd, "current working directory")
+                .map_err(|err| LassoError::Process(err.to_string()))?
+        }
+    };
+    if !path_is_within(&host_start_dir, workspace_root) {
+        return Err(LassoError::Config(format!(
+            "--start-dir must be inside workspace (start_dir={}, workspace={})",
+            host_start_dir.display(),
+            workspace_root.display()
+        )));
+    }
+    Ok(host_start_dir)
+}
+
+fn map_host_start_dir_to_container(
+    host_start_dir: &Path,
+    workspace_root: &Path,
+) -> Result<String, LassoError> {
+    let relative = host_start_dir.strip_prefix(workspace_root).map_err(|_| {
+        LassoError::Config(format!(
+            "--start-dir must be inside workspace (start_dir={}, workspace={})",
+            host_start_dir.display(),
+            workspace_root.display()
+        ))
+    })?;
+    if relative.as_os_str().is_empty() {
+        return Ok("/work".to_string());
+    }
+    Ok(Path::new("/work")
+        .join(relative)
+        .to_string_lossy()
+        .to_string())
 }
 
 fn running_services<R: DockerRunner>(
@@ -3549,6 +3994,122 @@ Run `lasso down --provider {active_provider}` first."
     ))
 }
 
+fn render_docker_command(args: &[String]) -> String {
+    fn shell_quote(part: &str) -> String {
+        if part.is_empty() {
+            return "\"\"".to_string();
+        }
+        if part.chars().any(|c| c.is_whitespace()) {
+            return format!("\"{}\"", part.replace('"', "\\\""));
+        }
+        part.to_string()
+    }
+    let mut parts = Vec::with_capacity(args.len() + 1);
+    parts.push("docker".to_string());
+    parts.extend(args.iter().map(|arg| shell_quote(arg)));
+    parts.join(" ")
+}
+
+fn docker_spawn_error_details(err: &io::Error, command: &str) -> ProcessErrorDetails {
+    if err.kind() == io::ErrorKind::NotFound {
+        return ProcessErrorDetails {
+            error_code: "docker_not_found".to_string(),
+            hint: Some("Install Docker and ensure `docker` is on your PATH.".to_string()),
+            command: Some(command.to_string()),
+            raw_stderr: None,
+        };
+    }
+    ProcessErrorDetails {
+        error_code: "process_command_failed".to_string(),
+        hint: None,
+        command: Some(command.to_string()),
+        raw_stderr: None,
+    }
+}
+
+fn classify_docker_command_failure(stderr: &str) -> (String, Option<String>) {
+    let lower = stderr.to_lowercase();
+
+    if lower.contains("unknown command: docker compose")
+        || lower.contains("is not a docker command")
+        || lower.contains("unknown flag: --env-file")
+        || lower.contains("unknown shorthand flag: 'f' in -f")
+    {
+        return (
+            "docker_compose_unavailable".to_string(),
+            Some(
+                "Docker Compose is unavailable. If HOME is overridden, set DOCKER_CONFIG to a directory containing Docker CLI plugins (for example ~/.docker)."
+                    .to_string(),
+            ),
+        );
+    }
+
+    if lower.contains("cannot connect to the docker daemon")
+        || lower.contains("is the docker daemon running")
+        || lower.contains("failed to connect to the docker api")
+        || lower.contains("error during connect")
+    {
+        return (
+            "docker_daemon_unreachable".to_string(),
+            Some(
+                "Docker daemon is unreachable. Start Docker Desktop (or dockerd) and retry."
+                    .to_string(),
+            ),
+        );
+    }
+
+    if lower.contains("unknown flag: --wait") || lower.contains("unknown flag: --wait-timeout") {
+        return (
+            "docker_compose_flag_unsupported".to_string(),
+            Some(
+                "Your Docker Compose version does not support required flags. Upgrade Docker/Compose and retry."
+                    .to_string(),
+            ),
+        );
+    }
+
+    if lower.contains("port is already allocated")
+        || lower.contains("bind: address already in use")
+        || lower.contains("address already in use")
+    {
+        return (
+            "docker_port_conflict".to_string(),
+            Some(
+                "A required host port is already in use. Free the conflicting port or update config/overrides."
+                    .to_string(),
+            ),
+        );
+    }
+
+    if lower.contains("timed out waiting")
+        || lower.contains("timeout waiting")
+        || lower.contains("did not become healthy")
+        || lower.contains("didn't become healthy")
+        || lower.contains("context deadline exceeded")
+        || lower.contains("application not healthy")
+    {
+        return (
+            "docker_compose_wait_timeout".to_string(),
+            Some(
+                "Compose wait timed out. Check `docker compose ps` and `docker compose logs`, then retry with a larger --timeout-sec."
+                    .to_string(),
+            ),
+        );
+    }
+
+    if lower.contains("denied")
+        || lower.contains("unauthorized")
+        || lower.contains("authentication")
+    {
+        return (
+            "docker_registry_auth".to_string(),
+            Some("Authenticate with `docker login ghcr.io` for private images.".to_string()),
+        );
+    }
+
+    ("process_command_failed".to_string(), None)
+}
+
 fn execute_docker<R: DockerRunner>(
     ctx: &Context,
     runner: &R,
@@ -3557,27 +4118,44 @@ fn execute_docker<R: DockerRunner>(
     capture_output: bool,
     passthrough_stdout: bool,
 ) -> Result<CommandOutput, LassoError> {
+    let command = render_docker_command(args);
     let cmd_output = runner
         .run(args, &ctx.bundle_dir, env_overrides, capture_output)
-        .map_err(|err| LassoError::Process(format!("failed to run command: {err}")))?;
+        .map_err(|err| {
+            let details = docker_spawn_error_details(&err, &command);
+            LassoError::ProcessDetailed {
+                message: format!("failed to run command `{command}`: {err}"),
+                details,
+            }
+        })?;
     if !cmd_output.success() {
         let stderr = String::from_utf8_lossy(&cmd_output.stderr)
             .trim()
             .to_string();
-        let mut message = format!("command failed with status {}", cmd_output.status_code);
+        let (error_code, hint) = classify_docker_command_failure(&stderr);
+        let mut message = format!(
+            "command failed with status {} while running `{}`",
+            cmd_output.status_code, command
+        );
         if !stderr.is_empty() {
             message = format!("{message}: {stderr}");
-            let lower = stderr.to_lowercase();
-            if lower.contains("denied")
-                || lower.contains("unauthorized")
-                || lower.contains("authentication")
-            {
-                message = format!(
-                    "{message}\nHint: authenticate with `docker login ghcr.io` for private images."
-                );
-            }
         }
-        return Err(LassoError::Process(message));
+        if let Some(ref hint_message) = hint {
+            message = format!("{message}\nHint: {hint_message}");
+        }
+        return Err(LassoError::ProcessDetailed {
+            message,
+            details: ProcessErrorDetails {
+                error_code,
+                hint,
+                command: Some(command),
+                raw_stderr: if stderr.is_empty() {
+                    None
+                } else {
+                    Some(stderr)
+                },
+            },
+        });
     }
     if capture_output && passthrough_stdout && !cmd_output.stdout.is_empty() && !ctx.json {
         let stdout = String::from_utf8_lossy(&cmd_output.stdout);
@@ -3666,6 +4244,7 @@ fn handle_ui<R: DockerRunner>(
                     ok: true,
                     result: Some(rows),
                     error: None,
+                    error_details: None,
                 };
                 print_json(&payload)?;
                 return Ok(());
@@ -4082,8 +4661,13 @@ fn runtime_collect_stack_status(
     let cfg = read_config(&ctx.config_path)?;
     let runner = RealDockerRunner;
     let log_root = PathBuf::from(expand_path(&cfg.paths.log_root));
-    let active_run_id = load_active_run_state(&log_root)?.map(|state| state.run_id);
-    let run_env = compose_env_for_run(active_run_id.as_deref());
+    let active_run = load_active_run_state(&log_root)?;
+    let active_run_id = active_run.as_ref().map(|state| state.run_id.clone());
+    let active_workspace = active_run
+        .as_ref()
+        .map(|state| resolve_active_run_workspace_root(&cfg, state))
+        .transpose()?;
+    let run_env = compose_env_for_run(active_run_id.as_deref(), active_workspace.as_deref());
     let collector_running =
         collector_is_running(ctx, &runner, &cfg, false, &run_env).unwrap_or(false);
     let provider_running =
@@ -4278,7 +4862,8 @@ fn runtime_scheduler_tick(
     let Some(active) = active else {
         return Ok(());
     };
-    let run_env = compose_env_for_run(Some(&active.run_id));
+    let active_workspace = resolve_active_run_workspace_root(&cfg, &active)?;
+    let run_env = compose_env_for_run(Some(&active.run_id), Some(&active_workspace));
     let provider_running =
         provider_plane_is_running(ctx, &runner, &cfg, false, &run_env).unwrap_or(false);
     let collector_running =
@@ -4893,7 +5478,12 @@ fn ensure_provider_plane_for_shim<R: DockerRunner>(
         if active_provider.provider != provider {
             return Err(provider_mismatch_error(&active_provider.provider, provider));
         }
-        let run_env = compose_env_for_run(Some(&active_provider.run_id));
+        let active_workspace = load_active_run_state(&log_root)?
+            .filter(|state| state.run_id == active_provider.run_id)
+            .map(|state| resolve_active_run_workspace_root(&cfg, &state))
+            .transpose()?;
+        let run_env =
+            compose_env_for_run(Some(&active_provider.run_id), active_workspace.as_deref());
         if provider_plane_is_running(ctx, runner, &cfg, false, &run_env)? {
             return Ok(active_provider.run_id);
         }
@@ -4902,6 +5492,7 @@ fn ensure_provider_plane_for_shim<R: DockerRunner>(
         ctx,
         Some(provider.to_string()),
         false,
+        None,
         Some("missing".to_string()),
         true,
         None,
@@ -4988,6 +5579,7 @@ fn handle_shim<R: DockerRunner>(
             let cfg = read_config(&ctx.config_path)?;
             let provider_cfg = provider_from_config(&cfg, &provider)?;
             let workspace_root = PathBuf::from(expand_path(&cfg.paths.workspace_root));
+            let log_root = PathBuf::from(expand_path(&cfg.paths.log_root));
             let cwd = env::current_dir()?;
             let workspace_canon = fs::canonicalize(&workspace_root).unwrap_or(workspace_root);
             let cwd_canon = fs::canonicalize(&cwd).unwrap_or(cwd);
@@ -5015,11 +5607,15 @@ fn handle_shim<R: DockerRunner>(
             args.push("-e".to_string());
             args.push("HARNESS_MODE=tui".to_string());
             args.push("harness".to_string());
+            let active_workspace = load_active_run_state(&log_root)?
+                .filter(|state| state.run_id == run_id)
+                .map(|state| resolve_active_run_workspace_root(&cfg, &state))
+                .transpose()?;
             run_docker_command(
                 ctx,
                 runner,
                 &args,
-                &compose_env_for_run(Some(&run_id)),
+                &compose_env_for_run(Some(&run_id), active_workspace.as_deref()),
                 json!({"action":"shim_exec", "provider": provider, "run_id": run_id}),
                 false,
             )
@@ -5031,6 +5627,7 @@ fn handle_up<R: DockerRunner>(
     ctx: &Context,
     provider: Option<String>,
     collector_only: bool,
+    workspace: Option<String>,
     pull: Option<String>,
     wait: bool,
     timeout_sec: Option<u64>,
@@ -5042,25 +5639,28 @@ fn handle_up<R: DockerRunner>(
         ));
     }
     let cfg = read_config(&ctx.config_path)?;
-    let log_root = PathBuf::from(expand_path(&cfg.paths.log_root));
+    let policy = resolve_config_policy_paths(&cfg)?;
+    let log_root = policy.log_root;
     let target = resolve_lifecycle_target(provider, collector_only)?;
 
     match target {
         LifecycleTarget::CollectorOnly => {
-            if provider_plane_is_running(ctx, runner, &cfg, false, &BTreeMap::new())? {
+            let effective_workspace = resolve_effective_workspace_root(&cfg, workspace.as_deref())?;
+            let preflight_env = compose_env_for_run(None, Some(&effective_workspace));
+            if provider_plane_is_running(ctx, runner, &cfg, false, &preflight_env)? {
                 return Err(LassoError::Process(
                     "provider plane is still running; stop it before starting a new collector run"
                         .to_string(),
                 ));
             }
-            if collector_is_running(ctx, runner, &cfg, false, &BTreeMap::new())? {
+            if collector_is_running(ctx, runner, &cfg, false, &preflight_env)? {
                 return Err(LassoError::Process(
                     "collector is already running".to_string(),
                 ));
             }
             let run_id = run_id_from_now();
             fs::create_dir_all(run_root(&log_root, &run_id))?;
-            write_active_run_state(&log_root, &run_id)?;
+            write_active_run_state(&log_root, &run_id, &effective_workspace)?;
 
             let mut args = compose_base_args(ctx, &cfg, false, &[])?;
             args.push("up".to_string());
@@ -5077,13 +5677,18 @@ fn handle_up<R: DockerRunner>(
                 }
             }
             args.push("collector".to_string());
-            let env_overrides = compose_env_for_run(Some(&run_id));
+            let env_overrides = compose_env_for_run(Some(&run_id), Some(&effective_workspace));
             let result = run_docker_command(
                 ctx,
                 runner,
                 &args,
                 &env_overrides,
-                json!({"action": "up", "collector_only": true, "run_id": run_id}),
+                json!({
+                    "action": "up",
+                    "collector_only": true,
+                    "run_id": run_id,
+                    "workspace_root": effective_workspace,
+                }),
                 true,
             );
             if result.is_err() {
@@ -5104,6 +5709,7 @@ fn handle_up<R: DockerRunner>(
                         ctx,
                         None,
                         true,
+                        None,
                         Some("missing".to_string()),
                         true,
                         None,
@@ -5117,6 +5723,18 @@ fn handle_up<R: DockerRunner>(
                         .to_string(),
                 )
             })?;
+            let active_workspace = resolve_active_run_workspace_root(&cfg, &active_run)?;
+            if let Some(raw_workspace) = workspace.as_deref() {
+                let requested_workspace =
+                    resolve_effective_workspace_root(&cfg, Some(raw_workspace))?;
+                if requested_workspace != active_workspace {
+                    return Err(LassoError::Config(format!(
+                        "--workspace must match active run workspace (active={}, requested={})",
+                        active_workspace.display(),
+                        requested_workspace.display()
+                    )));
+                }
+            }
             if !run_root(&log_root, &active_run.run_id).exists() {
                 clear_active_run_state(&log_root)?;
                 return Err(LassoError::Process(
@@ -5124,7 +5742,7 @@ fn handle_up<R: DockerRunner>(
                         .to_string(),
                 ));
             }
-            let run_env = compose_env_for_run(Some(&active_run.run_id));
+            let run_env = compose_env_for_run(Some(&active_run.run_id), Some(&active_workspace));
             if !collector_is_running(ctx, runner, &cfg, false, &run_env)? {
                 return Err(LassoError::Process(
                     "collector is not running; start it first with `lasso up --collector-only`"
@@ -5180,6 +5798,7 @@ fn handle_up<R: DockerRunner>(
                     "provider": provider_name,
                     "run_id": active_run.run_id,
                     "auth_mode": provider_cfg.auth_mode.as_str(),
+                    "workspace_root": active_workspace,
                 }),
                 true,
             );
@@ -5203,10 +5822,16 @@ fn handle_down<R: DockerRunner>(
     runner: &R,
 ) -> Result<(), LassoError> {
     let cfg = read_config(&ctx.config_path)?;
-    let log_root = PathBuf::from(expand_path(&cfg.paths.log_root));
+    let policy = resolve_config_policy_paths(&cfg)?;
+    let log_root = policy.log_root;
     let target = resolve_lifecycle_target(provider, collector_only)?;
-    let run_id = load_active_run_state(&log_root)?.map(|state| state.run_id);
-    let env_overrides = compose_env_for_run(run_id.as_deref());
+    let active_run = load_active_run_state(&log_root)?;
+    let run_id = active_run.as_ref().map(|state| state.run_id.clone());
+    let workspace_root = active_run
+        .as_ref()
+        .map(|state| resolve_active_run_workspace_root(&cfg, state))
+        .transpose()?;
+    let env_overrides = compose_env_for_run(run_id.as_deref(), workspace_root.as_deref());
 
     match target {
         LifecycleTarget::CollectorOnly => {
@@ -5259,9 +5884,15 @@ fn handle_status<R: DockerRunner>(
     runner: &R,
 ) -> Result<(), LassoError> {
     let cfg = read_config(&ctx.config_path)?;
-    let log_root = PathBuf::from(expand_path(&cfg.paths.log_root));
-    let run_id = load_active_run_state(&log_root)?.map(|state| state.run_id);
-    let env_overrides = compose_env_for_run(run_id.as_deref());
+    let policy = resolve_config_policy_paths(&cfg)?;
+    let log_root = policy.log_root;
+    let active_run = load_active_run_state(&log_root)?;
+    let run_id = active_run.as_ref().map(|state| state.run_id.clone());
+    let workspace_root = active_run
+        .as_ref()
+        .map(|state| resolve_active_run_workspace_root(&cfg, state))
+        .transpose()?;
+    let env_overrides = compose_env_for_run(run_id.as_deref(), workspace_root.as_deref());
     let target = resolve_lifecycle_target(provider, collector_only)?;
 
     let mut args = compose_base_args(ctx, &cfg, false, &[])?;
@@ -5295,6 +5926,7 @@ fn handle_status<R: DockerRunner>(
             ok: true,
             result: Some(rows),
             error: None,
+            error_details: None,
         };
         print_json(&payload)?;
         return Ok(());
@@ -5312,13 +5944,14 @@ fn handle_run(
     provider: String,
     prompt: String,
     capture_input: Option<bool>,
-    cwd: Option<String>,
+    start_dir: Option<String>,
     timeout_sec: Option<u64>,
     env_list: Vec<String>,
 ) -> Result<(), LassoError> {
     let cfg = read_config(&ctx.config_path)?;
     let _provider_cfg = provider_from_config(&cfg, &provider)?;
-    let log_root = PathBuf::from(expand_path(&cfg.paths.log_root));
+    let policy = resolve_config_policy_paths(&cfg)?;
+    let log_root = policy.log_root;
     let active_provider = load_active_provider_state(&log_root)?.ok_or_else(|| {
         LassoError::Process(
             "no active provider plane found; start one with `lasso up --provider <name>`"
@@ -5331,6 +5964,22 @@ fn handle_run(
             &provider,
         ));
     }
+    let active_run = load_active_run_state(&log_root)?.ok_or_else(|| {
+        LassoError::Process(
+            "no active run metadata found; restart collector with `lasso up --collector-only`"
+                .to_string(),
+        )
+    })?;
+    if active_run.run_id != active_provider.run_id {
+        return Err(LassoError::Process(format!(
+            "active run mismatch (collector run_id={}, provider run_id={}); restart provider plane",
+            active_run.run_id, active_provider.run_id
+        )));
+    }
+    let workspace_root = resolve_active_run_workspace_root(&cfg, &active_run)?;
+    let host_start_dir = resolve_host_start_dir(&cfg, &workspace_root, start_dir.as_deref())?;
+    let container_start_dir = map_host_start_dir_to_container(&host_start_dir, &workspace_root)?;
+
     let token = resolve_token(&cfg)?;
     let mut env_map = BTreeMap::new();
     for entry in env_list {
@@ -5341,7 +5990,7 @@ fn handle_run(
     let payload = json!({
         "prompt": prompt,
         "capture_input": capture_input.unwrap_or(true),
-        "cwd": cwd,
+        "cwd": container_start_dir,
         "timeout_sec": timeout_sec,
         "env": env_map,
     });
@@ -5370,6 +6019,7 @@ fn handle_run(
             ok: true,
             result: Some(payload),
             error: None,
+            error_details: None,
         };
         print_json(&wrapper)?;
     } else {
@@ -5381,11 +6031,13 @@ fn handle_run(
 fn handle_tui<R: DockerRunner>(
     ctx: &Context,
     provider: String,
+    start_dir: Option<String>,
     runner: &R,
 ) -> Result<(), LassoError> {
     let cfg = read_config(&ctx.config_path)?;
     let provider_cfg = provider_from_config(&cfg, &provider)?;
-    let log_root = PathBuf::from(expand_path(&cfg.paths.log_root));
+    let policy = resolve_config_policy_paths(&cfg)?;
+    let log_root = policy.log_root;
     let active_provider = load_active_provider_state(&log_root)?.ok_or_else(|| {
         LassoError::Process(
             "no active provider plane found; start one with `lasso up --provider <name>`"
@@ -5398,6 +6050,21 @@ fn handle_tui<R: DockerRunner>(
             &provider,
         ));
     }
+    let active_run = load_active_run_state(&log_root)?.ok_or_else(|| {
+        LassoError::Process(
+            "no active run metadata found; restart collector with `lasso up --collector-only`"
+                .to_string(),
+        )
+    })?;
+    if active_run.run_id != active_provider.run_id {
+        return Err(LassoError::Process(format!(
+            "active run mismatch (collector run_id={}, provider run_id={}); restart provider plane",
+            active_run.run_id, active_provider.run_id
+        )));
+    }
+    let workspace_root = resolve_active_run_workspace_root(&cfg, &active_run)?;
+    let host_start_dir = resolve_host_start_dir(&cfg, &workspace_root, start_dir.as_deref())?;
+    let container_start_dir = map_host_start_dir_to_container(&host_start_dir, &workspace_root)?;
 
     let runtime = generate_provider_runtime_compose(ctx, &provider, provider_cfg, None)?;
     for warning in &runtime.warnings {
@@ -5408,8 +6075,10 @@ fn handle_tui<R: DockerRunner>(
     args.push("--rm".to_string());
     args.push("-e".to_string());
     args.push("HARNESS_MODE=tui".to_string());
+    args.push("-e".to_string());
+    args.push(format!("HARNESS_AGENT_WORKDIR={container_start_dir}"));
     args.push("harness".to_string());
-    let env_overrides = compose_env_for_run(Some(&active_provider.run_id));
+    let env_overrides = compose_env_for_run(Some(&active_provider.run_id), Some(&workspace_root));
     if !provider_plane_is_running(ctx, runner, &cfg, false, &env_overrides)? {
         return Err(LassoError::Process(format!(
             "provider plane for '{provider}' is not running; start it with `lasso up --provider {provider}`"
@@ -5518,6 +6187,32 @@ fn collect_doctor_checks(ctx: &Context, cfg: &Config) -> Result<Vec<DoctorCheck>
             "docker is not installed or not in PATH"
         },
         "Install/start Docker Desktop (or compatible Docker runtime) and rerun `lasso doctor`.",
+        json!({"docker_installed": docker_installed}),
+    ));
+
+    let docker_compose_ok = if docker_installed {
+        Command::new("docker")
+            .arg("compose")
+            .arg("version")
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status()
+            .map(|s| s.success())
+            .unwrap_or(false)
+    } else {
+        false
+    };
+    checks.push(doctor_check(
+        "docker_compose",
+        docker_compose_ok,
+        "error",
+        true,
+        if docker_compose_ok {
+            "docker compose is available"
+        } else {
+            "docker compose is not available"
+        },
+        "Install/enable Docker Compose and rerun `lasso doctor`.",
         json!({"docker_installed": docker_installed}),
     ));
 
@@ -5676,7 +6371,11 @@ fn handle_doctor(ctx: &Context, strict: bool) -> Result<(), LassoError> {
     let primary_error = checks
         .iter()
         .find(|check| !check.ok && check.severity == "error")
-        .or_else(|| checks.iter().find(|check| !check.ok && strict && check.strict_fail))
+        .or_else(|| {
+            checks
+                .iter()
+                .find(|check| !check.ok && strict && check.strict_fail)
+        })
         .or_else(|| checks.iter().find(|check| !check.ok))
         .map(|check| check.message.clone());
 
@@ -5685,6 +6384,7 @@ fn handle_doctor(ctx: &Context, strict: bool) -> Result<(), LassoError> {
             ok,
             result: Some(json!({ "checks": checks, "strict": strict })),
             error: if ok { None } else { primary_error },
+            error_details: None,
         };
         print_json(&payload)?;
         return Ok(());
@@ -6250,6 +6950,7 @@ fn logs_tail(
             ok: true,
             result: Some(json!({"run_id": run_id, "path": target})),
             error: None,
+            error_details: None,
         };
         print_json(&payload)?;
         return Ok(());
@@ -6296,12 +6997,20 @@ fn resolve_token(cfg: &Config) -> Result<String, LassoError> {
     ))
 }
 
+fn extract_process_error_details(err: &LassoError) -> Option<ProcessErrorDetails> {
+    match err {
+        LassoError::ProcessDetailed { details, .. } => Some(details.clone()),
+        _ => None,
+    }
+}
+
 fn output(ctx: &Context, payload: serde_json::Value) -> Result<(), LassoError> {
     if ctx.json {
         let wrapper = JsonResult {
             ok: true,
             result: Some(payload),
             error: None,
+            error_details: None,
         };
         print_json(&wrapper)?;
     } else {
@@ -6372,9 +7081,13 @@ mod tests {
 
     fn write_minimal_config(path: &Path) {
         let base = path.parent().unwrap_or_else(|| Path::new("."));
+        let home = required_home_dir().expect("home");
         let mut cfg = Config::default();
         cfg.paths.log_root = base.join("logs").to_string_lossy().to_string();
-        cfg.paths.workspace_root = base.join("workspace").to_string_lossy().to_string();
+        cfg.paths.workspace_root = home
+            .join("lasso-test-workspace")
+            .to_string_lossy()
+            .to_string();
         fs::write(path, serde_yaml::to_string(&cfg).unwrap()).unwrap();
     }
 
@@ -6413,7 +7126,10 @@ paths:
         let yaml = r#"version: 2"#;
         let cfg: Config = serde_yaml::from_str(yaml).expect("config");
         assert_eq!(cfg.version, 2);
-        assert_eq!(cfg.paths.log_root, "~/lasso-logs");
+        let home = required_home_dir().expect("home");
+        let expected = default_paths_for_os(env::consts::OS, &home).expect("default paths");
+        assert_eq!(cfg.paths.log_root, expected.log_root);
+        assert_eq!(cfg.paths.workspace_root, expected.workspace_root);
         assert!(cfg.collector.auto_start);
         assert_eq!(cfg.collector.idle_timeout_min, 10_080);
         assert_eq!(cfg.collector.rotate_every_min, 1_440);
@@ -6518,14 +7234,15 @@ providers:
         let ctx = make_context(dir.path());
         let runner = MockDockerRunner::default();
 
-        handle_up(&ctx, None, true, None, true, Some(45), &runner).unwrap();
+        handle_up(&ctx, None, true, None, None, true, Some(45), &runner).unwrap();
 
         let calls = runner.calls();
         assert_eq!(calls.len(), 3);
 
         let ps_args = &calls[0].args;
         assert!(ps_args.iter().any(|x| x == "ps"));
-        assert!(calls[0].env_overrides.is_empty());
+        assert!(calls[0].env_overrides.contains_key("LASSO_WORKSPACE_ROOT"));
+        assert!(!calls[0].env_overrides.contains_key("LASSO_RUN_ID"));
 
         let args = &calls[2].args;
         assert!(calls[2].capture_output);
@@ -6534,6 +7251,7 @@ providers:
         let idx = args.iter().position(|x| x == "--wait-timeout").unwrap();
         assert_eq!(args[idx + 1], "45");
         assert!(calls[2].env_overrides.contains_key("LASSO_RUN_ID"));
+        assert!(calls[2].env_overrides.contains_key("LASSO_WORKSPACE_ROOT"));
     }
 
     #[test]
@@ -6544,7 +7262,7 @@ providers:
         let ctx = make_context(dir.path());
         let runner = MockDockerRunner::default();
 
-        let err = handle_up(&ctx, None, true, None, false, Some(10), &runner)
+        let err = handle_up(&ctx, None, true, None, None, false, Some(10), &runner)
             .expect_err("timeout without wait should fail");
         assert!(err.to_string().contains("--timeout-sec requires --wait"));
     }
@@ -6567,7 +7285,7 @@ providers:
             stderr: Vec::new(),
         });
 
-        let err = handle_up(&ctx, None, true, None, false, None, &runner)
+        let err = handle_up(&ctx, None, true, None, None, false, None, &runner)
             .expect_err("already-running stack should fail");
         assert!(err.to_string().contains("collector is already running"));
         assert_eq!(runner.calls().len(), 2);
@@ -6647,5 +7365,141 @@ providers:
         let hash = "abcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcd";
         let content = format!("SHA2-256(file.tar.gz)= {hash}");
         assert_eq!(parse_checksum(&content), Some(hash.to_string()));
+    }
+
+    #[test]
+    fn map_host_start_dir_to_container_maps_root_and_nested_paths() {
+        let workspace = PathBuf::from("/tmp/workspace");
+        let mapped_root = map_host_start_dir_to_container(&workspace, &workspace).unwrap();
+        assert_eq!(mapped_root, "/work");
+
+        let nested = workspace.join("src").join("project");
+        let mapped_nested = map_host_start_dir_to_container(&nested, &workspace).unwrap();
+        assert_eq!(mapped_nested, "/work/src/project");
+    }
+
+    #[test]
+    fn resolve_effective_workspace_root_enforces_home_policy_for_override() {
+        let dir = tempdir().unwrap();
+        let home = required_home_dir().unwrap();
+        let mut cfg = Config::default();
+        cfg.paths.log_root = dir.path().join("logs").to_string_lossy().to_string();
+        cfg.paths.workspace_root = home.join("workspace").to_string_lossy().to_string();
+
+        let override_workspace = home.join("workspace-alt");
+        let resolved =
+            resolve_effective_workspace_root(&cfg, Some(override_workspace.to_str().unwrap()))
+                .unwrap();
+        assert_eq!(resolved, override_workspace);
+
+        let outside_workspace = dir.path().join("outside-home-workspace");
+        let err = resolve_effective_workspace_root(&cfg, Some(outside_workspace.to_str().unwrap()))
+            .expect_err("outside-home workspace should fail");
+        assert!(err.to_string().contains("--workspace must be under $HOME"));
+    }
+
+    #[test]
+    fn resolve_host_start_dir_requires_start_dir_inside_workspace() {
+        let dir = tempdir().unwrap();
+        let home = required_home_dir().unwrap();
+        let mut cfg = Config::default();
+        cfg.paths.log_root = dir.path().join("logs").to_string_lossy().to_string();
+        cfg.paths.workspace_root = home.join("workspace").to_string_lossy().to_string();
+
+        let workspace_root = resolve_effective_workspace_root(&cfg, None).unwrap();
+        let inside = workspace_root.join("src");
+        let resolved =
+            resolve_host_start_dir(&cfg, &workspace_root, Some(inside.to_str().unwrap())).unwrap();
+        assert_eq!(resolved, inside);
+
+        let outside = dir.path().join("outside");
+        let err = resolve_host_start_dir(&cfg, &workspace_root, Some(outside.to_str().unwrap()))
+            .expect_err("outside workspace should fail");
+        assert!(err
+            .to_string()
+            .contains("--start-dir must be inside workspace"));
+    }
+
+    #[test]
+    fn classify_docker_command_failure_detects_compose_unavailable() {
+        let (code, hint) = classify_docker_command_failure(
+            "unknown flag: --env-file\n\nUsage:  docker [OPTIONS] COMMAND [ARG...]",
+        );
+        assert_eq!(code, "docker_compose_unavailable");
+        assert!(hint.unwrap_or_default().contains("DOCKER_CONFIG"));
+    }
+
+    #[test]
+    fn execute_docker_nonzero_exit_surfaces_structured_details() {
+        let dir = tempdir().unwrap();
+        write_minimal_config(&dir.path().join("config.yaml"));
+        write_default_compose_files(dir.path());
+        let ctx = make_context(dir.path());
+        let runner = MockDockerRunner::default();
+        runner.push_output(CommandOutput {
+            status_code: 125,
+            stdout: Vec::new(),
+            stderr: b"unknown flag: --env-file".to_vec(),
+        });
+        let args = vec![
+            "compose".to_string(),
+            "--env-file".to_string(),
+            "/tmp/compose.env".to_string(),
+            "ps".to_string(),
+        ];
+        let err = execute_docker(&ctx, &runner, &args, &BTreeMap::new(), true, false)
+            .expect_err("docker command should fail");
+
+        match err {
+            LassoError::ProcessDetailed { message, details } => {
+                assert!(message
+                    .contains("while running `docker compose --env-file /tmp/compose.env ps`"));
+                assert_eq!(details.error_code, "docker_compose_unavailable");
+                assert!(details.hint.unwrap_or_default().contains("DOCKER_CONFIG"));
+                assert_eq!(
+                    details.command.unwrap_or_default(),
+                    "docker compose --env-file /tmp/compose.env ps"
+                );
+                assert!(details
+                    .raw_stderr
+                    .unwrap_or_default()
+                    .contains("unknown flag: --env-file"));
+            }
+            other => panic!("unexpected error variant: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn execute_docker_spawn_not_found_sets_docker_not_found_code() {
+        struct NotFoundRunner;
+        impl DockerRunner for NotFoundRunner {
+            fn run(
+                &self,
+                _args: &[String],
+                _cwd: &Path,
+                _env_overrides: &BTreeMap<String, String>,
+                _capture_output: bool,
+            ) -> Result<CommandOutput, io::Error> {
+                Err(io::Error::new(io::ErrorKind::NotFound, "docker not found"))
+            }
+        }
+
+        let dir = tempdir().unwrap();
+        write_minimal_config(&dir.path().join("config.yaml"));
+        write_default_compose_files(dir.path());
+        let ctx = make_context(dir.path());
+        let runner = NotFoundRunner;
+        let args = vec!["compose".to_string(), "ps".to_string()];
+        let err = execute_docker(&ctx, &runner, &args, &BTreeMap::new(), true, false)
+            .expect_err("missing docker should fail");
+        match err {
+            LassoError::ProcessDetailed { message, details } => {
+                assert!(message.contains("failed to run command `docker compose ps`"));
+                assert_eq!(details.error_code, "docker_not_found");
+                assert!(details.hint.unwrap_or_default().contains("Install Docker"));
+                assert_eq!(details.command.unwrap_or_default(), "docker compose ps");
+            }
+            other => panic!("unexpected error variant: {other:?}"),
+        }
     }
 }
