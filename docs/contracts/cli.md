@@ -1,12 +1,12 @@
-# Lasso CLI
+# Lux CLI
 Layer: Contract
 
-`lasso` is the primary local control surface for stack lifecycle, runtime health,
+`lux` is the primary local control surface for stack lifecycle, runtime health,
 and evidence-safe provider execution.
 
 ## Lifecycle Model
 
-- Runtime control-plane: local daemon over Unix socket (`lasso runtime ...`).
+- Runtime control-plane: local daemon over Unix socket (`lux runtime ...`).
 - Collector plane: `collector` service only.
 - Provider plane: `agent` + `harness` for one explicit provider.
 - UI plane: `ui` service only (managed independently from collector/provider).
@@ -14,17 +14,17 @@ and evidence-safe provider execution.
 ## Quick Start
 
 ```bash
-lasso setup
-lasso shim install codex claude
+lux setup
+lux shim install codex claude
 codex
 ```
 
 Equivalent explicit lifecycle flow:
 
 ```bash
-lasso up --collector-only --wait
-lasso up --provider codex --wait
-lasso tui --provider codex
+lux up --collector-only --wait
+lux up --provider codex --wait
+lux tui --provider codex
 ```
 
 ## Core Commands
@@ -47,25 +47,25 @@ Flags:
 
 ### `config`
 
-- `lasso config init`
-- `lasso config edit`
-- `lasso config validate`
-- `lasso config apply`
+- `lux config init`
+- `lux config edit`
+- `lux config validate`
+- `lux config apply`
 
 ### `runtime`
 
-- `lasso runtime up`
-- `lasso runtime down`
-- `lasso runtime status`
+- `lux runtime up`
+- `lux runtime down`
+- `lux runtime status`
 
 Runtime is auto-started by normal lifecycle commands when needed.
 
 ### `ui`
 
-- `lasso ui up [--wait --timeout-sec N] [--pull always|never|missing]`
-- `lasso ui down`
-- `lasso ui status`
-- `lasso ui url`
+- `lux ui up [--wait --timeout-sec N] [--pull always|never|missing]`
+- `lux ui down`
+- `lux ui status`
+- `lux ui url`
 
 Deprecated `--ui` flags on `up/down/status` are removed.
 
@@ -74,9 +74,9 @@ Deprecated `--ui` flags on `up/down/status` are removed.
 Start either collector plane or provider plane.
 
 - Collector only:
-  - `lasso up --collector-only [--workspace <host-path>] [--wait --timeout-sec N] [--pull ...]`
+  - `lux up --collector-only [--workspace <host-path>] [--wait --timeout-sec N] [--pull ...]`
 - Provider plane:
-  - `lasso up --provider codex|claude [--workspace <host-path>] [--wait --timeout-sec N] [--pull ...]`
+  - `lux up --provider codex|claude [--workspace <host-path>] [--wait --timeout-sec N] [--pull ...]`
 
 Rules:
 - `--collector-only` conflicts with `--provider`.
@@ -88,20 +88,20 @@ Rules:
 
 ### `down`
 
-- `lasso down --collector-only`
-- `lasso down --provider codex|claude`
+- `lux down --collector-only`
+- `lux down --provider codex|claude`
 
 ### `status`
 
-- `lasso status --collector-only`
-- `lasso status --provider codex|claude`
+- `lux status --collector-only`
+- `lux status --provider codex|claude`
 
 ### `shim`
 
-- `lasso shim install <provider...>`
-- `lasso shim uninstall <provider...>`
-- `lasso shim list`
-- `lasso shim exec <provider> -- <argv...>`
+- `lux shim install <provider...>`
+- `lux shim uninstall <provider...>`
+- `lux shim list`
+- `lux shim exec <provider> -- <argv...>`
 
 Shim v1 behavior:
 - Full argv passthrough is preserved.
@@ -110,11 +110,11 @@ Shim v1 behavior:
 
 ### `tui`
 
-- `lasso tui --provider codex|claude [--start-dir <host-path>]`
+- `lux tui --provider codex|claude [--start-dir <host-path>]`
 
 ### `run`
 
-- `lasso run --provider codex|claude "prompt"`
+- `lux run --provider codex|claude "prompt"`
 - Optional: `--capture-input <bool> --start-dir <host-path> --timeout-sec <n> --env KEY=VALUE`
 
 Notes:
@@ -123,13 +123,13 @@ Notes:
 - `--start-dir` defaults to the host current working directory and must be inside the run workspace.
 ### `jobs`
 
-- `lasso jobs list [--run-id <id>|--latest]`
-- `lasso jobs get <id> [--run-id <id>|--latest]`
+- `lux jobs list [--run-id <id>|--latest]`
+- `lux jobs get <id> [--run-id <id>|--latest]`
 
 ### `logs`
 
-- `lasso logs stats [--run-id <id>|--latest]`
-- `lasso logs tail [--lines N] [--file <audit|ebpf|timeline|path>] [--run-id <id>|--latest]`
+- `lux logs stats [--run-id <id>|--latest]`
+- `lux logs tail [--lines N] [--file <audit|ebpf|timeline|path>] [--run-id <id>|--latest]`
 
 ### `doctor`
 
@@ -151,13 +151,13 @@ Prints resolved runtime/config/install/compose paths.
 
 ### `update`
 
-- `lasso update check`
-- `lasso update apply [--to <version>|--latest] [--yes|--dry-run]`
-- `lasso update rollback [--to <version>|--previous] [--yes|--dry-run]`
+- `lux update check`
+- `lux update apply [--to <version>|--latest] [--yes|--dry-run]`
+- `lux update rollback [--to <version>|--previous] [--yes|--dry-run]`
 
 ### `uninstall`
 
-`lasso uninstall [--remove-config] [--all-versions] [--yes|--dry-run] [--force]`
+`lux uninstall [--remove-config] [--all-versions] [--yes|--dry-run] [--force]`
 
 ## Global Flags
 

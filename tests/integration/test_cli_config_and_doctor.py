@@ -50,15 +50,15 @@ def _policy_paths(base: Path) -> tuple[Path, Path, Path]:
     return home, log_root, workspace_root
 
 
-def test_config_init_creates_and_preserves_existing(tmp_path: Path, lasso_cli_binary: Path) -> None:
+def test_config_init_creates_and_preserves_existing(tmp_path: Path, lux_cli_binary: Path) -> None:
     config_dir = tmp_path / "config"
     home, _, _ = _policy_paths(tmp_path)
     env = os.environ.copy()
     env["HOME"] = str(home)
-    env["LASSO_CONFIG_DIR"] = str(config_dir)
+    env["LUX_CONFIG_DIR"] = str(config_dir)
 
     result = _run(
-        [str(lasso_cli_binary), "--json", "config", "init"],
+        [str(lux_cli_binary), "--json", "config", "init"],
         cwd=ROOT_DIR,
         env=env,
         timeout=30,
@@ -72,7 +72,7 @@ def test_config_init_creates_and_preserves_existing(tmp_path: Path, lasso_cli_bi
     config_path.write_text("sentinel: true\n", encoding="utf-8")
 
     result = _run(
-        [str(lasso_cli_binary), "--json", "config", "init"],
+        [str(lux_cli_binary), "--json", "config", "init"],
         cwd=ROOT_DIR,
         env=env,
         timeout=30,
@@ -83,7 +83,7 @@ def test_config_init_creates_and_preserves_existing(tmp_path: Path, lasso_cli_bi
     assert config_path.read_text(encoding="utf-8") == "sentinel: true\n"
 
 
-def test_config_validate_rejects_unknown_fields(tmp_path: Path, lasso_cli_binary: Path) -> None:
+def test_config_validate_rejects_unknown_fields(tmp_path: Path, lux_cli_binary: Path) -> None:
     config_path = tmp_path / "config.yaml"
     config_path.write_text(
         "\n".join(
@@ -101,7 +101,7 @@ def test_config_validate_rejects_unknown_fields(tmp_path: Path, lasso_cli_binary
     env = os.environ.copy()
 
     result = _run(
-        [str(lasso_cli_binary), "--json", "--config", str(config_path), "config", "validate"],
+        [str(lux_cli_binary), "--json", "--config", str(config_path), "config", "validate"],
         cwd=ROOT_DIR,
         env=env,
         timeout=30,
@@ -113,7 +113,7 @@ def test_config_validate_rejects_unknown_fields(tmp_path: Path, lasso_cli_binary
     assert "unknown" in (payload.get("error") or "").lower()
 
 
-def test_config_apply_writes_env_file_and_creates_dirs(tmp_path: Path, lasso_cli_binary: Path) -> None:
+def test_config_apply_writes_env_file_and_creates_dirs(tmp_path: Path, lux_cli_binary: Path) -> None:
     home, log_root, work_root = _policy_paths(tmp_path)
     env_file = tmp_path / "compose.env"
     config_path = tmp_path / "config.yaml"
@@ -132,10 +132,10 @@ def test_config_apply_writes_env_file_and_creates_dirs(tmp_path: Path, lasso_cli
 
     env = os.environ.copy()
     env["HOME"] = str(home)
-    env["LASSO_ENV_FILE"] = str(env_file)
+    env["LUX_ENV_FILE"] = str(env_file)
 
     _run(
-        [str(lasso_cli_binary), "--config", str(config_path), "config", "apply"],
+        [str(lux_cli_binary), "--config", str(config_path), "config", "apply"],
         cwd=ROOT_DIR,
         env=env,
         timeout=60,
@@ -143,21 +143,21 @@ def test_config_apply_writes_env_file_and_creates_dirs(tmp_path: Path, lasso_cli
 
     assert env_file.exists()
     content = env_file.read_text(encoding="utf-8", errors="replace")
-    assert "LASSO_VERSION=" in content
-    assert "LASSO_LOG_ROOT=" in content
-    assert "LASSO_WORKSPACE_ROOT=" in content
+    assert "LUX_VERSION=" in content
+    assert "LUX_LOG_ROOT=" in content
+    assert "LUX_WORKSPACE_ROOT=" in content
 
     assert log_root.is_dir()
     assert work_root.is_dir()
 
 
-def test_config_apply_invalid_config_is_actionable(tmp_path: Path, lasso_cli_binary: Path) -> None:
+def test_config_apply_invalid_config_is_actionable(tmp_path: Path, lux_cli_binary: Path) -> None:
     config_path = tmp_path / "config.yaml"
     config_path.write_text("version: 2\nunknown: true\n", encoding="utf-8")
     env = os.environ.copy()
 
     result = _run(
-        [str(lasso_cli_binary), "--json", "--config", str(config_path), "config", "apply"],
+        [str(lux_cli_binary), "--json", "--config", str(config_path), "config", "apply"],
         cwd=ROOT_DIR,
         env=env,
         timeout=30,
@@ -171,7 +171,7 @@ def test_config_apply_invalid_config_is_actionable(tmp_path: Path, lasso_cli_bin
     assert "Please edit" in error
 
 
-def test_doctor_reports_missing_docker_in_json(tmp_path: Path, lasso_cli_binary: Path) -> None:
+def test_doctor_reports_missing_docker_in_json(tmp_path: Path, lux_cli_binary: Path) -> None:
     home, log_root, work_root = _policy_paths(tmp_path)
     config_path = tmp_path / "config.yaml"
     config_path.write_text(
@@ -191,7 +191,7 @@ def test_doctor_reports_missing_docker_in_json(tmp_path: Path, lasso_cli_binary:
     env["PATH"] = ""
 
     result = _run(
-        [str(lasso_cli_binary), "--json", "--config", str(config_path), "doctor"],
+        [str(lux_cli_binary), "--json", "--config", str(config_path), "doctor"],
         cwd=ROOT_DIR,
         env=env,
         timeout=30,
@@ -208,7 +208,7 @@ def test_doctor_reports_missing_docker_in_json(tmp_path: Path, lasso_cli_binary:
     assert docker_compose.get("ok") is False
 
 
-def test_doctor_reports_log_root_unwritable_in_json(tmp_path: Path, lasso_cli_binary: Path) -> None:
+def test_doctor_reports_log_root_unwritable_in_json(tmp_path: Path, lux_cli_binary: Path) -> None:
     home, _, work_root = _policy_paths(tmp_path)
     config_path = tmp_path / "config.yaml"
     config_path.write_text(
@@ -216,7 +216,7 @@ def test_doctor_reports_log_root_unwritable_in_json(tmp_path: Path, lasso_cli_bi
             [
                 "version: 2",
                 "paths:",
-                "  log_root: /root/lasso-denied",
+                "  log_root: /root/lux-denied",
                 f"  workspace_root: {work_root}",
                 "",
             ]
@@ -227,7 +227,7 @@ def test_doctor_reports_log_root_unwritable_in_json(tmp_path: Path, lasso_cli_bi
     env["HOME"] = str(home)
 
     result = _run(
-        [str(lasso_cli_binary), "--json", "--config", str(config_path), "doctor"],
+        [str(lux_cli_binary), "--json", "--config", str(config_path), "doctor"],
         cwd=ROOT_DIR,
         env=env,
         timeout=30,
@@ -242,7 +242,7 @@ def test_doctor_reports_log_root_unwritable_in_json(tmp_path: Path, lasso_cli_bi
     assert ("log root" in error) or ("docker" in error)
 
 
-def test_status_fails_when_docker_missing(tmp_path: Path, lasso_cli_binary: Path) -> None:
+def test_status_fails_when_docker_missing(tmp_path: Path, lux_cli_binary: Path) -> None:
     home, log_root, work_root = _policy_paths(tmp_path)
     config_path = tmp_path / "config.yaml"
     config_path.write_text(
@@ -263,7 +263,7 @@ def test_status_fails_when_docker_missing(tmp_path: Path, lasso_cli_binary: Path
 
     result = _run(
         [
-            str(lasso_cli_binary),
+            str(lux_cli_binary),
             "--json",
             "--config",
             str(config_path),
@@ -290,7 +290,7 @@ def test_status_fails_when_docker_missing(tmp_path: Path, lasso_cli_binary: Path
 
 def test_config_apply_rewrites_env_file_when_release_tag_changes(
     tmp_path: Path,
-    lasso_cli_binary: Path,
+    lux_cli_binary: Path,
 ) -> None:
     home, log_root, work_root = _policy_paths(tmp_path)
     config_path = tmp_path / "config.yaml"
@@ -298,7 +298,7 @@ def test_config_apply_rewrites_env_file_when_release_tag_changes(
 
     env = os.environ.copy()
     env["HOME"] = str(home)
-    env["LASSO_ENV_FILE"] = str(env_file)
+    env["LUX_ENV_FILE"] = str(env_file)
 
     config_path.write_text(
         "\n".join(
@@ -315,12 +315,12 @@ def test_config_apply_rewrites_env_file_when_release_tag_changes(
         encoding="utf-8",
     )
     _run(
-        [str(lasso_cli_binary), "--config", str(config_path), "config", "apply"],
+        [str(lux_cli_binary), "--config", str(config_path), "config", "apply"],
         cwd=ROOT_DIR,
         env=env,
         timeout=60,
     )
-    assert "LASSO_VERSION=v0.1.0" in env_file.read_text(encoding="utf-8", errors="replace")
+    assert "LUX_VERSION=v0.1.0" in env_file.read_text(encoding="utf-8", errors="replace")
 
     config_path.write_text(
         "\n".join(
@@ -337,9 +337,9 @@ def test_config_apply_rewrites_env_file_when_release_tag_changes(
         encoding="utf-8",
     )
     _run(
-        [str(lasso_cli_binary), "--config", str(config_path), "config", "apply"],
+        [str(lux_cli_binary), "--config", str(config_path), "config", "apply"],
         cwd=ROOT_DIR,
         env=env,
         timeout=60,
     )
-    assert "LASSO_VERSION=v0.1.1" in env_file.read_text(encoding="utf-8", errors="replace")
+    assert "LUX_VERSION=v0.1.1" in env_file.read_text(encoding="utf-8", errors="replace")

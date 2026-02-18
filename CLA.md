@@ -1,6 +1,6 @@
-# Lasso Contributor License Agreement (CLA)
+# Lux Contributor License Agreement (CLA)
 
-This Contributor License Agreement ("Agreement") is a legal agreement between you ("You") and the maintainer(s) of the Lasso project (the "Project") for the contributions You submit to the Project.
+This Contributor License Agreement ("Agreement") is a legal agreement between you ("You") and the maintainer(s) of the Lux project (the "Project") for the contributions You submit to the Project.
 
 By submitting a pull request, patch, issue comment containing code, documentation, or any other material to this repository, You agree to the terms of this Agreement.
 

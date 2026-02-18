@@ -1,4 +1,4 @@
-# UI Design - Lasso Log Viewer
+# UI Design - Lux Log Viewer
 Layer: Implementation
 
 This document describes the current UI design for the log viewer. The source of truth is the Figma redesign export in `ui/` (React + Vite). The UI is focused on fast scanning of agent activity, with lightweight inline renaming for runs via labels.
@@ -11,7 +11,7 @@ This document describes the current UI design for the log viewer. The source of 
 
 ## Layout Overview
 - **Header bar**
-  - Left-aligned product title (“Lasso”) with two subtitle lines:
+  - Left-aligned product title (“Lux”) with two subtitle lines:
     “Verifiability & Auditability for your AI agents” and
     “A dedicated harness for OS-level tracking of everything your agents do”.
 - **Main content (stacked sections)**

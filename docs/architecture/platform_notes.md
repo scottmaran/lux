@@ -10,7 +10,7 @@ TODOs. It is not the external support contract (see `docs/contracts/platform.md`
 - Supported topology today is VM + containers + host sink.
 
 See:
-- `docs/architecture/deployments/lasso_vm_layout.md`
+- `docs/architecture/deployments/lux_vm_layout.md`
 - `docs/architecture/deployments/docker_desktop_vm.md`
 
 ## Kernel Audit Requirements (TODO)

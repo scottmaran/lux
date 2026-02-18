@@ -1,7 +1,7 @@
 [project]
-name = "lasso-tests"
+name = "lux-tests"
 version = "0.4.0"
-description = "Testing and CI tooling for Lasso"
+description = "Testing and CI tooling for Lux"
 requires-python = ">=3.10"
 dependencies = [
     "pytest>=8.3.0",

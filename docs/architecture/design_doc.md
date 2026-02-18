@@ -7,7 +7,7 @@ contracts, see `docs/contracts/`. For enforcement, see `tests/`.
 
 ## Prompt
 
-I want to create a containerized harness (Lasso) to produce auditable, structured logs for third-party AI agent software. This will include:
+I want to create a containerized harness (Lux) to produce auditable, structured logs for third-party AI agent software. This will include:
   - Process tree: exec events with args/uid/gid when available.
   - Filesystem changes: writes/renames/unlinks plus metadata changes (chmod/chown/xattr/utime); reads excluded for noise.
   - Network egress: destination/protocol/port; DNS lookups when available; optional HTTP(S) proxy for method/URL/status (future).

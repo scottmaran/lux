@@ -1,38 +1,38 @@
-# Example Flow: Lasso (Agent Harness)
+# Example Flow: Lux (Agent Harness)
 
 ## Overview summary
-This document is a fully self-contained, procedural example of what the Lasso stack should do end to end. It shows two distinct scenarios (TUI and server-mode job), the user prompts, the underlying commands, the expected workspace changes, the log rows across all log files, and the final UI output derived from filtered logs. All timestamps are UTC.
+This document is a fully self-contained, procedural example of what the Lux stack should do end to end. It shows two distinct scenarios (TUI and server-mode job), the user prompts, the underlying commands, the expected workspace changes, the log rows across all log files, and the final UI output derived from filtered logs. All timestamps are UTC.
 
 Run-layout note (Feb 2026): all collector/harness artifacts are run-scoped
 under `<log_root>/<run_id>/...` where `<run_id>` is typically
-`lasso__YYYY_MM_DD_HH_MM_SS`.
+`lux__YYYY_MM_DD_HH_MM_SS`.
 
 ## Setup and entry commands
 1) Prepare a clean run-scoped environment.
 ```bash
 set -a
-source ~/.config/lasso/compose.env
+source ~/.config/lux/compose.env
 set +a
 
-export LASSO_VERSION=local
-export LASSO_RUN_ID="lasso__$(date +%Y_%m_%d_%H_%M_%S)"
+export LUX_VERSION=local
+export LUX_RUN_ID="lux__$(date +%Y_%m_%d_%H_%M_%S)"
 
-mkdir -p "$LASSO_LOG_ROOT/$LASSO_RUN_ID"
+mkdir -p "$LUX_LOG_ROOT/$LUX_RUN_ID"
 printf '{\n  "run_id": "%s",\n  "started_at": "%s"\n}\n' \
-  "$LASSO_RUN_ID" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
-  > "$LASSO_LOG_ROOT/.active_run.json"
+  "$LUX_RUN_ID" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+  > "$LUX_LOG_ROOT/.active_run.json"
 ```
 
 2) Start collector + agent for TUI (Scenario A).
 ```bash
-docker compose --env-file ~/.config/lasso/compose.env \
+docker compose --env-file ~/.config/lux/compose.env \
   -f compose.yml -f tests/integration/compose.provider.codex.override.yml \
   up -d --pull never collector agent
 ```
 
 3) Launch the harness TUI (Scenario A).
 ```bash
-docker compose --env-file ~/.config/lasso/compose.env \
+docker compose --env-file ~/.config/lux/compose.env \
   -f compose.yml -f tests/integration/compose.provider.codex.override.yml \
   run --rm \
   -e HARNESS_MODE=tui \
@@ -42,7 +42,7 @@ docker compose --env-file ~/.config/lasso/compose.env \
 4) Start the stack for server mode (Scenario B).
 ```bash
 export HARNESS_API_TOKEN=dev-token
-docker compose --env-file ~/.config/lasso/compose.env \
+docker compose --env-file ~/.config/lux/compose.env \
   -f compose.yml -f tests/integration/compose.provider.codex.override.yml \
   up -d --pull never harness
 ```
@@ -57,20 +57,20 @@ curl -s -H "X-Harness-Token: ${HARNESS_API_TOKEN}" \
 
 6) Merge filtered audit + eBPF logs into the unified timeline (both scenarios).
 ```bash
-cat > "$LASSO_LOG_ROOT/merge_filtering_example.yaml" <<YAML
+cat > "$LUX_LOG_ROOT/merge_filtering_example.yaml" <<YAML
 schema_version: timeline.filtered.v1
 inputs:
-  - path: /logs/${LASSO_RUN_ID}/collector/filtered/filtered_audit.jsonl
+  - path: /logs/${LUX_RUN_ID}/collector/filtered/filtered_audit.jsonl
     source: audit
-  - path: /logs/${LASSO_RUN_ID}/collector/filtered/filtered_ebpf.jsonl
+  - path: /logs/${LUX_RUN_ID}/collector/filtered/filtered_ebpf.jsonl
     source: ebpf
 output:
-  jsonl: /logs/${LASSO_RUN_ID}/collector/filtered/filtered_timeline.jsonl
+  jsonl: /logs/${LUX_RUN_ID}/collector/filtered/filtered_timeline.jsonl
 sorting:
   strategy: ts_source_pid
 YAML
 
-docker compose --env-file ~/.config/lasso/compose.env \
+docker compose --env-file ~/.config/lux/compose.env \
   -f compose.yml -f tests/integration/compose.provider.codex.override.yml \
   exec -T collector \
   collector-merge-filtered --config /logs/merge_filtering_example.yaml
@@ -81,7 +81,7 @@ rows. This example keeps raw `filtered_ebpf.jsonl` to keep the snippets small.
 
 7) (Optional) Tear down between scenarios.
 ```bash
-docker compose --env-file ~/.config/lasso/compose.env \
+docker compose --env-file ~/.config/lux/compose.env \
   -f compose.yml -f tests/integration/compose.provider.codex.override.yml \
   down --remove-orphans
 ```

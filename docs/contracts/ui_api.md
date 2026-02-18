@@ -1,7 +1,7 @@
 # UI API
 Layer: Contract
 
-This API is the minimal contract for the Lasso UI. It is served by a tiny HTTP
+This API is the minimal contract for the Lux UI. It is served by a tiny HTTP
 server colocated with the UI static files. No authentication is required for
 the local-only UI.
 
@@ -10,8 +10,8 @@ the local-only UI.
 - All responses are JSON except `/api/runtime/events` (SSE).
 - Error responses use `{ "error": "message" }` with appropriate status codes.
 - Default run selection uses `<log_root>/.active_run.json`.
-- `lasso up` manages active-run state automatically.
-- In manual `docker compose` workflows, keep a shared `LASSO_RUN_ID` across collector/harness runs and write `.active_run.json`, or pass `?run_id=<id>` explicitly in API calls.
+- `lux up` manages active-run state automatically.
+- In manual `docker compose` workflows, keep a shared `LUX_RUN_ID` across collector/harness runs and write `.active_run.json`, or pass `?run_id=<id>` explicitly in API calls.
 
 ## Runtime Proxy Routes
 
@@ -38,7 +38,7 @@ Defaults to the active run when `run_id` is not provided.
 - `start`: RFC3339 timestamp (UTC) inclusive.
 - `end`: RFC3339 timestamp (UTC) inclusive.
 - `limit`: integer; if set, returns only the last N rows in the filtered set.
-- `run_id`: explicit run directory id (example: `lasso__2026_02_12_12_23_54`).
+- `run_id`: explicit run directory id (example: `lux__2026_02_12_12_23_54`).
 - `session_id`: filter by session id.
 - `job_id`: filter by job id.
 - `source`: comma-separated list (`audit,ebpf`).
@@ -47,7 +47,7 @@ Defaults to the active run when `run_id` is not provided.
 ### Response
 ```json
 {
-  "run_id": "lasso__2026_02_12_12_23_54",
+  "run_id": "lux__2026_02_12_12_23_54",
   "rows": [
     {
       "schema_version": "timeline.filtered.v1",
@@ -82,7 +82,7 @@ Defaults to active run; supports `?run_id=<id>`.
 ### Response
 ```json
 {
-  "run_id": "lasso__2026_02_12_12_23_54",
+  "run_id": "lux__2026_02_12_12_23_54",
   "sessions": [
     {
       "session_id": "session_20260122_001630_de71",
@@ -104,7 +104,7 @@ Returns job metadata from `<log_root>/<run_id>/harness/jobs/*/input.json` and
 ### Response
 ```json
 {
-  "run_id": "lasso__2026_02_12_12_23_54",
+  "run_id": "lux__2026_02_12_12_23_54",
   "jobs": [
     {
       "job_id": "job_20260128_204429_9680",
@@ -128,8 +128,8 @@ Returns discovered run directories and the active run id.
 ### Response
 ```json
 {
-  "runs": ["lasso__2026_02_12_12_23_54", "lasso__2026_02_13_07_14_32"],
-  "active_run_id": "lasso__2026_02_13_07_14_32"
+  "runs": ["lux__2026_02_12_12_23_54", "lux__2026_02_13_07_14_32"],
+  "active_run_id": "lux__2026_02_13_07_14_32"
 }
 ```
 
@@ -146,7 +146,7 @@ Defaults to active run; supports `?run_id=<id>`.
 ### Response
 ```json
 {
-  "run_id": "lasso__2026_02_12_12_23_54",
+  "run_id": "lux__2026_02_12_12_23_54",
   "id": "session_20260122_001630_de71",
   "name": "Readable session name",
   "updated_at": "2026-02-02T21:44:29.981395+00:00"
@@ -166,7 +166,7 @@ Defaults to active run; supports `?run_id=<id>`.
 ### Response
 ```json
 {
-  "run_id": "lasso__2026_02_12_12_23_54",
+  "run_id": "lux__2026_02_12_12_23_54",
   "id": "job_20260128_204429_9680",
   "name": "Readable job name",
   "updated_at": "2026-02-02T21:44:29.981395+00:00"
@@ -185,7 +185,7 @@ The current UI derives three summary tiles from this data:
 ### Response
 ```json
 {
-  "run_id": "lasso__2026_02_12_12_23_54",
+  "run_id": "lux__2026_02_12_12_23_54",
   "counts": {
     "exec": 12,
     "fs_create": 2,

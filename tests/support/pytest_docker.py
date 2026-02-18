@@ -29,7 +29,7 @@ ROOT_DIR = Path(__file__).resolve().parents[2]
 COMPOSE_BASE = ROOT_DIR / "compose.yml"
 COMPOSE_TEST_OVERRIDE = ROOT_DIR / "tests" / "integration" / "compose.test.override.yml"
 COMPOSE_PROVIDER_CODEX = ROOT_DIR / "tests" / "integration" / "compose.provider.codex.override.yml"
-TEST_PROJECT_PREFIX = "lasso-test-"
+TEST_PROJECT_PREFIX = "lux-test-"
 
 
 def _slugify(value: str) -> str:
@@ -120,7 +120,7 @@ def ensure_docker_available() -> None:
 
 @pytest.fixture(scope="session", autouse=True)
 def cleanup_stale_test_stacks(ensure_docker_available):
-    """Prevent stale lasso-test compose projects from breaking host-pid collector startup."""
+    """Prevent stale lux-test compose projects from breaking host-pid collector startup."""
     _cleanup_stale_test_projects()
     yield
     _cleanup_stale_test_projects()

@@ -1,2 +1,2 @@
-"""Top-level pytest package for Lasso test suite."""
+"""Top-level pytest package for Lux test suite."""
 

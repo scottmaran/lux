@@ -45,7 +45,7 @@ def _run(
 
 def test_installer_uses_fixed_layout_and_does_not_create_data_dirs(
     tmp_path: Path,
-    lasso_cli_binary: Path,
+    lux_cli_binary: Path,
 ) -> None:
     home = tmp_path / "home"
     home.mkdir(parents=True, exist_ok=True)
@@ -56,39 +56,39 @@ def test_installer_uses_fixed_layout_and_does_not_create_data_dirs(
         server_root=server_root,
         repo_root=ROOT_DIR,
         version="v0.1.0",
-        lasso_binary=lasso_cli_binary,
+        lux_binary=lux_cli_binary,
     )
 
     with serve_directory(server_root) as base_url:
         env = os.environ.copy()
         env["HOME"] = str(home)
-        env["LASSO_RELEASE_BASE_URL"] = base_url
+        env["LUX_RELEASE_BASE_URL"] = base_url
 
         installer = _run(
-            ["bash", str(ROOT_DIR / "install_lasso.sh"), "--version", "v0.1.0"],
+            ["bash", str(ROOT_DIR / "install_lux.sh"), "--version", "v0.1.0"],
             cwd=ROOT_DIR,
             env=env,
             timeout=300,
         )
         assert "not on your PATH" in installer.stdout
 
-        install_dir = home / ".lasso"
+        install_dir = home / ".lux"
         version_dir = install_dir / "versions" / "0.1.0"
         current_link = install_dir / "current"
-        bin_link = home / ".local" / "bin" / "lasso"
-        config_path = home / ".config" / "lasso" / "config.yaml"
+        bin_link = home / ".local" / "bin" / "lux"
+        config_path = home / ".config" / "lux" / "config.yaml"
 
-        assert (version_dir / "lasso").exists(), f"Expected lasso binary under {version_dir}"
+        assert (version_dir / "lux").exists(), f"Expected lux binary under {version_dir}"
         assert (version_dir / "compose.yml").exists(), "Expected compose.yml in installed bundle."
         assert (version_dir / "config" / "default.yaml").exists(), "Expected default config in bundle."
 
-        assert current_link.is_symlink(), "Expected ~/.lasso/current symlink."
-        assert bin_link.is_symlink(), "Expected ~/.local/bin/lasso symlink."
-        assert config_path.exists(), "Expected ~/.config/lasso/config.yaml to be created."
+        assert current_link.is_symlink(), "Expected ~/.lux/current symlink."
+        assert bin_link.is_symlink(), "Expected ~/.local/bin/lux symlink."
+        assert config_path.exists(), "Expected ~/.config/lux/config.yaml to be created."
 
         # Installer should not create log/workspace directories; config apply does that.
-        assert not (home / "lasso-logs").exists()
-        assert not (home / "lasso-workspace").exists()
+        assert not (home / "lux-logs").exists()
+        assert not (home / "lux-workspace").exists()
 
         # The installed binary should work and resolve fixed install/bin paths under HOME.
         result = _run([str(bin_link), "--json", "paths"], cwd=ROOT_DIR, env=env, timeout=60)
@@ -100,7 +100,7 @@ def test_installer_uses_fixed_layout_and_does_not_create_data_dirs(
 
 def test_installer_supports_local_bundle_and_checksum(
     tmp_path: Path,
-    lasso_cli_binary: Path,
+    lux_cli_binary: Path,
 ) -> None:
     home = tmp_path / "home"
     home.mkdir(parents=True, exist_ok=True)
@@ -111,7 +111,7 @@ def test_installer_supports_local_bundle_and_checksum(
         server_root=server_root,
         repo_root=ROOT_DIR,
         version="v0.1.0",
-        lasso_binary=lasso_cli_binary,
+        lux_binary=lux_cli_binary,
     )
     bundle_path = Path(artifacts["bundle_path"])
     checksum_path = Path(artifacts["checksum_path"])
@@ -122,7 +122,7 @@ def test_installer_supports_local_bundle_and_checksum(
     installer = _run(
         [
             "bash",
-            str(ROOT_DIR / "install_lasso.sh"),
+            str(ROOT_DIR / "install_lux.sh"),
             "--version",
             "v0.1.0",
             "--bundle",
@@ -136,7 +136,7 @@ def test_installer_supports_local_bundle_and_checksum(
     )
     assert "not on your PATH" in installer.stdout
 
-    bin_link = home / ".local" / "bin" / "lasso"
+    bin_link = home / ".local" / "bin" / "lux"
     assert bin_link.exists()
 
     result = _run([str(bin_link), "--json", "paths"], cwd=ROOT_DIR, env=env, timeout=60)

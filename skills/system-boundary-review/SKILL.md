@@ -1,6 +1,6 @@
 ---
 name: system-boundary-review
-description: Boundary-aware design and change review for the Lasso repo. Use when a task might create/change a boundary (CLI commands/flags, on-disk artifacts or schema formats, cross-component APIs, "public" internal interfaces, dependency direction changes, versioning/backcompat decisions) or when you're unsure what the boundary is. Output a concise Boundary Review plus candidate repo boundary rules to discuss.
+description: Boundary-aware design and change review for the Lux repo. Use when a task might create/change a boundary (CLI commands/flags, on-disk artifacts or schema formats, cross-component APIs, "public" internal interfaces, dependency direction changes, versioning/backcompat decisions) or when you're unsure what the boundary is. Output a concise Boundary Review plus candidate repo boundary rules to discuss.
 ---
 
 # System Boundary Review

@@ -3,7 +3,7 @@
 workspace/*
 logs/*
 personal_docs/
-lasso/target/
+lux/target/
 .venv/
 .pytest_cache/
 __pycache__/

@@ -173,12 +173,12 @@ class ComposeStack:
         self.log_root.mkdir(parents=True, exist_ok=True)
         self.workspace_root.mkdir(parents=True, exist_ok=True)
         self.run_id = (
-            f"lasso__{datetime.now(timezone.utc).strftime('%Y_%m_%d_%H_%M_%S')}_"
+            f"lux__{datetime.now(timezone.utc).strftime('%Y_%m_%d_%H_%M_%S')}_"
             f"{uuid.uuid4().hex[:6]}"
         )
 
         self.compose_files = compose_files
-        self.project_name = f"lasso-test-{test_slug}-{uuid.uuid4().hex[:8]}"
+        self.project_name = f"lux-test-{test_slug}-{uuid.uuid4().hex[:8]}"
         self.harness_port = find_free_port()
         token = f"token-{uuid.uuid4().hex}"
 
@@ -188,10 +188,10 @@ class ComposeStack:
                 "COMPOSE_PROJECT_NAME": self.project_name,
                 "HARNESS_API_TOKEN": token,
                 "HARNESS_RUN_CMD_TEMPLATE": DEFAULT_HARNESS_CMD_TEMPLATE,
-                "LASSO_LOG_ROOT": str(self.log_root),
-                "LASSO_WORKSPACE_ROOT": str(self.workspace_root),
-                "LASSO_RUN_ID": self.run_id,
-                "LASSO_VERSION": "local",
+                "LUX_LOG_ROOT": str(self.log_root),
+                "LUX_WORKSPACE_ROOT": str(self.workspace_root),
+                "LUX_RUN_ID": self.run_id,
+                "LUX_VERSION": "local",
                 "HARNESS_HOST_PORT": str(self.harness_port),
             }
         )

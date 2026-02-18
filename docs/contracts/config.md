@@ -1,23 +1,23 @@
-# Lasso `config.yaml` Reference
+# Lux `config.yaml` Reference
 Layer: Contract
 
-`config.yaml` is the canonical runtime contract for `lasso`.
+`config.yaml` is the canonical runtime contract for `lux`.
 
 For most users, the recommended way to create/update this file is the setup
 wizard:
 
 ```bash
-lasso setup
+lux setup
 ```
 
 ## Default Location
 
-- `~/.config/lasso/config.yaml`
+- `~/.config/lux/config.yaml`
 
 Overrides:
-- `lasso --config <path>`
-- `LASSO_CONFIG`
-- `LASSO_CONFIG_DIR` (directory containing `config.yaml` and `compose.env`)
+- `lux --config <path>`
+- `LUX_CONFIG`
+- `LUX_CONFIG_DIR` (directory containing `config.yaml` and `compose.env`)
 
 ## Schema (v2)
 
@@ -25,9 +25,9 @@ Overrides:
 version: 2
 
 paths:
-  # macOS default: /Users/Shared/Lasso/logs
-  # Linux default: /var/lib/lasso/logs
-  log_root: /var/lib/lasso/logs
+  # macOS default: /Users/Shared/Lux/logs
+  # Linux default: /var/lib/lux/logs
+  log_root: /var/lib/lux/logs
   # default: $HOME
   workspace_root: /home/alice
 
@@ -35,7 +35,7 @@ release:
   tag: ""
 
 docker:
-  project_name: lasso
+  project_name: lux
 
 harness:
   api_host: 127.0.0.1
@@ -63,7 +63,7 @@ providers:
       run_template: "codex -C /work -s danger-full-access exec {prompt}"
     auth:
       api_key:
-        secrets_file: ~/.config/lasso/secrets/codex.env
+        secrets_file: ~/.config/lux/secrets/codex.env
         env_key: OPENAI_API_KEY
       host_state:
         paths:
@@ -85,7 +85,7 @@ providers:
       run_template: "claude -p {prompt}"
     auth:
       api_key:
-        secrets_file: ~/.config/lasso/secrets/claude.env
+        secrets_file: ~/.config/lux/secrets/claude.env
         env_key: ANTHROPIC_API_KEY
       host_state:
         paths:
@@ -109,8 +109,8 @@ To migrate:
 1. Update `version: 1` -> `version: 2`.
 2. Add a `providers:` block (copy from the default config and then customize).
 3. Run:
-   - `lasso config validate`
-   - `lasso config apply`
+   - `lux config validate`
+   - `lux config apply`
 
 ## Required Concepts
 
@@ -142,10 +142,10 @@ To migrate:
 Default path computation used by `setup`, `config init`, and installer bootstrap:
 
 - macOS:
-  - `paths.log_root=/Users/Shared/Lasso/logs`
+  - `paths.log_root=/Users/Shared/Lux/logs`
   - `paths.workspace_root=$HOME`
 - Linux:
-  - `paths.log_root=/var/lib/lasso/logs`
+  - `paths.log_root=/var/lib/lux/logs`
   - `paths.workspace_root=$HOME`
 
 ## API-Key Secrets Files
@@ -157,12 +157,12 @@ The setup wizard can optionally create these secrets files for you.
 Examples:
 
 ```bash
-mkdir -p ~/.config/lasso/secrets
-chmod 700 ~/.config/lasso/secrets
+mkdir -p ~/.config/lux/secrets
+chmod 700 ~/.config/lux/secrets
 
-printf 'OPENAI_API_KEY=%s\n' 'YOUR_KEY' > ~/.config/lasso/secrets/codex.env
-printf 'ANTHROPIC_API_KEY=%s\n' 'YOUR_KEY' > ~/.config/lasso/secrets/claude.env
-chmod 600 ~/.config/lasso/secrets/codex.env ~/.config/lasso/secrets/claude.env
+printf 'OPENAI_API_KEY=%s\n' 'YOUR_KEY' > ~/.config/lux/secrets/codex.env
+printf 'ANTHROPIC_API_KEY=%s\n' 'YOUR_KEY' > ~/.config/lux/secrets/claude.env
+chmod 600 ~/.config/lux/secrets/codex.env ~/.config/lux/secrets/claude.env
 ```
 
 ## Host-State Mode and macOS Claude Caveat
@@ -176,19 +176,19 @@ For Claude on macOS, this is best-effort only:
 
 If this happens, switch the provider to `auth_mode=api_key`.
 
-## What `lasso config apply` Does
+## What `lux config apply` Does
 
 - Validates config schema and provider blocks.
 - Enforces path policy (`workspace_root` under `$HOME`, `log_root` outside `$HOME`, no overlap).
-- Writes compose env file (default `~/.config/lasso/compose.env`).
+- Writes compose env file (default `~/.config/lux/compose.env`).
 - Ensures canonical `paths.log_root` and `paths.workspace_root` exist.
 
 Generated compose env values include:
-- `LASSO_VERSION`
-- `LASSO_LOG_ROOT`
-- `LASSO_WORKSPACE_ROOT`
-- `LASSO_RUNTIME_DIR`
-- `LASSO_RUNTIME_GID`
+- `LUX_VERSION`
+- `LUX_LOG_ROOT`
+- `LUX_WORKSPACE_ROOT`
+- `LUX_RUNTIME_DIR`
+- `LUX_RUNTIME_GID`
 - `HARNESS_HTTP_PORT`
 - `HARNESS_API_TOKEN` (if configured)
 - `COLLECTOR_ROOT_COMM` (merged from provider ownership config)

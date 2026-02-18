@@ -1,4 +1,4 @@
-# Spec: Docker Error UX Hardening For Lasso CLI
+# Spec: Docker Error UX Hardening For Lux CLI
 
 Status: implemented
 Owner: codex
@@ -21,16 +21,16 @@ Docker-related failures from lifecycle commands are currently surfaced as generi
 - Supporting Docker variants that do not expose stderr/stdout in standard ways.
 
 ## User Experience
-- `lasso --json ...` failures keep the existing `error` field, and additionally include `error_details` with:
+- `lux --json ...` failures keep the existing `error` field, and additionally include `error_details` with:
   - `error_code` (stable identifier)
   - `hint` (actionable remediation when known)
   - `command` (stringified Docker command context, when applicable)
   - `raw_stderr` (trimmed stderr text when available)
 - Non-JSON failures print a clearer one-line process error that includes command context and, when known, a hint.
-- `lasso doctor --json` includes a separate compose capability check.
+- `lux doctor --json` includes a separate compose capability check.
 
 ## Design
-- Introduce an internal process-error metadata struct carried by `LassoError::Process`:
+- Introduce an internal process-error metadata struct carried by `LuxError::Process`:
   - message: existing human-readable string used by Display.
   - details: optional structured payload for JSON wrappers.
 - Add Docker error classification in `execute_docker`:
@@ -70,7 +70,7 @@ Docker-related failures from lifecycle commands are currently surfaced as generi
 - Existing callers that only read `error` continue to work unchanged.
 
 ## Test Plan
-- Unit tests (`lasso`):
+- Unit tests (`lux`):
   - Docker stderr classification map to expected `error_code` + `hint`.
   - JSON error wrapper includes additive `error_details`.
   - Doctor compose check appears in JSON result.
@@ -88,11 +88,11 @@ Docker-related failures from lifecycle commands are currently surfaced as generi
 
 ## Implementation Notes
 - Implemented in:
-  - `lasso/src/main.rs`
-  - `lasso/tests/cli.rs`
+  - `lux/src/main.rs`
+  - `lux/tests/cli.rs`
   - `tests/integration/test_cli_config_and_doctor.py`
   - `docs/contracts/cli.md`
 - Verification:
-  - `cargo test` (from `lasso/`) passed.
+  - `cargo test` (from `lux/`) passed.
   - `uv run pytest tests/integration/test_cli_config_and_doctor.py -q` passed.
   - `uv run python scripts/all_tests.py --lane fast` passed.

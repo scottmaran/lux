@@ -51,29 +51,29 @@ def test_external_install_from_github_release_assets(tmp_path: Path) -> None:
     - Install from a local bundle into an isolated HOME
 
     Opt-in only:
-      LASSO_RUN_EXTERNAL_INSTALL=1
-      LASSO_EXTERNAL_INSTALL_VERSION=vX.Y.Z
+      LUX_RUN_EXTERNAL_INSTALL=1
+      LUX_EXTERNAL_INSTALL_VERSION=vX.Y.Z
 
     Optional:
-      LASSO_EXTERNAL_INSTALL_REPO=owner/repo (default: scottmaran/lasso)
+      LUX_EXTERNAL_INSTALL_REPO=owner/repo (default: scottmaran/lux)
     """
-    if os.environ.get("LASSO_RUN_EXTERNAL_INSTALL") != "1":
-        pytest.skip("Set LASSO_RUN_EXTERNAL_INSTALL=1 to run this external install smoke test.")
+    if os.environ.get("LUX_RUN_EXTERNAL_INSTALL") != "1":
+        pytest.skip("Set LUX_RUN_EXTERNAL_INSTALL=1 to run this external install smoke test.")
 
-    version = os.environ.get("LASSO_EXTERNAL_INSTALL_VERSION")
+    version = os.environ.get("LUX_EXTERNAL_INSTALL_VERSION")
     if not version:
-        pytest.skip("Set LASSO_EXTERNAL_INSTALL_VERSION=vX.Y.Z to run this external install smoke test.")
+        pytest.skip("Set LUX_EXTERNAL_INSTALL_VERSION=vX.Y.Z to run this external install smoke test.")
 
-    repo = os.environ.get("LASSO_EXTERNAL_INSTALL_REPO", "scottmaran/lasso")
+    repo = os.environ.get("LUX_EXTERNAL_INSTALL_REPO", "scottmaran/lux")
     if not repo.strip():
-        pytest.skip("LASSO_EXTERNAL_INSTALL_REPO is empty.")
+        pytest.skip("LUX_EXTERNAL_INSTALL_REPO is empty.")
 
     if shutil.which("gh") is None:
         pytest.skip("GitHub CLI is required for this test (missing `gh`).")
 
     version, version_tag = normalize_version_tag(version)
     os_name, arch = detect_release_platform()
-    bundle_name = f"lasso_{version_tag}_{os_name}_{arch}.tar.gz"
+    bundle_name = f"lux_{version_tag}_{os_name}_{arch}.tar.gz"
     checksum_name = f"{bundle_name}.sha256"
 
     download_dir = tmp_path / "downloads"
@@ -114,7 +114,7 @@ def test_external_install_from_github_release_assets(tmp_path: Path) -> None:
     _run(
         [
             "bash",
-            str(ROOT_DIR / "install_lasso.sh"),
+            str(ROOT_DIR / "install_lux.sh"),
             "--version",
             version,
             "--bundle",
@@ -127,18 +127,18 @@ def test_external_install_from_github_release_assets(tmp_path: Path) -> None:
         timeout=300,
     )
 
-    lasso = home / ".local" / "bin" / "lasso"
-    assert lasso.exists(), "Expected installed lasso binary symlink."
+    lux = home / ".local" / "bin" / "lux"
+    assert lux.exists(), "Expected installed lux binary symlink."
 
-    result = _run([str(lasso), "--json", "paths"], cwd=ROOT_DIR, env=env_install, timeout=60)
+    result = _run([str(lux), "--json", "paths"], cwd=ROOT_DIR, env=env_install, timeout=60)
     payload = json.loads(result.stdout)
     assert payload["ok"] is True
-    assert payload["result"]["install_dir"] == str(home / ".lasso")
+    assert payload["result"]["install_dir"] == str(home / ".lux")
     assert payload["result"]["bin_dir"] == str(home / ".local" / "bin")
 
     uninstall = _run(
         [
-            str(lasso),
+            str(lux),
             "--json",
             "uninstall",
             "--yes",
@@ -154,4 +154,4 @@ def test_external_install_from_github_release_assets(tmp_path: Path) -> None:
     assert payload["ok"] is True
     assert payload["result"]["action"] == "uninstall"
 
-    assert not (home / ".local" / "bin" / "lasso").exists()
+    assert not (home / ".local" / "bin" / "lux").exists()

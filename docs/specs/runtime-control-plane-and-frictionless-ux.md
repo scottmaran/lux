@@ -6,13 +6,13 @@ Created: 2026-02-16
 Last updated: 2026-02-16
 
 ## Problem
-Lasso currently requires multiple explicit steps to run a provider, UI lifecycle
+Lux currently requires multiple explicit steps to run a provider, UI lifecycle
 is not first-class in CLI UX, and lifecycle/health/evidence-state data are
 spread across ad hoc command flows. This creates friction, increases operator
 mistakes, and prevents consistent real-time state for CLI and UI.
 
 ## Goals
-- Provide independent UI lifecycle controls from the `lasso` CLI.
+- Provide independent UI lifecycle controls from the `lux` CLI.
 - Provide zero-friction recurring provider usage via managed shims:
 - User can type normal `codex`/`claude` commands.
 - Full argv passthrough must be preserved.
@@ -24,7 +24,7 @@ mistakes, and prevents consistent real-time state for CLI and UI.
 - health checks
 - evidence-state queries
 - real-time event stream
-- Expand `lasso setup` / `lasso doctor` readiness checks for trust/correctness.
+- Expand `lux setup` / `lux doctor` readiness checks for trust/correctness.
 
 ## Non-Goals
 - No invariant changes in `INVARIANTS.md`.
@@ -36,22 +36,22 @@ mistakes, and prevents consistent real-time state for CLI and UI.
 
 ### UI Lifecycle
 New command family:
-- `lasso ui up [--wait --timeout-sec N]`
-- `lasso ui down`
-- `lasso ui status`
-- `lasso ui url`
+- `lux ui up [--wait --timeout-sec N]`
+- `lux ui down`
+- `lux ui status`
+- `lux ui url`
 
 Removal:
 - Existing `--ui` lifecycle flag is removed from `up/down/status`.
-- CLI returns actionable guidance to use `lasso ui ...` commands.
+- CLI returns actionable guidance to use `lux ui ...` commands.
 
 ### Frictionless Provider Launch
 User setup:
-- `lasso setup`
-- `lasso shim install codex claude`
+- `lux setup`
+- `lux shim install codex claude`
 
 Then normal usage:
-- `codex ...` and `claude ...` launch through Lasso with full passthrough args.
+- `codex ...` and `claude ...` launch through Lux with full passthrough args.
 - Collector auto-starts if needed (policy-driven).
 
 ### Collector Policy Defaults
@@ -79,7 +79,7 @@ with explicit config defaults and config location:
   - If default path exceeds Unix socket length limits, runtime uses a deterministic short fallback path.
 - `runtime_control_plane.socket_gid: <invoking_user_primary_gid>`
 - Config location: top-level `runtime_control_plane` block in `config.yaml`.
-- `<config_dir>` resolves from `LASSO_CONFIG_DIR` or default `~/.config/lasso`.
+- `<config_dir>` resolves from `LUX_CONFIG_DIR` or default `~/.config/lux`.
 - Socket permissions are `0660`; parent runtime dir is `0770`.
 - Owner is invoking user uid; group is `socket_gid`.
 
@@ -93,9 +93,9 @@ Responsibilities:
 CLI model:
 - Lifecycle and status commands call the control-plane API.
 - Runtime lifecycle command surface:
-- `lasso runtime up`
-- `lasso runtime down`
-- `lasso runtime status`
+- `lux runtime up`
+- `lux runtime down`
+- `lux runtime status`
 - CLI auto-starts runtime control-plane if not already running.
 - `runtime up` is idempotent and enforces single-instance lock/pid semantics.
 - `runtime up` handles stale socket/pid artifact cleanup safely.
@@ -112,11 +112,11 @@ UI model:
 
 Deployment wiring:
 - `compose.env` exports:
-- `LASSO_RUNTIME_DIR=<config_dir>/runtime`
-- `LASSO_RUNTIME_GID=<socket_gid>`
-- `compose.ui.yml` mounts `${LASSO_RUNTIME_DIR}` at `/run/lasso/runtime`.
-- UI service receives `UI_RUNTIME_CONTROL_PLANE_SOCKET=/run/lasso/runtime/control_plane.sock`.
-- UI service includes `${LASSO_RUNTIME_GID}` group mapping so proxy can open the socket.
+- `LUX_RUNTIME_DIR=<config_dir>/runtime`
+- `LUX_RUNTIME_GID=<socket_gid>`
+- `compose.ui.yml` mounts `${LUX_RUNTIME_DIR}` at `/run/lux/runtime`.
+- UI service receives `UI_RUNTIME_CONTROL_PLANE_SOCKET=/run/lux/runtime/control_plane.sock`.
+- UI service includes `${LUX_RUNTIME_GID}` group mapping so proxy can open the socket.
 
 ### 2) API Surface (Contract-Level)
 Create `docs/contracts/runtime_control_plane.md` with explicit request/response
@@ -158,28 +158,28 @@ Transport/auth requirements:
 
 ### 3) UI Command Family
 Add dedicated subcommand tree in CLI:
-- `lasso ui up`: starts UI service only.
-- `lasso ui down`: stops UI service only.
-- `lasso ui status`: returns UI service status.
-- `lasso ui url`: returns resolved local URL (for scripts).
+- `lux ui up`: starts UI service only.
+- `lux ui down`: stops UI service only.
+- `lux ui status`: returns UI service status.
+- `lux ui url`: returns resolved local URL (for scripts).
 
-`lasso ui open` is intentionally deferred in v1 to avoid platform-specific
+`lux ui open` is intentionally deferred in v1 to avoid platform-specific
 browser-launch behavior in the first cut.
 
 ### 4) Shim Architecture
 Add shim management commands:
-- `lasso shim install <provider...>`
-- `lasso shim uninstall <provider...>`
-- `lasso shim list`
-- `lasso shim exec <provider> -- <argv...>`
+- `lux shim install <provider...>`
+- `lux shim uninstall <provider...>`
+- `lux shim list`
+- `lux shim exec <provider> -- <argv...>`
 
 Shim requirements:
 - Preserve full passthrough argv exactly.
-- Ensure Lasso prerequisites before launch:
+- Ensure Lux prerequisites before launch:
 - config validity
 - collector state per policy
 - provider plane state
-- Route launch through Lasso-managed execution path to preserve attribution.
+- Route launch through Lux-managed execution path to preserve attribution.
 - Expose clear uninstall/escape hatch.
 - V1 path/cwd simplification:
 - Supported only when invoked from within configured workspace root.
@@ -280,9 +280,9 @@ runtime_control_plane:
 - Include per-check remediation; strict mode exits non-zero.
 
 ## Acceptance Criteria
-- `lasso ui up/down/status/url` are available, documented, and tested.
-- `up/down/status --ui` is removed and replaced by actionable `lasso ui ...` guidance.
-- `lasso runtime up/down/status` are available and documented.
+- `lux ui up/down/status/url` are available, documented, and tested.
+- `up/down/status --ui` is removed and replaced by actionable `lux ui ...` guidance.
+- `lux runtime up/down/status` are available and documented.
 - Shimmed `codex` and `claude` preserve full argv passthrough.
 - Shim v1 behavior is explicit:
 - workspace-root cwd required
@@ -307,7 +307,7 @@ runtime_control_plane:
 - UI runtime calls use same-origin proxy routes via `ui/server.py`.
 - UI proxy route namespace and SSE forwarding behavior are explicitly contracted.
 - Event stream emits required lifecycle/degradation/attribution-warning events.
-- `lasso doctor` surfaces the expanded readiness checks with machine-readable output.
+- `lux doctor` surfaces the expanded readiness checks with machine-readable output.
 
 ## Test Plan
 - Unit tests:
@@ -325,7 +325,7 @@ runtime_control_plane:
 - Not required unless collector pipeline transformations are changed.
 - Integration coverage:
 - CLI UI lifecycle commands.
-- `lasso runtime up/down/status` lifecycle commands.
+- `lux runtime up/down/status` lifecycle commands.
 - runtime readiness probe endpoint (`/v1/healthz`).
 - `runtime down` then normal CLI/shim command auto-start behavior.
 - shim workflow for codex/claude with passthrough args.
@@ -357,9 +357,9 @@ Rollout sequence:
 
 ## Implementation Notes (2026-02-16)
 - Implemented command families:
-  - `lasso ui up|down|status|url`
-  - `lasso runtime up|down|status`
-  - `lasso shim install|uninstall|list|exec`
+  - `lux ui up|down|status|url`
+  - `lux runtime up|down|status`
+  - `lux shim install|uninstall|list|exec`
 - Removed deprecated `--ui` flags from `up/down/status`.
 - Added config defaults:
   - `collector.auto_start=true`
@@ -380,7 +380,7 @@ Rollout sequence:
   - `/api/runtime/warnings`
   - `/api/runtime/events` (SSE passthrough).
 - Added compose/UI runtime socket wiring:
-  - `LASSO_RUNTIME_DIR`
-  - `LASSO_RUNTIME_GID`
+  - `LUX_RUNTIME_DIR`
+  - `LUX_RUNTIME_GID`
   - UI socket mount and group mapping.
-- Expanded `lasso doctor` to structured readiness checks with `--strict`.
+- Expanded `lux doctor` to structured readiness checks with `--strict`.

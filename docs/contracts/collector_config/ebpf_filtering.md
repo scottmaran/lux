@@ -30,7 +30,7 @@ config paths and inputs/outputs via env vars:
 Note:
 - The shipped YAML defaults can look "flat" (`/logs/...`). In real runs they
   are overridden to run-scoped paths under
-  `/logs/${LASSO_RUN_ID:-lasso__adhoc}/...` (host equivalent:
+  `/logs/${LUX_RUN_ID:-lux__adhoc}/...` (host equivalent:
   `<log_root>/<run_id>/...`).
 
 ## Key fields (current)

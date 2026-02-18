@@ -50,7 +50,7 @@ These are the most common `auditctl` flags you will see in rule sets and docs:
 - Enhanced Container Isolation (ECI) can restrict kernel access; the collector
   must be permitted to access audit/eBPF interfaces.
 
-## Lasso schema references
+## Lux schema references
 - auditd raw (`audit.log`): `docs/contracts/schemas/auditd.raw.md`
 - auditd filtered (`filtered_audit.jsonl`): `docs/contracts/schemas/auditd.filtered.v1.md`
 - eBPF raw (`ebpf.jsonl`): `docs/contracts/schemas/ebpf.raw.md`

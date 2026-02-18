@@ -67,7 +67,7 @@ Attribution integration:
 The harness writes artifacts under `HARNESS_LOG_DIR`.
 
 Run-scoped deployments set:
-- `HARNESS_LOG_DIR=/logs/${LASSO_RUN_ID}/harness`
+- `HARNESS_LOG_DIR=/logs/${LUX_RUN_ID}/harness`
 
 Sessions live under `.../sessions/<session_id>/...`, jobs under
 `.../jobs/<job_id>/...`, and labels under `.../labels/...`.
@@ -97,7 +97,7 @@ Markers written by the harness:
 
 Mechanics:
 - Markers are written inside the agent container under `/tmp/` as
-  `/tmp/lasso_root_pid_<id>.txt` and `/tmp/lasso_root_sid_<id>.txt`.
+  `/tmp/lux_root_pid_<id>.txt` and `/tmp/lux_root_sid_<id>.txt`.
 - Harness polls these marker files over SSH and patches `root_pid`/`root_sid`
   into job/session JSON.
 
@@ -139,7 +139,7 @@ Runtime (used by `harness/harness.py`):
   `HARNESS_TIMELINE_RECONCILE_INTERVAL_SEC`
 
 Provider note:
-- `HARNESS_TUI_CMD` and `HARNESS_RUN_CMD_TEMPLATE` are typically set by `lasso`
+- `HARNESS_TUI_CMD` and `HARNESS_RUN_CMD_TEMPLATE` are typically set by `lux`
   provider runtime overrides (see `docs/contracts/config.md`).
 
 ## Troubleshooting
@@ -147,7 +147,7 @@ Provider note:
 - Entrypoint fails early: `/logs` or `HARNESS_KEYS_DIR` not writable by uid 1002.
 - Agent unreachable: check SSH readiness (`HARNESS_SSH_WAIT_SEC`), key volume
   wiring, and agent sshd.
-- Missing `root_pid/root_sid`: remote `/tmp/lasso_root_*` files missing or marker
+- Missing `root_pid/root_sid`: remote `/tmp/lux_root_*` files missing or marker
   capture timed out.
 - Missing per-owner timeline rows: global timeline path mismatch, collector
   hasn't attributed rows yet, or reconcile window too short.

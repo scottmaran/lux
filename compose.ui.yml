@@ -1,15 +1,15 @@
 services:
   ui:
-    image: ghcr.io/scottmaran/lasso-ui:${LASSO_VERSION}
+    image: ghcr.io/scottmaran/lux-ui:${LUX_VERSION}
     volumes:
-      - ${LASSO_LOG_ROOT:-./logs}:/logs:ro
-      - ${LASSO_LOG_ROOT:-./logs}:/logs_rw:rw
-      - ${LASSO_RUNTIME_DIR:-./runtime}:/run/lasso/runtime:rw
+      - ${LUX_LOG_ROOT:-./logs}:/logs:ro
+      - ${LUX_LOG_ROOT:-./logs}:/logs_rw:rw
+      - ${LUX_RUNTIME_DIR:-./runtime}:/run/lux/runtime:rw
     group_add:
-      - "${LASSO_RUNTIME_GID:-0}"
+      - "${LUX_RUNTIME_GID:-0}"
     environment:
       - UI_LOG_ROOT=/logs
       - UI_LOG_ROOT_RW=/logs_rw
-      - UI_RUNTIME_CONTROL_PLANE_SOCKET=/run/lasso/runtime/control_plane.sock
+      - UI_RUNTIME_CONTROL_PLANE_SOCKET=/run/lux/runtime/control_plane.sock
     ports:
       - "127.0.0.1:8090:8090"

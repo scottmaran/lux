@@ -27,7 +27,7 @@ def test_codex_exec_run_returns_prompt_related_output_and_live_artifacts(
     timeline_validator,
 ) -> None:
     """Codex exec lane produces successful output and live owned timeline artifacts."""
-    token = f"LASSO_EXEC_PASS_{uuid.uuid4().hex[:10]}"
+    token = f"LUX_EXEC_PASS_{uuid.uuid4().hex[:10]}"
     prompt = f"Reply with exactly this token: {token}"
 
     job_id, status = codex_stack.submit_and_wait(prompt, timeout_sec=300)

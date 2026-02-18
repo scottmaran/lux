@@ -1,15 +1,15 @@
 version: 2
 
 paths:
-  # `lasso config init`/`lasso setup` rewrite these using host-OS defaults.
-  log_root: /var/lib/lasso/logs
+  # `lux config init`/`lux setup` rewrite these using host-OS defaults.
+  log_root: /var/lib/lux/logs
   workspace_root: ~/
 
 release:
   tag: ""
 
 docker:
-  project_name: lasso
+  project_name: lux
 
 harness:
   api_host: 127.0.0.1
@@ -33,7 +33,7 @@ providers:
       run_template: "codex -C /work -s danger-full-access exec {prompt}"
     auth:
       api_key:
-        secrets_file: ~/.config/lasso/secrets/codex.env
+        secrets_file: ~/.config/lux/secrets/codex.env
         env_key: OPENAI_API_KEY
       host_state:
         paths:
@@ -54,7 +54,7 @@ providers:
       run_template: "claude -p {prompt}"
     auth:
       api_key:
-        secrets_file: ~/.config/lasso/secrets/claude.env
+        secrets_file: ~/.config/lux/secrets/claude.env
         env_key: ANTHROPIC_API_KEY
       host_state:
         paths:

@@ -22,7 +22,7 @@ See `INVARIANTS.md`:
   rely on. Canonical docs live under `docs/contracts/`.
 - **Implementation**: how the current system achieves the contracts today.
   Canonical docs live under `docs/architecture/`.
-- **Run**: one `lasso up` lifecycle; evidence is grouped under a run-scoped root
+- **Run**: one `lux up` lifecycle; evidence is grouped under a run-scoped root
   directory in the sink.
 - **Session**: one interactive TUI session started by the harness.
 - **Job**: one non-interactive server-mode invocation started by the harness.

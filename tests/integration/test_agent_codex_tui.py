@@ -36,7 +36,7 @@ def test_codex_tui_path_runs_and_persists_session_artifacts(
     timeline_validator,
 ) -> None:
     """Harness TUI path runs Codex command, captures artifacts, and emits live timeline rows."""
-    token = f"LASSO_TUI_PASS_{uuid.uuid4().hex[:10]}"
+    token = f"LUX_TUI_PASS_{uuid.uuid4().hex[:10]}"
     tui_name = f"tui-{uuid.uuid4().hex[:8]}"
     before = _session_dirs(codex_stack)
 

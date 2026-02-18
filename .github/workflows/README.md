@@ -1,12 +1,12 @@
 # Release Workflows
 
-This directory contains manual workflows for preparing and publishing Lasso releases.
+This directory contains manual workflows for preparing and publishing Lux releases.
 
 ## `prepare-release-pr`
 
 - Manual-only (`workflow_dispatch`) helper workflow.
 - Validates a version input (must be `vX.Y.Z`).
-- Bumps both `lasso/Cargo.toml` and `pyproject.toml`.
+- Bumps both `lux/Cargo.toml` and `pyproject.toml`.
 - Opens or updates a PR against your chosen base branch.
 
 ### How to run it (GitHub UI)
@@ -22,7 +22,7 @@ This directory contains manual workflows for preparing and publishing Lasso rele
 
 - The workflow is **manual-only** (`workflow_dispatch`).
 - It first verifies the workflow input version matches:
-  - `lasso/Cargo.toml` package version
+  - `lux/Cargo.toml` package version
   - `pyproject.toml` project version
 - It builds the Rust CLI bundles for multiple OS/arch targets.
 - Optionally pushes multi-arch Docker images to GHCR.
@@ -64,7 +64,7 @@ The release assets include the CLI bundle tarballs + SHA256 checksums.
 
 - Image tags are pushed as both `vX.Y.Z` and `X.Y.Z`.
 - The release bundle includes:
-  - `lasso` binary
+  - `lux` binary
   - `compose.yml`, `compose.ui.yml`
   - `config/default.yaml`
   - `docs/contracts/` (user docs)

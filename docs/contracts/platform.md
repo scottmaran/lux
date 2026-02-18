@@ -1,8 +1,8 @@
 # Platform Support
 Layer: Contract
 
-This document defines which environments Lasso currently supports and what a user
-can rely on when running Lasso in those environments.
+This document defines which environments Lux currently supports and what a user
+can rely on when running Lux in those environments.
 
 ## Supported Environments
 - Host OS: macOS or Linux.
@@ -22,7 +22,7 @@ can rely on when running Lasso in those environments.
   fallback for container auth.
 
 ## Related
-- Architecture topology: `docs/architecture/deployments/lasso_vm_layout.md`
+- Architecture topology: `docs/architecture/deployments/lux_vm_layout.md`
 - Docker Desktop VM notes: `docs/architecture/deployments/docker_desktop_vm.md`
 - Kernel auditing reference: `docs/architecture/sensors/kernel_auditing_info.md`
 - Install steps: `docs/contracts/install.md`

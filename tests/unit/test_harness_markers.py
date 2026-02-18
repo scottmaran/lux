@@ -26,29 +26,29 @@ def test_root_pid_path_is_stable_and_run_scoped() -> None:
     """Run marker file path should be stable and include the run id."""
     harness = _load_harness_module()
     run_id = "session_20260212_123456_abcd"
-    assert harness.root_pid_path(run_id) == f"/tmp/lasso_root_pid_{run_id}.txt"
+    assert harness.root_pid_path(run_id) == f"/tmp/lux_root_pid_{run_id}.txt"
 
 
 def test_root_sid_path_is_stable_and_run_scoped() -> None:
     """SID marker file path should be stable and include the run id."""
     harness = _load_harness_module()
     run_id = "session_20260212_123456_abcd"
-    assert harness.root_sid_path(run_id) == f"/tmp/lasso_root_sid_{run_id}.txt"
+    assert harness.root_sid_path(run_id) == f"/tmp/lux_root_sid_{run_id}.txt"
 
 
 def test_root_marker_prefix_collects_namespace_pid_and_sid_with_fallbacks() -> None:
     """Marker prefix should capture both NSpid and NSsid with robust fallbacks."""
     harness = _load_harness_module()
     prefix = harness.root_marker_prefix(
-        "/tmp/lasso_root_pid_test.txt",
-        "/tmp/lasso_root_sid_test.txt",
+        "/tmp/lux_root_pid_test.txt",
+        "/tmp/lux_root_sid_test.txt",
     )
     assert "awk '/^NSpid:/ {print $NF}' /proc/$$/status" in prefix
     assert "if [ -z \"$ROOT_PID\" ]; then ROOT_PID=$$; fi;" in prefix
     assert "awk '/^NSsid:/ {print $NF}' /proc/$$/status" in prefix
     assert "if [ -z \"$ROOT_SID\" ]; then ROOT_SID=$ROOT_PID; fi;" in prefix
-    assert "printf '%s\\n' \"$ROOT_PID\" > /tmp/lasso_root_pid_test.txt;" in prefix
-    assert "printf '%s\\n' \"$ROOT_SID\" > /tmp/lasso_root_sid_test.txt;" in prefix
+    assert "printf '%s\\n' \"$ROOT_PID\" > /tmp/lux_root_pid_test.txt;" in prefix
+    assert "printf '%s\\n' \"$ROOT_SID\" > /tmp/lux_root_sid_test.txt;" in prefix
 
 
 def test_wrap_with_setsid_uses_ctty_mode_for_tui() -> None:
@@ -71,8 +71,8 @@ def test_build_remote_command_includes_marker_prefix_when_paths_are_set() -> Non
             cwd="/work",
             env={},
             timeout=None,
-            pid_path="/tmp/lasso_root_pid_test.txt",
-            sid_path="/tmp/lasso_root_sid_test.txt",
+            pid_path="/tmp/lux_root_pid_test.txt",
+            sid_path="/tmp/lux_root_sid_test.txt",
         )
     finally:
         harness.RUN_CMD_TEMPLATE = original_template
@@ -80,8 +80,8 @@ def test_build_remote_command_includes_marker_prefix_when_paths_are_set() -> Non
     assert cmd.startswith("exec setsid bash -lc ")
     assert "NSpid:" in cmd
     assert "NSsid:" in cmd
-    assert "/tmp/lasso_root_pid_test.txt" in cmd
-    assert "/tmp/lasso_root_sid_test.txt" in cmd
+    assert "/tmp/lux_root_pid_test.txt" in cmd
+    assert "/tmp/lux_root_sid_test.txt" in cmd
     assert "cd /work" in cmd
     assert "hello world" in cmd
 

@@ -8,7 +8,7 @@ use std::path::{Path, PathBuf};
 use tempfile::tempdir;
 
 fn bin() -> Command {
-    let path = assert_cmd::cargo::cargo_bin!("lasso");
+    let path = assert_cmd::cargo::cargo_bin!("lux");
     Command::new(path)
 }
 
@@ -32,7 +32,7 @@ fn config_init_creates_and_preserves_existing() {
     let config_dir = dir.path().join("config");
 
     let output = bin()
-        .env("LASSO_CONFIG_DIR", &config_dir)
+        .env("LUX_CONFIG_DIR", &config_dir)
         .arg("--json")
         .arg("config")
         .arg("init")
@@ -52,7 +52,7 @@ fn config_init_creates_and_preserves_existing() {
     fs::write(&config_path, "sentinel: true\n").unwrap();
 
     let output = bin()
-        .env("LASSO_CONFIG_DIR", &config_dir)
+        .env("LUX_CONFIG_DIR", &config_dir)
         .arg("--json")
         .arg("config")
         .arg("init")
@@ -204,16 +204,16 @@ fn config_apply_writes_env_and_dirs() {
         .arg("--config")
         .arg(&config_path)
         .env("HOME", &home)
-        .env("LASSO_ENV_FILE", &env_file)
+        .env("LUX_ENV_FILE", &env_file)
         .arg("config")
         .arg("apply")
         .assert()
         .success();
 
     let env_content = fs::read_to_string(&env_file).unwrap();
-    assert!(env_content.contains("LASSO_VERSION="));
-    assert!(env_content.contains("LASSO_LOG_ROOT="));
-    assert!(env_content.contains("LASSO_WORKSPACE_ROOT="));
+    assert!(env_content.contains("LUX_VERSION="));
+    assert!(env_content.contains("LUX_LOG_ROOT="));
+    assert!(env_content.contains("LUX_WORKSPACE_ROOT="));
 
     assert!(log_root.exists());
     assert!(work_root.exists());
@@ -426,8 +426,8 @@ fn logs_tail_latest_resolves_most_recent_run_directory() {
     )
     .unwrap();
 
-    let run_1 = "lasso__2026_02_11_12_00_00";
-    let run_2 = "lasso__2026_02_12_12_00_00";
+    let run_1 = "lux__2026_02_11_12_00_00";
+    let run_2 = "lux__2026_02_12_12_00_00";
     let t1 = log_root
         .join(run_1)
         .join("collector")
@@ -477,7 +477,7 @@ fn jobs_list_with_run_id_uses_run_scoped_jobs_directory() {
     )
     .unwrap();
 
-    let run_id = "lasso__2026_02_12_12_00_00";
+    let run_id = "lux__2026_02_12_12_00_00";
     let jobs_dir = log_root.join(run_id).join("harness").join("jobs");
     fs::create_dir_all(jobs_dir.join("job_1")).unwrap();
     fs::create_dir_all(jobs_dir.join("job_2")).unwrap();
@@ -515,9 +515,9 @@ fn paths_reports_resolved_values() {
     let canonical_work_root = fs::canonicalize(&work_root).unwrap();
     let config_path = dir.path().join("config.yaml");
     let env_file = dir.path().join("compose.env");
-    let install_dir = home.join(".lasso");
+    let install_dir = home.join(".lux");
     let bin_dir = home.join(".local").join("bin");
-    fs::write(&env_file, "LASSO_VERSION=v0.1.0\n").unwrap();
+    fs::write(&env_file, "LUX_VERSION=v0.1.0\n").unwrap();
     fs::write(
         &config_path,
         format!(
@@ -533,7 +533,7 @@ fn paths_reports_resolved_values() {
         .arg("--config")
         .arg(&config_path)
         .env("HOME", home)
-        .env("LASSO_ENV_FILE", &env_file)
+        .env("LUX_ENV_FILE", &env_file)
         .arg("paths")
         .assert()
         .success()
@@ -571,14 +571,14 @@ fn setup_defaults_creates_secrets_from_env_when_missing() {
 
     let secrets_path = home
         .join(".config")
-        .join("lasso")
+        .join("lux")
         .join("secrets")
         .join("codex.env");
     assert!(!secrets_path.exists());
 
     let output = bin()
         .env("HOME", &home)
-        .env("LASSO_CONFIG_DIR", &config_dir)
+        .env("LUX_CONFIG_DIR", &config_dir)
         .env("OPENAI_API_KEY", "test-key-123")
         .arg("--json")
         .arg("setup")
@@ -620,7 +620,7 @@ fn setup_defaults_errors_when_api_key_missing_and_env_missing() {
 
     let output = bin()
         .env("HOME", &home)
-        .env("LASSO_CONFIG_DIR", &config_dir)
+        .env("LUX_CONFIG_DIR", &config_dir)
         .arg("--json")
         .arg("setup")
         .arg("--defaults")
@@ -649,13 +649,13 @@ fn setup_dry_run_writes_nothing() {
     let config_path = config_dir.join("config.yaml");
     let secrets_path = home
         .join(".config")
-        .join("lasso")
+        .join("lux")
         .join("secrets")
         .join("codex.env");
 
     let output = bin()
         .env("HOME", &home)
-        .env("LASSO_CONFIG_DIR", &config_dir)
+        .env("LUX_CONFIG_DIR", &config_dir)
         .env("OPENAI_API_KEY", "dry-run-key")
         .arg("--json")
         .arg("setup")
@@ -707,19 +707,19 @@ fn uninstall_dry_run_preserves_files() {
     let env_file = dir.path().join("compose.env");
     let log_root = dir.path().join("logs");
     let work_root = dir.path().join("work");
-    let install_dir = home.join(".lasso");
+    let install_dir = home.join(".lux");
     let versions_dir = install_dir.join("versions").join("0.1.0");
     let current_link = install_dir.join("current");
     let bin_dir = home.join(".local").join("bin");
-    let bin_link = bin_dir.join("lasso");
+    let bin_link = bin_dir.join("lux");
     fs::create_dir_all(&versions_dir).unwrap();
     fs::create_dir_all(&bin_dir).unwrap();
     fs::create_dir_all(&log_root).unwrap();
     fs::create_dir_all(&work_root).unwrap();
-    fs::write(versions_dir.join("lasso"), "binary").unwrap();
+    fs::write(versions_dir.join("lux"), "binary").unwrap();
     symlink(&versions_dir, &current_link).unwrap();
-    symlink(current_link.join("lasso"), &bin_link).unwrap();
-    fs::write(&env_file, "LASSO_VERSION=v0.1.0\n").unwrap();
+    symlink(current_link.join("lux"), &bin_link).unwrap();
+    fs::write(&env_file, "LUX_VERSION=v0.1.0\n").unwrap();
     fs::write(
         &config_path,
         format!(
@@ -735,7 +735,7 @@ fn uninstall_dry_run_preserves_files() {
         .arg("--config")
         .arg(&config_path)
         .env("HOME", home)
-        .env("LASSO_ENV_FILE", &env_file)
+        .env("LUX_ENV_FILE", &env_file)
         .arg("uninstall")
         .arg("--dry-run")
         .arg("--remove-config")
@@ -767,19 +767,19 @@ fn uninstall_exec_removes_requested_targets() {
     let env_file = dir.path().join("compose.env");
     let log_root = dir.path().join("logs");
     let work_root = dir.path().join("work");
-    let install_dir = home.join(".lasso");
+    let install_dir = home.join(".lux");
     let versions_dir = install_dir.join("versions").join("0.1.0");
     let current_link = install_dir.join("current");
     let bin_dir = home.join(".local").join("bin");
-    let bin_link = bin_dir.join("lasso");
+    let bin_link = bin_dir.join("lux");
     fs::create_dir_all(&versions_dir).unwrap();
     fs::create_dir_all(&bin_dir).unwrap();
     fs::create_dir_all(&log_root).unwrap();
     fs::create_dir_all(&work_root).unwrap();
-    fs::write(versions_dir.join("lasso"), "binary").unwrap();
+    fs::write(versions_dir.join("lux"), "binary").unwrap();
     symlink(&versions_dir, &current_link).unwrap();
-    symlink(current_link.join("lasso"), &bin_link).unwrap();
-    fs::write(&env_file, "LASSO_VERSION=v0.1.0\n").unwrap();
+    symlink(current_link.join("lux"), &bin_link).unwrap();
+    fs::write(&env_file, "LUX_VERSION=v0.1.0\n").unwrap();
     fs::write(
         &config_path,
         format!(
@@ -795,7 +795,7 @@ fn uninstall_exec_removes_requested_targets() {
         .arg("--config")
         .arg(&config_path)
         .env("HOME", home)
-        .env("LASSO_ENV_FILE", &env_file)
+        .env("LUX_ENV_FILE", &env_file)
         .arg("uninstall")
         .arg("--yes")
         .arg("--remove-config")
@@ -878,14 +878,14 @@ fn update_rollback_dry_run_previous_selects_prior_version() {
     let dir = tempdir().unwrap();
     let home = dir.path();
     let config_path = dir.path().join("config.yaml");
-    let install_dir = home.join(".lasso");
+    let install_dir = home.join(".lux");
     let versions_dir = install_dir.join("versions");
     let v1 = versions_dir.join("0.1.0");
     let v2 = versions_dir.join("0.2.0");
     fs::create_dir_all(&v1).unwrap();
     fs::create_dir_all(&v2).unwrap();
-    fs::write(v1.join("lasso"), "v1").unwrap();
-    fs::write(v2.join("lasso"), "v2").unwrap();
+    fs::write(v1.join("lux"), "v1").unwrap();
+    fs::write(v2.join("lux"), "v2").unwrap();
     symlink(&v2, install_dir.join("current")).unwrap();
     fs::write(&config_path, "version: 2\n").unwrap();
 

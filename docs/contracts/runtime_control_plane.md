@@ -18,9 +18,9 @@ UI for lifecycle, health, and evidence-state visibility.
 
 ## Lifecycle
 
-- Start daemon: `lasso runtime up`
-- Stop daemon: `lasso runtime down`
-- Check daemon: `lasso runtime status`
+- Start daemon: `lux runtime up`
+- Stop daemon: `lux runtime down`
+- Check daemon: `lux runtime status`
 - Normal CLI lifecycle commands auto-start runtime when unavailable.
 
 ## Endpoints
@@ -43,7 +43,7 @@ Returns current runtime + stack summary.
 ```json
 {
   "runtime": {
-    "socket_path": "/Users/me/.config/lasso/runtime/control_plane.sock",
+    "socket_path": "/Users/me/.config/lux/runtime/control_plane.sock",
     "auto_started": true
   },
   "stack": {
@@ -51,7 +51,7 @@ Returns current runtime + stack summary.
     "provider_running": true,
     "ui_running": false,
     "rotation_pending": false,
-    "active_run_id": "lasso__2026_02_16_17_01_02"
+    "active_run_id": "lux__2026_02_16_17_01_02"
   }
 }
 ```

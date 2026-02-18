@@ -9,7 +9,7 @@ CODEX_DIR="/home/agent/.codex"
 CODEX_AUTH_SRC="/run/codex_auth.json"
 CODEX_SKILLS_SRC="/run/codex_skills"
 
-PROFILE_EXPORT_FILE="/etc/profile.d/lasso-provider-auth.sh"
+PROFILE_EXPORT_FILE="/etc/profile.d/lux-provider-auth.sh"
 
 sync_authorized_keys() {
   local src=""
@@ -60,9 +60,9 @@ copy_host_state_item() {
 }
 
 copy_provider_host_state_from_env() {
-  local count="${LASSO_PROVIDER_HOST_STATE_COUNT:-0}"
+  local count="${LUX_PROVIDER_HOST_STATE_COUNT:-0}"
   if ! [[ "${count}" =~ ^[0-9]+$ ]]; then
-    echo "WARNING: invalid LASSO_PROVIDER_HOST_STATE_COUNT=${count}; skipping host-state copy." >&2
+    echo "WARNING: invalid LUX_PROVIDER_HOST_STATE_COUNT=${count}; skipping host-state copy." >&2
     return
   fi
   if [[ "${count}" -eq 0 ]]; then
@@ -71,8 +71,8 @@ copy_provider_host_state_from_env() {
 
   local idx=0
   while [[ "${idx}" -lt "${count}" ]]; do
-    local src_var="LASSO_PROVIDER_HOST_STATE_SRC_${idx}"
-    local dst_var="LASSO_PROVIDER_HOST_STATE_DST_${idx}"
+    local src_var="LUX_PROVIDER_HOST_STATE_SRC_${idx}"
+    local dst_var="LUX_PROVIDER_HOST_STATE_DST_${idx}"
     local src="${!src_var:-}"
     local dst="${!dst_var:-}"
     copy_host_state_item "${src}" "${dst}"
@@ -93,7 +93,7 @@ load_api_key_auth_from_secrets_file() {
   local secrets_file="$1"
   local env_key="$2"
   if [[ -z "${secrets_file}" || -z "${env_key}" ]]; then
-    echo "ERROR: API-key auth requires LASSO_PROVIDER_SECRETS_FILE and LASSO_PROVIDER_ENV_KEY." >&2
+    echo "ERROR: API-key auth requires LUX_PROVIDER_SECRETS_FILE and LUX_PROVIDER_ENV_KEY." >&2
     exit 1
   fi
   if [[ ! -r "${secrets_file}" ]]; then
@@ -117,11 +117,11 @@ load_api_key_auth_from_secrets_file() {
 }
 
 bootstrap_provider_auth() {
-  local provider="${LASSO_PROVIDER:-}"
-  local auth_mode="${LASSO_AUTH_MODE:-}"
-  local mount_host_state="${LASSO_PROVIDER_MOUNT_HOST_STATE_IN_API_MODE:-false}"
-  local env_key="${LASSO_PROVIDER_ENV_KEY:-}"
-  local secrets_file="${LASSO_PROVIDER_SECRETS_FILE:-}"
+  local provider="${LUX_PROVIDER:-}"
+  local auth_mode="${LUX_AUTH_MODE:-}"
+  local mount_host_state="${LUX_PROVIDER_MOUNT_HOST_STATE_IN_API_MODE:-false}"
+  local env_key="${LUX_PROVIDER_ENV_KEY:-}"
+  local secrets_file="${LUX_PROVIDER_SECRETS_FILE:-}"
 
   rm -f "${PROFILE_EXPORT_FILE}" || true
   if [[ -z "${provider}" || -z "${auth_mode}" ]]; then

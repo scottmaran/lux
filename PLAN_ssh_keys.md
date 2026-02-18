@@ -7,7 +7,7 @@ Last updated: 2026-02-18
 
 ## Problem Summary
 
-- We observed intermittent `lasso tui --provider codex` failures with:
+- We observed intermittent `lux tui --provider codex` failures with:
   `Error: The cursor position could not be read within a normal duration`.
 - Session logs for the failing run also show:
   `WARNING: REMOTE HOST IDENTIFICATION HAS CHANGED!`
@@ -37,7 +37,7 @@ Files:
 - `compose.yml`
 - `agent/entrypoint.sh`
 - `agent/README.md`
-- `docs/architecture/deployments/lasso_vm_layout.md`
+- `docs/architecture/deployments/lux_vm_layout.md`
 
 Changes:
 - Add a new named volume: `agent_host_keys`.
@@ -96,14 +96,14 @@ docker compose ... exec -T harness \
 
 ### Local Smoke
 
-1. `lasso up --collector-only --wait`
-2. `lasso up --provider codex --wait`
+1. `lux up --collector-only --wait`
+2. `lux up --provider codex --wait`
 3. Compare fingerprints from inside harness:
    - `ssh-keyscan -p 22 agent | ssh-keygen -lf -`
    - `ssh-keygen -lf /harness/keys/known_hosts`
 4. Restart only `agent` container.
 5. Re-compare fingerprints and confirm unchanged.
-6. Run `lasso tui --provider codex` and verify no host-key mismatch warning in
+6. Run `lux tui --provider codex` and verify no host-key mismatch warning in
    session `stdout.log`.
 
 ### Regression Gates

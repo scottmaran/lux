@@ -10,7 +10,7 @@ It applies to:
 - The merged timeline (`collector-merge-filtered`)
 
 ## Vocabulary
-- **Run**: one `lasso up` lifecycle. Logs are run-scoped under
+- **Run**: one `lux up` lifecycle. Logs are run-scoped under
   `<log_root>/<run_id>/...`.
 - **Session**: one interactive TUI session. Metadata lives under
   `<log_root>/<run_id>/harness/sessions/<session_id>/meta.json`.

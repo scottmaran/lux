@@ -7,40 +7,40 @@ It is intentionally more detailed than `agent/README.md` and exists primarily
 for debugging and for PRs that modify provider wiring.
 
 ## Inputs (Env Vars)
-The agent entrypoint reads the following env vars, which are injected by `lasso`
-via provider runtime compose overrides (see `lasso/src/main.rs`):
+The agent entrypoint reads the following env vars, which are injected by `lux`
+via provider runtime compose overrides (see `lux/src/main.rs`):
 
-- `LASSO_PROVIDER` (string): provider name (for example `codex`, `claude`)
-- `LASSO_AUTH_MODE` (string): `api_key` or `host_state`
-- `LASSO_PROVIDER_SECRETS_FILE` (string): in-container path to an env file
-- `LASSO_PROVIDER_ENV_KEY` (string): env var name containing the API key
-- `LASSO_PROVIDER_MOUNT_HOST_STATE_IN_API_MODE` (bool-ish): if true, also copy
+- `LUX_PROVIDER` (string): provider name (for example `codex`, `claude`)
+- `LUX_AUTH_MODE` (string): `api_key` or `host_state`
+- `LUX_PROVIDER_SECRETS_FILE` (string): in-container path to an env file
+- `LUX_PROVIDER_ENV_KEY` (string): env var name containing the API key
+- `LUX_PROVIDER_MOUNT_HOST_STATE_IN_API_MODE` (bool-ish): if true, also copy
   host-state items even when `auth_mode=api_key`
-- `LASSO_PROVIDER_HOST_STATE_COUNT` (int): number of host-state items
-- `LASSO_PROVIDER_HOST_STATE_SRC_<n>` (string): source mount path in container
-- `LASSO_PROVIDER_HOST_STATE_DST_<n>` (string): destination path in container
+- `LUX_PROVIDER_HOST_STATE_COUNT` (int): number of host-state items
+- `LUX_PROVIDER_HOST_STATE_SRC_<n>` (string): source mount path in container
+- `LUX_PROVIDER_HOST_STATE_DST_<n>` (string): destination path in container
 
 Boolean parsing:
 - `1|true|yes|on` are treated as true (case-insensitive).
 
-## Where These Values Come From (`lasso`)
-For provider host-state paths, `lasso` mounts host files/dirs under:
-- `/run/lasso/provider_host_state/<n>`
+## Where These Values Come From (`lux`)
+For provider host-state paths, `lux` mounts host files/dirs under:
+- `/run/lux/provider_host_state/<n>`
 
 and sets:
-- `LASSO_PROVIDER_HOST_STATE_SRC_<n>` to that mount path
-- `LASSO_PROVIDER_HOST_STATE_DST_<n>` to a destination path chosen by
-  `lasso/src/main.rs::resolve_host_state_destination`
+- `LUX_PROVIDER_HOST_STATE_SRC_<n>` to that mount path
+- `LUX_PROVIDER_HOST_STATE_DST_<n>` to a destination path chosen by
+  `lux/src/main.rs::resolve_host_state_destination`
 
 Destination mapping rule (high level):
 - If a configured host path is under the host home directory, map it under
   `/home/agent/<relative>`.
 - Otherwise, use the absolute host path as the destination (best-effort).
 
-For API key auth, `lasso` mounts the secrets file at:
-- `/run/lasso/provider_secrets.env`
+For API key auth, `lux` mounts the secrets file at:
+- `/run/lux/provider_secrets.env`
 
-and sets `LASSO_PROVIDER_SECRETS_FILE` to that path.
+and sets `LUX_PROVIDER_SECRETS_FILE` to that path.
 
 ## Bootstrap Sequence (Simplified)
 1. Wait for SSH `authorized_keys` to appear (up to `AGENT_AUTH_WAIT_SEC`).
@@ -49,12 +49,12 @@ and sets `LASSO_PROVIDER_SECRETS_FILE` to that path.
 4. Import legacy Codex mounts (if present).
 5. Start `sshd` and keep re-syncing `authorized_keys` periodically.
 
-## Host-State Mode (`LASSO_AUTH_MODE=host_state`)
+## Host-State Mode (`LUX_AUTH_MODE=host_state`)
 Host-state mode copies N configured items into the container filesystem.
 
-For each index `i` in `0..LASSO_PROVIDER_HOST_STATE_COUNT-1`:
-- Read `src = LASSO_PROVIDER_HOST_STATE_SRC_i`
-- Read `dst = LASSO_PROVIDER_HOST_STATE_DST_i`
+For each index `i` in `0..LUX_PROVIDER_HOST_STATE_COUNT-1`:
+- Read `src = LUX_PROVIDER_HOST_STATE_SRC_i`
+- Read `dst = LUX_PROVIDER_HOST_STATE_DST_i`
 - If `src` is missing: log a warning and continue.
 - If `src` is a directory:
   - `rm -rf <dst>`
@@ -66,21 +66,21 @@ For each index `i` in `0..LASSO_PROVIDER_HOST_STATE_COUNT-1`:
   - `chown agent:agent <dst>`
   - `chmod 600 <dst>`
 
-## API-Key Mode (`LASSO_AUTH_MODE=api_key`)
+## API-Key Mode (`LUX_AUTH_MODE=api_key`)
 API-key mode sources an env file and exports one required variable.
 
 Inputs:
-- `LASSO_PROVIDER_SECRETS_FILE` must exist and be readable.
-- `LASSO_PROVIDER_ENV_KEY` must be set and present in the sourced env file.
+- `LUX_PROVIDER_SECRETS_FILE` must exist and be readable.
+- `LUX_PROVIDER_ENV_KEY` must be set and present in the sourced env file.
 
 Behavior:
-1. `source "${LASSO_PROVIDER_SECRETS_FILE}"` under `set -a` so variables are
+1. `source "${LUX_PROVIDER_SECRETS_FILE}"` under `set -a` so variables are
    exported.
-2. Read the key value from `${LASSO_PROVIDER_ENV_KEY}`.
+2. Read the key value from `${LUX_PROVIDER_ENV_KEY}`.
 3. Export it for the agent container runtime (so `sshd` starts with the key in
    its environment).
 4. Also write a best-effort export script to:
-   - `/etc/profile.d/lasso-provider-auth.sh`
+   - `/etc/profile.d/lux-provider-auth.sh`
 
 Note:
 - The export script is intended to make the key available in shell sessions
@@ -88,7 +88,7 @@ Note:
   `sshd` starts.
 
 Optional host-state copy:
-- If `LASSO_PROVIDER_MOUNT_HOST_STATE_IN_API_MODE=true`, the host-state copy
+- If `LUX_PROVIDER_MOUNT_HOST_STATE_IN_API_MODE=true`, the host-state copy
   step described above also runs in `api_key` mode.
 
 ## Legacy Codex Imports
@@ -100,14 +100,14 @@ This is best-effort compatibility for older setups.
 
 ## Debugging Checklist
 - Provider env vars absent:
-  - Confirm you are using `lasso up --provider <name>` (runtime override is
-    generated by `lasso`).
+  - Confirm you are using `lux up --provider <name>` (runtime override is
+    generated by `lux`).
 - Host-state copy did nothing:
-  - Check `LASSO_PROVIDER_HOST_STATE_COUNT` and mount paths under
-    `/run/lasso/provider_host_state/`.
+  - Check `LUX_PROVIDER_HOST_STATE_COUNT` and mount paths under
+    `/run/lux/provider_host_state/`.
 - API key not visible:
-  - Check `LASSO_PROVIDER_SECRETS_FILE` and that it contains the key named by
-    `LASSO_PROVIDER_ENV_KEY`.
+  - Check `LUX_PROVIDER_SECRETS_FILE` and that it contains the key named by
+    `LUX_PROVIDER_ENV_KEY`.
 - SSH login fails:
   - Confirm `/config/authorized_keys` exists (provided by the shared harness key
     volume) and that `agent/entrypoint.sh` has synced it.

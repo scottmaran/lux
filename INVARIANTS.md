@@ -1,7 +1,7 @@
-# Lasso Invariants (Implementation-Agnostic)
+# Lux Invariants (Implementation-Agnostic)
 Layer: Invariant
 
-This document defines the non-negotiable product invariants of Lasso.
+This document defines the non-negotiable product invariants of Lux.
 These invariants must remain true even if the implementation changes
 (runtime, packaging, sensors, storage layout, UI, etc).
 
@@ -14,12 +14,12 @@ Change policy:
 
 ## Definitions (Abstract)
 - **Agent**: the untrusted program being observed (plus anything it executes).
-- **User**: the party relying on Lasso evidence to understand what happened.
-- **Observation boundary**: the scope within which Lasso claims evidence coverage for an agent run.
+- **User**: the party relying on Lux evidence to understand what happened.
+- **Observation boundary**: the scope within which Lux claims evidence coverage for an agent run.
   The boundary may be local, remote, or hybrid depending on deployment; the invariant is that it is explicit.
-- **Evidence**: durable, structured records produced by Lasso about agent actions and outcomes.
+- **Evidence**: durable, structured records produced by Lux about agent actions and outcomes.
 - **Evidence sink**: the storage location for evidence (where evidence is written and later read).
-- **Trusted logging plane**: the set of components and assumptions that Lasso relies on to produce and protect evidence.
+- **Trusted logging plane**: the set of components and assumptions that Lux relies on to produce and protect evidence.
   The exact trusted components may evolve; the invariant is that the agent is not part of the TCB for evidence integrity.
 - **Attribution**: the ability to associate evidence with a specific run and a specific agent execution context
   (for example a session/job/attempt), without silent ambiguity.
@@ -27,7 +27,7 @@ Change policy:
 ## Invariant 1: Evidence Completeness Within the Observation Boundary
 
 Statement:
-- For any in-boundary agent action that produces an externally observable effect, Lasso must produce evidence.
+- For any in-boundary agent action that produces an externally observable effect, Lux must produce evidence.
 
 Implications:
 - The observation boundary must be explicit (what is covered vs not covered).
@@ -70,7 +70,7 @@ Implications:
 ## Invariant 4: Observation Does Not Depend on Agent Cooperation
 
 Statement:
-- Lasso's evidence must not rely on the agent program being cooperative, instrumented, or even aware of Lasso.
+- Lux's evidence must not rely on the agent program being cooperative, instrumented, or even aware of Lux.
 
 Implications:
 - Evidence is derived from mechanisms outside the agent process (for example OS/runtime observation and harness-controlled IO),

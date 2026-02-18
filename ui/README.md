@@ -1,5 +1,5 @@
 
-# Lasso UI (Redesign)
+# Lux UI (Redesign)
 
 This UI is a React + Vite build served by the local Python API server.
 
