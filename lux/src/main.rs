@@ -880,19 +880,59 @@ fn resolve_env_file(override_path: Option<&PathBuf>) -> PathBuf {
     base
 }
 
+fn bundle_dir_from_exe_path(exe: &Path) -> Option<PathBuf> {
+    let mut candidates: Vec<PathBuf> = Vec::new();
+    let mut push_candidate = |candidate: PathBuf| {
+        if !candidates.iter().any(|existing| existing == &candidate) {
+            candidates.push(candidate);
+        }
+    };
+
+    if let Some(parent) = exe.parent() {
+        push_candidate(parent.to_path_buf());
+    }
+
+    if let Ok(link_target) = fs::read_link(exe) {
+        let resolved_target = if link_target.is_absolute() {
+            link_target
+        } else {
+            exe.parent()
+                .map_or_else(|| PathBuf::from("."), PathBuf::from)
+                .join(link_target)
+        };
+        if let Some(parent) = resolved_target.parent() {
+            push_candidate(parent.to_path_buf());
+        }
+        if let Ok(canonical_target) = fs::canonicalize(&resolved_target) {
+            if let Some(parent) = canonical_target.parent() {
+                push_candidate(parent.to_path_buf());
+            }
+        }
+    }
+
+    if let Ok(canonical_exe) = fs::canonicalize(exe) {
+        if let Some(parent) = canonical_exe.parent() {
+            push_candidate(parent.to_path_buf());
+        }
+    }
+
+    candidates
+        .into_iter()
+        .find(|candidate| candidate.join("compose.yml").exists())
+}
+
 fn resolve_bundle_dir(override_path: Option<&PathBuf>) -> PathBuf {
     if let Some(path) = override_path {
         return path.clone();
     }
     if let Ok(path) = env::var("LUX_BUNDLE_DIR") {
-        return PathBuf::from(path);
+        if !path.trim().is_empty() {
+            return PathBuf::from(path);
+        }
     }
     if let Ok(exe) = env::current_exe() {
-        if let Some(dir) = exe.parent() {
-            let candidate = dir.to_path_buf();
-            if candidate.join("compose.yml").exists() {
-                return candidate;
-            }
+        if let Some(candidate) = bundle_dir_from_exe_path(&exe) {
+            return candidate;
         }
     }
     if let Ok(cwd) = env::current_dir() {
@@ -6483,6 +6523,10 @@ fn handle_paths(ctx: &Context) -> Result<(), LuxError> {
         .into_iter()
         .map(|p| p.to_string_lossy().to_string())
         .collect();
+    let compose_contract_files: Vec<String> = configured_compose_files(ctx, true, &[])
+        .into_iter()
+        .map(|p| p.to_string_lossy().to_string())
+        .collect();
     output(
         ctx,
         json!({
@@ -6497,6 +6541,7 @@ fn handle_paths(ctx: &Context) -> Result<(), LuxError> {
             "runtime_pid_path": paths.runtime_pid_path,
             "runtime_events_path": paths.runtime_events_path,
             "compose_files": compose_files,
+            "compose_contract_files": compose_contract_files,
             "log_root": paths.log_root,
             "workspace_root": paths.workspace_root,
             "install_dir": paths.install_dir,
@@ -7454,6 +7499,26 @@ providers:
         let nested = workspace.join("src").join("project");
         let mapped_nested = map_host_start_dir_to_container(&nested, &workspace).unwrap();
         assert_eq!(mapped_nested, "/work/src/project");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn bundle_dir_from_symlinked_exe_prefers_real_binary_parent() {
+        let dir = tempdir().unwrap();
+        let bundle_dir = dir.path().join("bundle");
+        fs::create_dir_all(&bundle_dir).unwrap();
+        fs::write(bundle_dir.join("compose.yml"), "services: {}\n").unwrap();
+
+        let real_exe = bundle_dir.join("lux");
+        fs::write(&real_exe, "").unwrap();
+
+        let bin_dir = dir.path().join("bin");
+        fs::create_dir_all(&bin_dir).unwrap();
+        let symlink_exe = bin_dir.join("lux");
+        std::os::unix::fs::symlink(&real_exe, &symlink_exe).unwrap();
+
+        let resolved = bundle_dir_from_exe_path(&symlink_exe).expect("bundle dir should resolve");
+        assert_eq!(resolved, bundle_dir);
     }
 
     #[test]
