@@ -45,7 +45,7 @@ docker:
 harness:
   api_host: 127.0.0.1
   api_port: 8081
-  api_token: ""
+  api_token: "TEMP_STR_TO_CHANGE"
 
 collector:
   auto_start: true
