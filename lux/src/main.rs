@@ -6133,9 +6133,11 @@ fn handle_shim<R: DockerRunner>(
             }
 
             let mut warnings: Vec<String> = Vec::new();
+            let mut path_precedence_mismatch = false;
             for (provider, shim_path, _) in &preflight {
                 let (path_precedence_ok, candidates) = shim_path_precedence_ok(provider, shim_path);
                 if !path_precedence_ok {
+                    path_precedence_mismatch = true;
                     warnings.push(format!(
                         "PATH precedence mismatch for '{}': expected {} to resolve first",
                         provider,
@@ -6147,6 +6149,21 @@ fn handle_shim<R: DockerRunner>(
             if !ctx.json {
                 for warning in &warnings {
                     eprintln!("warning: {warning}");
+                }
+                if path_precedence_mismatch {
+                    let shim_bin_dir = policy.shims_bin_dir.to_string_lossy();
+                    eprintln!();
+                    eprintln!("  Run this now:");
+                    eprintln!();
+                    eprintln!("  export PATH=\"{}:$PATH\"", shim_bin_dir);
+                    eprintln!();
+                    eprintln!("  If you want it permanent in zsh:");
+                    eprintln!();
+                    eprintln!(
+                        "  echo 'export PATH=\"{}:$PATH\"' >> ~/.zprofile",
+                        shim_bin_dir
+                    );
+                    eprintln!("  source ~/.zprofile");
                 }
             }
             output(ctx, json!({"installed": installed, "warnings": warnings}))
