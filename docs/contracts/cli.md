@@ -1,25 +1,25 @@
 # Lux CLI
 Layer: Contract
 
-`lux` is the primary local control surface for stack lifecycle, runtime health,
-and evidence-safe provider execution.
+`lux` is the primary local control surface for lifecycle, runtime health, and
+provider execution.
 
 ## Lifecycle Model
 
-- Runtime control-plane: local daemon over Unix socket (`lux runtime ...`).
+- Runtime control plane: local daemon over Unix socket (`lux runtime ...`).
 - Collector plane: `collector` service only.
 - Provider plane: `agent` + `harness` for one explicit provider.
-- UI plane: `ui` service only (managed independently from collector/provider).
+- UI plane: `ui` service only.
 
 ## Quick Start
 
 ```bash
 lux setup
-lux shim install codex claude
+lux shim install
 codex
 ```
 
-Equivalent explicit lifecycle flow:
+Equivalent explicit flow:
 
 ```bash
 lux up --collector-only --wait
@@ -35,9 +35,11 @@ Interactive setup wizard that updates `config.yaml` and can create provider
 secrets files.
 
 Path policy enforced by setup:
-- `paths.workspace_root` must be under `$HOME`
-- `paths.log_root` must be outside `$HOME`
-- log/workspace paths must not overlap
+- `paths.trusted_root` must be outside `$HOME`.
+- `paths.log_root` must be inside `paths.trusted_root`.
+- `shims.bin_dir` must be inside `paths.trusted_root`.
+- `paths.workspace_root` must be under `$HOME`.
+- `paths.workspace_root` must not overlap `paths.log_root` or `shims.bin_dir`.
 
 Flags:
 - `--defaults`
@@ -76,51 +78,57 @@ Start either collector plane or provider plane.
 - Collector only:
   - `lux up --collector-only [--workspace <host-path>] [--wait --timeout-sec N] [--pull ...]`
 - Provider plane:
-  - `lux up --provider codex|claude [--workspace <host-path>] [--wait --timeout-sec N] [--pull ...]`
+  - `lux up --provider <name> [--workspace <host-path>] [--wait --timeout-sec N] [--pull ...]`
 
 Rules:
 - `--collector-only` conflicts with `--provider`.
 - Provider mismatch hard-fails (no implicit provider switching).
-- `--workspace` must be under `$HOME`, must not overlap log root, and applies to the run started by `up --collector-only`.
-- `up --provider --workspace` is optional, but when provided it must exactly match the active run workspace.
+- `--workspace` must be under `$HOME`, must not overlap log root, and applies to
+  the run started by `up --collector-only`.
+- `up --provider --workspace` is optional, but when provided it must exactly
+  match the active run workspace.
 - If `collector.auto_start=true`, provider start auto-bootstraps collector/run
   when needed.
 
 ### `down`
 
 - `lux down --collector-only`
-- `lux down --provider codex|claude`
+- `lux down --provider <name>`
 
 ### `status`
 
 - `lux status --collector-only`
-- `lux status --provider codex|claude`
+- `lux status --provider <name>`
 
 ### `shim`
 
-- `lux shim install <provider...>`
-- `lux shim uninstall <provider...>`
+- `lux shim install [provider...]`
+- `lux shim uninstall [provider...]`
 - `lux shim list`
 - `lux shim exec <provider> -- <argv...>`
 
-Shim v1 behavior:
-- Full argv passthrough is preserved.
-- Invocation must happen from within configured `paths.workspace_root`.
-- Absolute host-path args are rejected with actionable error.
+Shim contract:
+- `install` with no provider args targets all providers in `config.providers`.
+- install is preflighted and atomic (rollback on partial failure).
+- install warns when configured shim path is not first PATH resolution.
+- list reports `path_safe`, `path_precedence_ok`, and `resolved_candidates`.
+- exec preserves argv passthrough and cwd semantics via container workdir
+  mapping; absolute host paths are rejected.
 
 ### `tui`
 
-- `lux tui --provider codex|claude [--start-dir <host-path>]`
+- `lux tui --provider <name> [--start-dir <host-path>]`
 
 ### `run`
 
-- `lux run --provider codex|claude "prompt"`
+- `lux run --provider <name> "prompt"`
 - Optional: `--capture-input <bool> --start-dir <host-path> --timeout-sec <n> --env KEY=VALUE`
 
 Notes:
 - `run` requires active provider plane state for the selected provider.
 - `--env` values are persisted in job metadata by design.
-- `--start-dir` defaults to the host current working directory and must be inside the run workspace.
+- `--start-dir` defaults to host cwd and must be inside run workspace.
+
 ### `jobs`
 
 - `lux jobs list [--run-id <id>|--latest]`
@@ -135,10 +143,10 @@ Notes:
 
 Readiness checks for:
 - docker/compose/runtime prerequisites
-- log sink path permissions
+- trust-root path permissions and path coherence
+- shim bin trust policy and PATH precedence
 - collector sensor prerequisites
 - harness token/API sanity
-- config/path coherence
 - attribution prerequisites
 - contract/schema compatibility checks
 
@@ -169,13 +177,13 @@ Prints resolved runtime/config/install/compose paths.
 
 ## JSON Error Envelope
 
-When `--json` is enabled, failures keep the existing top-level fields:
+When `--json` is enabled, failures keep top-level fields:
 - `ok: false`
 - `result: null`
 - `error: "<string>"`
 
-Process/command failures may also include additive structured details:
-- `error_details.error_code` (stable identifier)
-- `error_details.hint` (actionable remediation when available)
-- `error_details.command` (failed command context)
-- `error_details.raw_stderr` (raw stderr excerpt when available)
+Process/command failures may also include structured details:
+- `error_details.error_code`
+- `error_details.hint`
+- `error_details.command`
+- `error_details.raw_stderr`

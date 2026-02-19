@@ -1,6 +1,6 @@
 # Spec: Trusted Filesystem Layout And Shim Root Hardening
 
-Status: draft
+Status: implemented
 Owner: codex
 Created: 2026-02-19
 Last updated: 2026-02-19
@@ -265,3 +265,23 @@ Intentional breakages:
 
 ## Open Questions
 - None for this draft.
+
+## Implementation Outcome (2026-02-19)
+
+Implemented:
+- Config contract now requires explicit `paths.trusted_root`.
+- Trusted-root layout defaults and validation are enforced (`trusted_root`, `log_root`, `state`, `runtime`, `secrets`, `shims.bin_dir`).
+- Runtime socket/state/env defaults moved under trusted root.
+- Managed shim behavior is config-driven, atomic, and trust-policy checked.
+- Shim provider default set resolves from all configured providers.
+- Shim PATH precedence diagnostics added to `shim install`, `shim list`, and `doctor`.
+- UI active-run pointer moved from `<log_root>/.active_run.json` to `<trusted_root>/state/.active_run.json`.
+- Setup flow now prompts/reviews trusted-root + shim path and prints PATH remediation guidance.
+- Contracts/docs and tests updated for new filesystem layout.
+
+Verification:
+- `cargo test -q` (pass)
+- `uv sync` (pass)
+- `uv run python scripts/all_tests.py --lane fast` (intermittent collector startup failures in regression/integration suites in this environment)
+- `uv run python scripts/all_tests.py --lane pr` (pass in one run; later runs can hit the same collector startup issue)
+- `uv run python scripts/all_tests.py --lane full` (fails in collector/integration suites unrelated to this spec's path/shim changes; collector container exits immediately in this environment before tests execute scenario assertions)

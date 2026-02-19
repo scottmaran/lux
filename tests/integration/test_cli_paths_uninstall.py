@@ -97,6 +97,7 @@ def test_uninstall_dry_run_preserves_files_and_never_targets_data_dirs(
         config_dir = home / ".config" / "lux"
         env_file = config_dir / "compose.env"
         env_file.write_text("LUX_VERSION=v0.1.0\n", encoding="utf-8")
+        env["LUX_ENV_FILE"] = str(env_file)
 
         lux = home / ".local" / "bin" / "lux"
         result = _run(
@@ -172,6 +173,7 @@ def test_uninstall_succeeds_with_invalid_config_and_without_env_file(
         env_file = config_dir / "compose.env"
         if env_file.exists():
             env_file.unlink()
+        env["LUX_ENV_FILE"] = str(env_file)
 
         lux = home / ".local" / "bin" / "lux"
         result = _run(

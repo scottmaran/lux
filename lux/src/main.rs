@@ -290,6 +290,7 @@ enum LuxError {
 struct Config {
     version: u32,
     paths: Paths,
+    shims: Shims,
     release: Release,
     docker: Docker,
     harness: Harness,
@@ -301,8 +302,15 @@ struct Config {
 #[derive(Debug, Deserialize, Serialize, Clone)]
 #[serde(default, deny_unknown_fields)]
 struct Paths {
+    trusted_root: String,
     log_root: String,
     workspace_root: String,
+}
+
+#[derive(Debug, Deserialize, Serialize, Clone)]
+#[serde(default, deny_unknown_fields)]
+struct Shims {
+    bin_dir: String,
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
@@ -404,6 +412,7 @@ impl Default for Config {
         Self {
             version: 2,
             paths: Paths::default(),
+            shims: Shims::default(),
             release: Release::default(),
             docker: Docker::default(),
             harness: Harness::default(),
@@ -419,19 +428,42 @@ impl Default for Paths {
         if let Ok(paths) = computed_default_paths_for_current_os() {
             return paths;
         }
+        let trusted_root = match env::consts::OS {
+            "macos" => "/Users/Shared/Lux",
+            "linux" => "/var/lib/lux",
+            _ => "/var/lib/lux",
+        }
+        .to_string();
         let workspace_root = home_dir()
             .map(|path| path.to_string_lossy().to_string())
             .unwrap_or_else(|| "~".to_string());
-        let log_root = match env::consts::OS {
-            "macos" => "/Users/Shared/Lux/logs",
-            "linux" => "/var/lib/lux/logs",
-            _ => "/var/lib/lux/logs",
-        }
-        .to_string();
+        let log_root = Path::new(&trusted_root)
+            .join("logs")
+            .to_string_lossy()
+            .to_string();
         Self {
+            trusted_root,
             log_root,
             workspace_root,
         }
+    }
+}
+
+impl Default for Shims {
+    fn default() -> Self {
+        let bin_dir = computed_default_paths_for_current_os()
+            .map(|paths| {
+                Path::new(&paths.trusted_root)
+                    .join("bin")
+                    .to_string_lossy()
+                    .to_string()
+            })
+            .unwrap_or_else(|_| match env::consts::OS {
+                "macos" => "/Users/Shared/Lux/bin".to_string(),
+                "linux" => "/var/lib/lux/bin".to_string(),
+                _ => "/var/lib/lux/bin".to_string(),
+            });
+        Self { bin_dir }
     }
 }
 
@@ -540,6 +572,18 @@ impl Default for ProviderOwnership {
 }
 
 fn default_providers() -> BTreeMap<String, Provider> {
+    let default_secrets_root = computed_default_paths_for_current_os()
+        .map(|paths| {
+            Path::new(&paths.trusted_root)
+                .join("secrets")
+                .to_string_lossy()
+                .to_string()
+        })
+        .unwrap_or_else(|_| match env::consts::OS {
+            "macos" => "/Users/Shared/Lux/secrets".to_string(),
+            "linux" => "/var/lib/lux/secrets".to_string(),
+            _ => "/var/lib/lux/secrets".to_string(),
+        });
     let mut providers = BTreeMap::new();
     providers.insert(
         "codex".to_string(),
@@ -552,7 +596,10 @@ fn default_providers() -> BTreeMap<String, Provider> {
             },
             auth: ProviderAuth {
                 api_key: ProviderApiKeyAuth {
-                    secrets_file: "~/.config/lux/secrets/codex.env".to_string(),
+                    secrets_file: Path::new(&default_secrets_root)
+                        .join("codex.env")
+                        .to_string_lossy()
+                        .to_string(),
                     env_key: "OPENAI_API_KEY".to_string(),
                 },
                 host_state: ProviderHostStateAuth {
@@ -578,7 +625,10 @@ fn default_providers() -> BTreeMap<String, Provider> {
             },
             auth: ProviderAuth {
                 api_key: ProviderApiKeyAuth {
-                    secrets_file: "~/.config/lux/secrets/claude.env".to_string(),
+                    secrets_file: Path::new(&default_secrets_root)
+                        .join("claude.env")
+                        .to_string_lossy()
+                        .to_string(),
                     env_key: "ANTHROPIC_API_KEY".to_string(),
                 },
                 host_state: ProviderHostStateAuth {
@@ -844,7 +894,7 @@ fn main() -> Result<(), LuxError> {
 
 fn build_context(cli: &Cli) -> Result<Context, LuxError> {
     let config_path = resolve_config_path(cli.config.as_ref());
-    let env_file = resolve_env_file(cli.env_file.as_ref());
+    let env_file = resolve_env_file(cli.env_file.as_ref(), &config_path);
     let bundle_dir = resolve_bundle_dir(cli.bundle_dir.as_ref());
     let compose_file_overrides = resolve_compose_overrides(&cli.compose_file);
     Ok(Context {
@@ -868,16 +918,27 @@ fn resolve_config_path(override_path: Option<&PathBuf>) -> PathBuf {
     base
 }
 
-fn resolve_env_file(override_path: Option<&PathBuf>) -> PathBuf {
+fn resolve_env_file(override_path: Option<&PathBuf>, config_path: &Path) -> PathBuf {
     if let Some(path) = override_path {
         return path.clone();
     }
     if let Ok(path) = env::var("LUX_ENV_FILE") {
         return PathBuf::from(path);
     }
-    let mut base = default_config_dir();
-    base.push("compose.env");
-    base
+    if config_path.exists() {
+        if let Ok(cfg) = read_config(config_path) {
+            return PathBuf::from(expand_path(&cfg.paths.trusted_root))
+                .join("state")
+                .join("compose.env");
+        }
+    }
+    computed_default_paths_for_current_os()
+        .map(|paths| {
+            PathBuf::from(paths.trusted_root)
+                .join("state")
+                .join("compose.env")
+        })
+        .unwrap_or_else(|_| PathBuf::from("/var/lib/lux/state/compose.env"))
 }
 
 fn bundle_dir_from_exe_path(exe: &Path) -> Option<PathBuf> {
@@ -964,6 +1025,11 @@ fn resolve_compose_overrides(overrides: &[PathBuf]) -> Vec<PathBuf> {
 #[derive(Debug, Clone)]
 struct PolicyPaths {
     home: PathBuf,
+    trusted_root: PathBuf,
+    state_root: PathBuf,
+    runtime_root: PathBuf,
+    secrets_root: PathBuf,
+    shims_bin_dir: PathBuf,
     log_root: PathBuf,
     workspace_root: PathBuf,
 }
@@ -996,10 +1062,12 @@ fn required_home_dir() -> Result<PathBuf, LuxError> {
 fn default_paths_for_os(os: &str, home: &Path) -> Result<Paths, LuxError> {
     match os {
         "macos" => Ok(Paths {
+            trusted_root: "/Users/Shared/Lux".to_string(),
             log_root: "/Users/Shared/Lux/logs".to_string(),
             workspace_root: home.to_string_lossy().to_string(),
         }),
         "linux" => Ok(Paths {
+            trusted_root: "/var/lib/lux".to_string(),
             log_root: "/var/lib/lux/logs".to_string(),
             workspace_root: home.to_string_lossy().to_string(),
         }),
@@ -1018,8 +1086,31 @@ fn computed_default_paths_for_current_os() -> Result<Paths, LuxError> {
 fn build_default_config_yaml() -> Result<String, LuxError> {
     let defaults = computed_default_paths_for_current_os()?;
     let mut edits = SetupYamlEdits::default();
+    edits.trusted_root = Some(defaults.trusted_root.clone());
     edits.log_root = Some(defaults.log_root);
     edits.workspace_root = Some(defaults.workspace_root);
+    edits.shims_bin_dir = Some(
+        Path::new(&defaults.trusted_root)
+            .join("bin")
+            .to_string_lossy()
+            .to_string(),
+    );
+    edits.provider_api_key_secrets_files.insert(
+        "codex".to_string(),
+        Path::new(&defaults.trusted_root)
+            .join("secrets")
+            .join("codex.env")
+            .to_string_lossy()
+            .to_string(),
+    );
+    edits.provider_api_key_secrets_files.insert(
+        "claude".to_string(),
+        Path::new(&defaults.trusted_root)
+            .join("secrets")
+            .join("claude.env")
+            .to_string_lossy()
+            .to_string(),
+    );
     let (patched, _changed) = patch_setup_config_yaml(DEFAULT_CONFIG_YAML, &edits)?;
     Ok(patched)
 }
@@ -1124,7 +1215,12 @@ fn resolve_config_policy_paths(cfg: &Config) -> Result<PolicyPaths, LuxError> {
     let home = required_home_dir()?;
     let workspace_root =
         resolve_policy_path(&cfg.paths.workspace_root, "paths.workspace_root", &home)?;
+    let trusted_root = resolve_policy_path(&cfg.paths.trusted_root, "paths.trusted_root", &home)?;
     let log_root = resolve_policy_path(&cfg.paths.log_root, "paths.log_root", &home)?;
+    let shims_bin_dir = resolve_policy_path(&cfg.shims.bin_dir, "shims.bin_dir", &home)?;
+    let state_root = trusted_root.join("state");
+    let runtime_root = trusted_root.join("runtime");
+    let secrets_root = trusted_root.join("secrets");
 
     if !path_is_within(&workspace_root, &home) {
         return Err(LuxError::Config(format!(
@@ -1133,11 +1229,25 @@ fn resolve_config_policy_paths(cfg: &Config) -> Result<PolicyPaths, LuxError> {
             display_path_with_home(&workspace_root, Some(&home))
         )));
     }
-    if path_is_within(&log_root, &home) {
+    if path_is_within(&trusted_root, &home) {
         return Err(LuxError::Config(format!(
-            "paths.log_root must be outside $HOME to protect evidence integrity (home={}, log_root={})",
+            "paths.trusted_root must be outside $HOME to protect evidence integrity (home={}, trusted_root={})",
             display_path_with_home(&home, Some(&home)),
+            display_path_with_home(&trusted_root, Some(&home))
+        )));
+    }
+    if !path_is_within(&log_root, &trusted_root) {
+        return Err(LuxError::Config(format!(
+            "paths.log_root must be inside paths.trusted_root (trusted_root={}, log_root={})",
+            display_path_with_home(&trusted_root, Some(&home)),
             display_path_with_home(&log_root, Some(&home))
+        )));
+    }
+    if !path_is_within(&shims_bin_dir, &trusted_root) {
+        return Err(LuxError::Config(format!(
+            "shims.bin_dir must be inside paths.trusted_root (trusted_root={}, shims.bin_dir={})",
+            display_path_with_home(&trusted_root, Some(&home)),
+            display_path_with_home(&shims_bin_dir, Some(&home))
         )));
     }
     if path_is_within(&workspace_root, &log_root) || path_is_within(&log_root, &workspace_root) {
@@ -1147,9 +1257,23 @@ fn resolve_config_policy_paths(cfg: &Config) -> Result<PolicyPaths, LuxError> {
             display_path_with_home(&log_root, Some(&home))
         )));
     }
+    if path_is_within(&workspace_root, &shims_bin_dir)
+        || path_is_within(&shims_bin_dir, &workspace_root)
+    {
+        return Err(LuxError::Config(format!(
+            "paths.workspace_root and shims.bin_dir must not overlap (workspace={}, shims.bin_dir={})",
+            display_path_with_home(&workspace_root, Some(&home)),
+            display_path_with_home(&shims_bin_dir, Some(&home))
+        )));
+    }
 
     Ok(PolicyPaths {
         home,
+        trusted_root,
+        state_root,
+        runtime_root,
+        secrets_root,
+        shims_bin_dir,
         log_root,
         workspace_root,
     })
@@ -1341,6 +1465,21 @@ fn handle_runtime_execute_proxy(ctx: &Context, raw_args: &[String]) -> Result<()
 }
 
 fn read_config_from_str(content: &str) -> Result<Config, LuxError> {
+    let raw: serde_yaml::Value = serde_yaml::from_str(content)?;
+    let has_explicit_trusted_root = raw
+        .as_mapping()
+        .and_then(|root| root.get(&serde_yaml::Value::String("paths".to_string())))
+        .and_then(|paths| paths.as_mapping())
+        .map(|paths| {
+            paths.contains_key(&serde_yaml::Value::String("trusted_root".to_string()))
+        })
+        .unwrap_or(false);
+    if !has_explicit_trusted_root {
+        return Err(LuxError::Config(
+            "paths.trusted_root must be explicitly set in config.yaml; run `lux setup` or add paths.trusted_root and retry".to_string(),
+        ));
+    }
+
     let cfg: Config = serde_yaml::from_str(content)?;
     if cfg.version != 2 {
         return Err(LuxError::Config(format!(
@@ -1449,12 +1588,6 @@ fn expand_path(input: &str) -> String {
     input.to_string()
 }
 
-fn config_dir_from_path(config_path: &Path) -> PathBuf {
-    config_path
-        .parent()
-        .map_or_else(default_config_dir, PathBuf::from)
-}
-
 fn current_primary_gid() -> u32 {
     #[cfg(unix)]
     {
@@ -1494,7 +1627,7 @@ fn unix_socket_path_too_long(path: &Path) -> bool {
 
 #[cfg(unix)]
 fn stable_path_hash(path: &Path) -> u64 {
-    // Deterministic FNV-1a so fallback runtime socket paths remain stable per config dir.
+    // Deterministic FNV-1a so fallback runtime socket paths remain stable per trusted root.
     const OFFSET: u64 = 0xcbf29ce484222325;
     const PRIME: u64 = 0x0000_0100_0000_01b3;
 
@@ -1507,8 +1640,8 @@ fn stable_path_hash(path: &Path) -> u64 {
 }
 
 #[cfg(unix)]
-fn runtime_socket_fallback_path(config_dir: &Path) -> PathBuf {
-    let hash = stable_path_hash(config_dir);
+fn runtime_socket_fallback_path(anchor: &Path) -> PathBuf {
+    let hash = stable_path_hash(anchor);
     let uid = current_uid();
     let candidates = vec![
         env::temp_dir()
@@ -1528,16 +1661,17 @@ fn runtime_socket_fallback_path(config_dir: &Path) -> PathBuf {
     PathBuf::from("/tmp/lux.sock")
 }
 
-fn effective_runtime_socket_path(cfg: &Config, config_dir: &Path) -> PathBuf {
+fn effective_runtime_socket_path(cfg: &Config) -> PathBuf {
     let configured = cfg.runtime_control_plane.socket_path.trim();
     if !configured.is_empty() {
         return PathBuf::from(expand_path(configured));
     }
-    let preferred = config_dir.join("runtime").join("control_plane.sock");
+    let trusted_root = PathBuf::from(expand_path(&cfg.paths.trusted_root));
+    let preferred = trusted_root.join("runtime").join("control_plane.sock");
     #[cfg(unix)]
     {
         if unix_socket_path_too_long(&preferred) {
-            return runtime_socket_fallback_path(config_dir);
+            return runtime_socket_fallback_path(&trusted_root);
         }
     }
     preferred
@@ -1549,7 +1683,7 @@ fn effective_runtime_socket_gid(cfg: &Config) -> u32 {
         .unwrap_or_else(current_primary_gid)
 }
 
-fn config_to_env(cfg: &Config, config_path: &Path) -> BTreeMap<String, String> {
+fn config_to_env(cfg: &Config) -> BTreeMap<String, String> {
     let mut envs = BTreeMap::new();
     let tag = if cfg.release.tag.trim().is_empty() {
         format!("v{}", env!("CARGO_PKG_VERSION"))
@@ -1557,7 +1691,26 @@ fn config_to_env(cfg: &Config, config_path: &Path) -> BTreeMap<String, String> {
         cfg.release.tag.trim().to_string()
     };
     envs.insert("LUX_VERSION".to_string(), tag);
+    let trusted_root = PathBuf::from(expand_path(&cfg.paths.trusted_root));
+    let state_dir = trusted_root.join("state");
+    let secrets_dir = trusted_root.join("secrets");
     envs.insert("LUX_LOG_ROOT".to_string(), expand_path(&cfg.paths.log_root));
+    envs.insert(
+        "LUX_TRUSTED_ROOT".to_string(),
+        trusted_root.to_string_lossy().to_string(),
+    );
+    envs.insert(
+        "LUX_STATE_DIR".to_string(),
+        state_dir.to_string_lossy().to_string(),
+    );
+    envs.insert(
+        "LUX_SECRETS_DIR".to_string(),
+        secrets_dir.to_string_lossy().to_string(),
+    );
+    envs.insert(
+        "LUX_SHIMS_BIN_DIR".to_string(),
+        expand_path(&cfg.shims.bin_dir),
+    );
     envs.insert(
         "LUX_WORKSPACE_ROOT".to_string(),
         expand_path(&cfg.paths.workspace_root),
@@ -1576,8 +1729,7 @@ fn config_to_env(cfg: &Config, config_path: &Path) -> BTreeMap<String, String> {
     if !root_comm.is_empty() {
         envs.insert("COLLECTOR_ROOT_COMM".to_string(), root_comm.join(","));
     }
-    let config_dir = config_dir_from_path(config_path);
-    let runtime_socket = effective_runtime_socket_path(cfg, &config_dir);
+    let runtime_socket = effective_runtime_socket_path(cfg);
     if let Some(runtime_dir) = runtime_socket.parent() {
         envs.insert(
             "LUX_RUNTIME_DIR".to_string(),
@@ -1817,8 +1969,10 @@ fn handle_setup(
     //     style("Can optionally create provider secrets files (never prints secret values).").dim()
     // );
 
+    let mut trusted_root_state = base_cfg.paths.trusted_root.clone();
     let mut log_root_state = base_cfg.paths.log_root.clone();
     let mut workspace_root_state = base_cfg.paths.workspace_root.clone();
+    let mut shims_bin_dir_state = base_cfg.shims.bin_dir.clone();
     let mut provider_auth_state: BTreeMap<String, String> = BTreeMap::new();
     for (provider_name, provider) in &base_cfg.providers {
         provider_auth_state.insert(
@@ -1839,30 +1993,87 @@ fn handle_setup(
         print_step(1, total_steps, "Paths");
         println!(
             "{}",
-            style("This is where logs are stored on your host machine.").dim()
+            style("Configure trusted/runtime storage and workspace mount points.").dim()
         );
         println!(
             "{}",
             style(
                 "Path policy:
-- logs must be outside $HOME
-- workspace must be under $HOME
-- logs and workspace must not overlap"
+- trusted_root must be outside $HOME
+- log_root must be inside trusted_root
+- shims.bin_dir must be inside trusted_root
+- workspace_root must be under $HOME
+- workspace_root must not overlap log_root or shims.bin_dir"
             )
             .dim()
         );
         println!(
             "{}",
             style(format!(
-                "Default log root for this host: {}",
-                default_paths.log_root
+                "Default trusted root for this host: {}",
+                default_paths.trusted_root
+            ))
+            .dim()
+        );
+        let previous_trusted_root = trusted_root_state.clone();
+        trusted_root_state = Input::<String>::with_theme(&theme)
+            .with_prompt("Select trusted root (outside $HOME)")
+            .default(trusted_root_state.clone())
+            .interact_text()?;
+
+        let previous_default_log = Path::new(&previous_trusted_root)
+            .join("logs")
+            .to_string_lossy()
+            .to_string();
+        let previous_default_shims_bin = Path::new(&previous_trusted_root)
+            .join("bin")
+            .to_string_lossy()
+            .to_string();
+        let suggested_log_root = Path::new(&trusted_root_state)
+            .join("logs")
+            .to_string_lossy()
+            .to_string();
+        let suggested_shims_bin_dir = Path::new(&trusted_root_state)
+            .join("bin")
+            .to_string_lossy()
+            .to_string();
+        if trusted_root_state != previous_trusted_root {
+            if log_root_state == previous_default_log || log_root_state == base_cfg.paths.log_root {
+                log_root_state = suggested_log_root.clone();
+            }
+            if shims_bin_dir_state == previous_default_shims_bin
+                || shims_bin_dir_state == base_cfg.shims.bin_dir
+            {
+                shims_bin_dir_state = suggested_shims_bin_dir.clone();
+            }
+        }
+
+        println!(
+            "{}",
+            style(format!(
+                "Default log root for this trusted root: {}",
+                suggested_log_root
             ))
             .dim()
         );
         log_root_state = Input::<String>::with_theme(&theme)
-            .with_prompt("Select log root (outside $HOME)")
+            .with_prompt("Select log root (inside trusted root)")
             .default(log_root_state.clone())
             .interact_text()?;
+
+        println!(
+            "{}",
+            style(format!(
+                "Default shims bin dir for this trusted root: {}",
+                suggested_shims_bin_dir
+            ))
+            .dim()
+        );
+        shims_bin_dir_state = Input::<String>::with_theme(&theme)
+            .with_prompt("Select shims bin dir (inside trusted root)")
+            .default(shims_bin_dir_state.clone())
+            .interact_text()?;
+
         println!("{}", style("Great! Now choose your agent's workspace"));
         println!(
             "{}",
@@ -2055,8 +2266,10 @@ if you're using an API key or a subscription-based plan"
 
         // Desired config (in memory).
         let mut desired_cfg = base_cfg.clone();
+        desired_cfg.paths.trusted_root = trusted_root_state.clone();
         desired_cfg.paths.log_root = log_root_state.clone();
         desired_cfg.paths.workspace_root = workspace_root_state.clone();
+        desired_cfg.shims.bin_dir = shims_bin_dir_state.clone();
         for (provider_name, auth_mode) in &provider_auth_state {
             let provider = desired_cfg
                 .providers
@@ -2088,11 +2301,17 @@ if you're using an API key or a subscription-based plan"
         validate_config(&desired_cfg)?;
 
         let mut yaml_edits = SetupYamlEdits::default();
+        if desired_cfg.paths.trusted_root != base_cfg.paths.trusted_root {
+            yaml_edits.trusted_root = Some(desired_cfg.paths.trusted_root.clone());
+        }
         if desired_cfg.paths.log_root != base_cfg.paths.log_root {
             yaml_edits.log_root = Some(desired_cfg.paths.log_root.clone());
         }
         if desired_cfg.paths.workspace_root != base_cfg.paths.workspace_root {
             yaml_edits.workspace_root = Some(desired_cfg.paths.workspace_root.clone());
+        }
+        if desired_cfg.shims.bin_dir != base_cfg.shims.bin_dir {
+            yaml_edits.shims_bin_dir = Some(desired_cfg.shims.bin_dir.clone());
         }
         for (provider_name, provider) in &desired_cfg.providers {
             let desired = provider.auth_mode.as_str();
@@ -2120,6 +2339,42 @@ if you're using an API key or a subscription-based plan"
         );
 
         println!("\n{}", style("Paths").bold());
+        if desired_cfg.paths.trusted_root == base_cfg.paths.trusted_root {
+            println!(
+                "  {} {}",
+                style("paths.trusted_root:").dim(),
+                style(display_path_with_home(
+                    Path::new(&desired_cfg.paths.trusted_root),
+                    home_for_display.as_deref()
+                ))
+                .dim()
+            );
+        } else {
+            println!(
+                "  {} {} {} {}",
+                style("paths.trusted_root:").dim(),
+                style(display_path_with_home(
+                    Path::new(&base_cfg.paths.trusted_root),
+                    home_for_display.as_deref()
+                ))
+                .dim(),
+                style("->").dim(),
+                style(display_path_with_home(
+                    Path::new(&desired_cfg.paths.trusted_root),
+                    home_for_display.as_deref()
+                ))
+                .green()
+            );
+        }
+        println!(
+            "  {} {}",
+            style("resolved trusted root:").dim(),
+            style(display_path_with_home(
+                &resolved_policy_paths.trusted_root,
+                home_for_display.as_deref()
+            ))
+            .dim()
+        );
         if desired_cfg.paths.log_root == base_cfg.paths.log_root {
             println!(
                 "  {} {}",
@@ -2188,6 +2443,42 @@ if you're using an API key or a subscription-based plan"
             style("resolved workspace root:").dim(),
             style(display_path_with_home(
                 &resolved_policy_paths.workspace_root,
+                home_for_display.as_deref()
+            ))
+            .dim()
+        );
+        if desired_cfg.shims.bin_dir == base_cfg.shims.bin_dir {
+            println!(
+                "  {} {}",
+                style("shims.bin_dir:").dim(),
+                style(display_path_with_home(
+                    Path::new(&desired_cfg.shims.bin_dir),
+                    home_for_display.as_deref()
+                ))
+                .dim()
+            );
+        } else {
+            println!(
+                "  {} {} {} {}",
+                style("shims.bin_dir:").dim(),
+                style(display_path_with_home(
+                    Path::new(&base_cfg.shims.bin_dir),
+                    home_for_display.as_deref()
+                ))
+                .dim(),
+                style("->").dim(),
+                style(display_path_with_home(
+                    Path::new(&desired_cfg.shims.bin_dir),
+                    home_for_display.as_deref()
+                ))
+                .green()
+            );
+        }
+        println!(
+            "  {} {}",
+            style("resolved shims bin dir:").dim(),
+            style(display_path_with_home(
+                &resolved_policy_paths.shims_bin_dir,
                 home_for_display.as_deref()
             ))
             .dim()
@@ -2397,31 +2688,41 @@ if you're using an API key or a subscription-based plan"
     );
     println!(
         "{}",
-        style("Install shims once, then keep using codex/claude as usual.").dim()
+        style("Install shims once, then keep using your provider CLIs as usual.").dim()
     );
 
     println!();
     println!("{}", style("Next steps").bold().cyan());
+    let provider_names: Vec<String> = cfg_after_yaml.providers.keys().cloned().collect();
     if !apply {
         println!("  lux config apply");
     }
     println!("  lux runtime up");
     println!("  lux ui up --wait");
-    println!("  lux shim install codex claude");
+    println!("  lux shim install");
     if cfg_after_yaml.providers.contains_key("codex") {
         println!("  codex");
     } else if let Some(example) = cfg_after_yaml.providers.keys().next() {
         println!("  {example}");
     }
-    println!(
-        "  Available providers: {}",
-        cfg_after_yaml
-            .providers
-            .keys()
-            .cloned()
-            .collect::<Vec<String>>()
-            .join(", ")
-    );
+    println!("  Available providers: {}", provider_names.join(", "));
+
+    if let Ok(policy) = resolve_config_policy_paths(&cfg_after_yaml) {
+        let needs_path_fix = cfg_after_yaml.providers.keys().any(|provider| {
+            let shim_path = shim_path_for_provider(&policy.shims_bin_dir, provider);
+            let (path_precedence_ok, _) = shim_path_precedence_ok(provider, &shim_path);
+            !path_precedence_ok
+        });
+        if needs_path_fix {
+            println!();
+            println!("{}", style("PATH remediation").bold().yellow());
+            println!(
+                "  Put {} first in PATH before other provider binaries.",
+                display_path_with_home(&policy.shims_bin_dir, home_for_display.as_deref())
+            );
+            println!("  Re-run: lux doctor --strict");
+        }
+    }
 
     Ok(())
 }
@@ -2503,8 +2804,29 @@ Choose a writable log root outside $HOME or create this directory with sufficien
         })
     }
 
+    fn create_dir_with_guidance(field: &str, path: &Path) -> Result<(), LuxError> {
+        fs::create_dir_all(path).map_err(|err| {
+            if err.kind() == io::ErrorKind::PermissionDenied {
+                if env::consts::OS == "linux" && path.starts_with(Path::new("/var/lib/lux")) {
+                    return LuxError::Config(format!(
+                        "failed to create {field} at {}: permission denied.\n\
+Linux default trusted root often needs a one-time setup:\n  sudo mkdir -p /var/lib/lux\n  sudo chown -R $USER /var/lib/lux\n\
+Then re-run `lux config apply`.",
+                        path.display()
+                    ));
+                }
+                return LuxError::Config(format!(
+                    "failed to create {field} at {}: permission denied.\n\
+Choose a writable trusted root outside $HOME or create this directory with sufficient permissions.",
+                    path.display()
+                ));
+            }
+            LuxError::Io(err)
+        })
+    }
+
     let policy_paths = resolve_config_policy_paths(cfg)?;
-    let mut envs = config_to_env(cfg, &ctx.config_path);
+    let mut envs = config_to_env(cfg);
     envs.insert(
         "LUX_LOG_ROOT".to_string(),
         policy_paths.log_root.to_string_lossy().to_string(),
@@ -2513,9 +2835,34 @@ Choose a writable log root outside $HOME or create this directory with sufficien
         "LUX_WORKSPACE_ROOT".to_string(),
         policy_paths.workspace_root.to_string_lossy().to_string(),
     );
+    envs.insert(
+        "LUX_TRUSTED_ROOT".to_string(),
+        policy_paths.trusted_root.to_string_lossy().to_string(),
+    );
+    envs.insert(
+        "LUX_STATE_DIR".to_string(),
+        policy_paths.state_root.to_string_lossy().to_string(),
+    );
+    envs.insert(
+        "LUX_RUNTIME_DIR".to_string(),
+        policy_paths.runtime_root.to_string_lossy().to_string(),
+    );
+    envs.insert(
+        "LUX_SECRETS_DIR".to_string(),
+        policy_paths.secrets_root.to_string_lossy().to_string(),
+    );
+    envs.insert(
+        "LUX_SHIMS_BIN_DIR".to_string(),
+        policy_paths.shims_bin_dir.to_string_lossy().to_string(),
+    );
     write_env_file(&ctx.env_file, &envs)?;
     let log_root = policy_paths.log_root;
     create_log_root_with_guidance(&log_root)?;
+    create_dir_with_guidance("paths.trusted_root", &policy_paths.trusted_root)?;
+    create_dir_with_guidance("state root", &policy_paths.state_root)?;
+    create_dir_with_guidance("runtime root", &policy_paths.runtime_root)?;
+    create_dir_with_guidance("secrets root", &policy_paths.secrets_root)?;
+    create_dir_with_guidance("shims.bin_dir", &policy_paths.shims_bin_dir)?;
     let workspace_root = policy_paths.workspace_root;
     fs::create_dir_all(&workspace_root).map_err(|err| {
         if err.kind() == io::ErrorKind::PermissionDenied {
@@ -2627,9 +2974,12 @@ fn write_provider_secrets_file(
 
 #[derive(Debug, Clone, Default)]
 struct SetupYamlEdits {
+    trusted_root: Option<String>,
     log_root: Option<String>,
     workspace_root: Option<String>,
+    shims_bin_dir: Option<String>,
     provider_auth_modes: BTreeMap<String, String>,
+    provider_api_key_secrets_files: BTreeMap<String, String>,
 }
 
 fn is_blank_or_comment(line: &str) -> bool {
@@ -2950,10 +3300,20 @@ fn patch_setup_config_yaml(
 
     let mut changed = false;
 
-    if edits.log_root.is_some() || edits.workspace_root.is_some() {
+    if edits.trusted_root.is_some() || edits.log_root.is_some() || edits.workspace_root.is_some() {
         let (_paths_line, paths_body_start, paths_body_end) =
             find_block_range(&lines, 0, "paths", 0)?;
         let paths_indent = 0usize;
+        if let Some(value) = edits.trusted_root.as_deref() {
+            changed |= patch_scalar_in_block(
+                &mut lines,
+                paths_body_start,
+                paths_body_end,
+                paths_indent,
+                "trusted_root",
+                value,
+            )?;
+        }
         if let Some(value) = edits.log_root.as_deref() {
             changed |= patch_scalar_in_block(
                 &mut lines,
@@ -2976,16 +3336,32 @@ fn patch_setup_config_yaml(
         }
     }
 
-    if !edits.provider_auth_modes.is_empty() {
+    if let Some(value) = edits.shims_bin_dir.as_deref() {
+        let (_shims_line, shims_body_start, shims_body_end) =
+            find_block_range(&lines, 0, "shims", 0)?;
+        changed |= patch_scalar_in_block(
+            &mut lines,
+            shims_body_start,
+            shims_body_end,
+            0usize,
+            "bin_dir",
+            value,
+        )?;
+    }
+
+    if !edits.provider_auth_modes.is_empty() || !edits.provider_api_key_secrets_files.is_empty() {
         let (_providers_line, providers_body_start, providers_body_end) =
             find_block_range(&lines, 0, "providers", 0)?;
         let providers_indent = 0usize;
-        for (provider_name, auth_mode) in &edits.provider_auth_modes {
+        let mut provider_names = std::collections::BTreeSet::new();
+        provider_names.extend(edits.provider_auth_modes.keys().cloned());
+        provider_names.extend(edits.provider_api_key_secrets_files.keys().cloned());
+        for provider_name in provider_names {
             // Find provider block within providers block.
             let mut provider_line_idx: Option<usize> = None;
             for idx in providers_body_start..providers_body_end {
                 let line = &lines[idx];
-                let Some(indent) = match_block_key_line(line, provider_name)? else {
+                let Some(indent) = match_block_key_line(line, &provider_name)? else {
                     continue;
                 };
                 if indent <= providers_indent {
@@ -2997,7 +3373,7 @@ fn patch_setup_config_yaml(
             let Some(provider_line_idx) = provider_line_idx else {
                 return Err(LuxError::Config(format!(
                     "could not find provider block '{}:' in config.yaml",
-                    provider_name
+                    &provider_name
                 )));
             };
             let provider_indent = leading_space_count(&lines[provider_line_idx])?;
@@ -3014,14 +3390,26 @@ fn patch_setup_config_yaml(
                     break;
                 }
             }
-            changed |= patch_scalar_in_block(
-                &mut lines,
-                provider_body_start,
-                provider_body_end,
-                provider_indent,
-                "auth_mode",
-                auth_mode,
-            )?;
+            if let Some(auth_mode) = edits.provider_auth_modes.get(&provider_name) {
+                changed |= patch_scalar_in_block(
+                    &mut lines,
+                    provider_body_start,
+                    provider_body_end,
+                    provider_indent,
+                    "auth_mode",
+                    auth_mode,
+                )?;
+            }
+            if let Some(secrets_file) = edits.provider_api_key_secrets_files.get(&provider_name) {
+                changed |= patch_scalar_in_block(
+                    &mut lines,
+                    provider_body_start,
+                    provider_body_end,
+                    provider_indent,
+                    "secrets_file",
+                    secrets_file,
+                )?;
+            }
         }
     }
 
@@ -3051,10 +3439,16 @@ struct RuntimePaths {
     config_path: PathBuf,
     env_file: PathBuf,
     bundle_dir: PathBuf,
+    trusted_root: PathBuf,
     runtime_dir: PathBuf,
     runtime_socket_path: PathBuf,
     runtime_pid_path: PathBuf,
     runtime_events_path: PathBuf,
+    state_dir: PathBuf,
+    state_active_run_path: PathBuf,
+    state_active_provider_path: PathBuf,
+    secrets_dir: PathBuf,
+    shim_bin_dir: PathBuf,
     log_root: PathBuf,
     workspace_root: PathBuf,
     install_dir: PathBuf,
@@ -3078,11 +3472,11 @@ fn resolve_runtime_paths(ctx: &Context) -> Result<(RuntimePaths, bool), LuxError
         .config_path
         .parent()
         .map_or_else(default_config_dir, PathBuf::from);
-    let runtime_socket_path = effective_runtime_socket_path(&cfg, &config_dir);
+    let runtime_socket_path = effective_runtime_socket_path(&cfg);
     let runtime_dir = runtime_socket_path
         .parent()
         .map(PathBuf::from)
-        .unwrap_or_else(|| config_dir.join("runtime"));
+        .unwrap_or_else(|| policy_paths.runtime_root.clone());
     let install_dir = default_install_dir();
     let versions_dir = install_dir.join("versions");
     let current_link = install_dir.join("current");
@@ -3094,10 +3488,16 @@ fn resolve_runtime_paths(ctx: &Context) -> Result<(RuntimePaths, bool), LuxError
             config_path: ctx.config_path.clone(),
             env_file: ctx.env_file.clone(),
             bundle_dir: ctx.bundle_dir.clone(),
+            trusted_root: policy_paths.trusted_root.clone(),
             runtime_dir: runtime_dir.clone(),
             runtime_socket_path: runtime_socket_path.clone(),
             runtime_pid_path: runtime_dir.join("control_plane.pid"),
             runtime_events_path: runtime_dir.join("events.jsonl"),
+            state_dir: policy_paths.state_root.clone(),
+            state_active_run_path: active_run_state_path(&policy_paths.state_root),
+            state_active_provider_path: active_provider_state_path(&policy_paths.state_root),
+            secrets_dir: policy_paths.secrets_root.clone(),
+            shim_bin_dir: policy_paths.shims_bin_dir.clone(),
             log_root: policy_paths.log_root,
             workspace_root: policy_paths.workspace_root,
             install_dir,
@@ -3532,7 +3932,7 @@ fn compose_base_args(
     let files = compose_files(ctx, ui, runtime_overrides)?;
     if !ctx.env_file.exists() {
         let policy_paths = resolve_config_policy_paths(cfg)?;
-        let mut envs = config_to_env(cfg, &ctx.config_path);
+        let mut envs = config_to_env(cfg);
         envs.insert(
             "LUX_LOG_ROOT".to_string(),
             policy_paths.log_root.to_string_lossy().to_string(),
@@ -3588,12 +3988,12 @@ fn provider_from_config<'a>(cfg: &'a Config, provider: &str) -> Result<&'a Provi
     })
 }
 
-fn active_provider_state_path(log_root: &Path) -> PathBuf {
-    log_root.join(".active_provider.json")
+fn active_provider_state_path(state_root: &Path) -> PathBuf {
+    state_root.join(".active_provider.json")
 }
 
-fn load_active_provider_state(log_root: &Path) -> Result<Option<ActiveProviderState>, LuxError> {
-    let state_path = active_provider_state_path(log_root);
+fn load_active_provider_state(state_root: &Path) -> Result<Option<ActiveProviderState>, LuxError> {
+    let state_path = active_provider_state_path(state_root);
     if !state_path.exists() {
         return Ok(None);
     }
@@ -3603,19 +4003,19 @@ fn load_active_provider_state(log_root: &Path) -> Result<Option<ActiveProviderSt
 }
 
 fn write_active_provider_state(
-    log_root: &Path,
+    state_root: &Path,
     provider: &str,
     auth_mode: &AuthMode,
     run_id: &str,
 ) -> Result<(), LuxError> {
-    fs::create_dir_all(log_root)?;
+    fs::create_dir_all(state_root)?;
     let state = ActiveProviderState {
         provider: provider.to_string(),
         auth_mode: auth_mode.as_str().to_string(),
         run_id: run_id.to_string(),
         started_at: Utc::now().to_rfc3339(),
     };
-    let path = active_provider_state_path(log_root);
+    let path = active_provider_state_path(state_root);
     let tmp_path = path.with_extension("json.tmp");
     let body = serde_json::to_string_pretty(&state)?;
     fs::write(&tmp_path, format!("{body}\n"))?;
@@ -3623,8 +4023,8 @@ fn write_active_provider_state(
     Ok(())
 }
 
-fn clear_active_provider_state(log_root: &Path) -> Result<(), LuxError> {
-    let path = active_provider_state_path(log_root);
+fn clear_active_provider_state(state_root: &Path) -> Result<(), LuxError> {
+    let path = active_provider_state_path(state_root);
     if path.exists() {
         fs::remove_file(path)?;
     }
@@ -3653,12 +4053,8 @@ fn generate_provider_runtime_compose(
     provider: &Provider,
     tui_cmd_override: Option<&str>,
 ) -> Result<ProviderRuntimeCompose, LuxError> {
-    let runtime_dir = ctx
-        .config_path
-        .parent()
-        .map(PathBuf::from)
-        .unwrap_or_else(default_config_dir)
-        .join("runtime");
+    let cfg = read_config(&ctx.config_path)?;
+    let runtime_dir = resolve_config_policy_paths(&cfg)?.runtime_root;
     fs::create_dir_all(&runtime_dir)?;
 
     let override_file = runtime_dir.join(format!("compose.provider.{provider_name}.yml"));
@@ -3778,12 +4174,12 @@ fn run_id_from_now() -> String {
     format!("lux__{}", Utc::now().format("%Y_%m_%d_%H_%M_%S"))
 }
 
-fn active_run_state_path(log_root: &Path) -> PathBuf {
-    log_root.join(".active_run.json")
+fn active_run_state_path(state_root: &Path) -> PathBuf {
+    state_root.join(".active_run.json")
 }
 
-fn load_active_run_state(log_root: &Path) -> Result<Option<ActiveRunState>, LuxError> {
-    let state_path = active_run_state_path(log_root);
+fn load_active_run_state(state_root: &Path) -> Result<Option<ActiveRunState>, LuxError> {
+    let state_path = active_run_state_path(state_root);
     if !state_path.exists() {
         return Ok(None);
     }
@@ -3793,17 +4189,17 @@ fn load_active_run_state(log_root: &Path) -> Result<Option<ActiveRunState>, LuxE
 }
 
 fn write_active_run_state(
-    log_root: &Path,
+    state_root: &Path,
     run_id: &str,
     workspace_root: &Path,
 ) -> Result<(), LuxError> {
-    fs::create_dir_all(log_root)?;
+    fs::create_dir_all(state_root)?;
     let state = ActiveRunState {
         run_id: run_id.to_string(),
         started_at: Utc::now().to_rfc3339(),
         workspace_root: Some(workspace_root.to_string_lossy().to_string()),
     };
-    let path = active_run_state_path(log_root);
+    let path = active_run_state_path(state_root);
     let tmp_path = path.with_extension("json.tmp");
     let body = serde_json::to_string_pretty(&state)?;
     fs::write(&tmp_path, format!("{body}\n"))?;
@@ -3811,8 +4207,8 @@ fn write_active_run_state(
     Ok(())
 }
 
-fn clear_active_run_state(log_root: &Path) -> Result<(), LuxError> {
-    let path = active_run_state_path(log_root);
+fn clear_active_run_state(state_root: &Path) -> Result<(), LuxError> {
+    let path = active_run_state_path(state_root);
     if path.exists() {
         fs::remove_file(path)?;
     }
@@ -3864,13 +4260,13 @@ fn compose_env_for_run(
     envs
 }
 
-fn resolve_default_run_id(log_root: &Path) -> Result<String, LuxError> {
-    match load_active_run_state(log_root)? {
+fn resolve_default_run_id(log_root: &Path, state_root: &Path) -> Result<String, LuxError> {
+    match load_active_run_state(state_root)? {
         Some(state) => {
             if run_root(log_root, &state.run_id).exists() {
                 Ok(state.run_id)
             } else {
-                clear_active_run_state(log_root)?;
+                clear_active_run_state(state_root)?;
                 Err(LuxError::Process(
                     "no active run found; use --run-id or --latest".to_string(),
                 ))
@@ -3884,6 +4280,7 @@ fn resolve_default_run_id(log_root: &Path) -> Result<String, LuxError> {
 
 fn resolve_run_id_from_selector(
     log_root: &Path,
+    state_root: &Path,
     run_id: Option<&str>,
     latest: bool,
 ) -> Result<String, LuxError> {
@@ -3898,7 +4295,7 @@ fn resolve_run_id_from_selector(
             LuxError::Process("no run directories found under log root".to_string())
         });
     }
-    resolve_default_run_id(log_root)
+    resolve_default_run_id(log_root, state_root)
 }
 
 fn validate_workspace_policy(
@@ -4762,8 +5159,8 @@ fn runtime_collect_stack_status(
 ) -> Result<serde_json::Value, LuxError> {
     let cfg = read_config(&ctx.config_path)?;
     let runner = RealDockerRunner;
-    let log_root = PathBuf::from(expand_path(&cfg.paths.log_root));
-    let active_run = load_active_run_state(&log_root)?;
+    let policy = resolve_config_policy_paths(&cfg)?;
+    let active_run = load_active_run_state(&policy.state_root)?;
     let active_run_id = active_run.as_ref().map(|state| state.run_id.clone());
     let active_workspace = active_run
         .as_ref()
@@ -4786,7 +5183,7 @@ fn runtime_collect_stack_status(
     };
     Ok(json!({
         "runtime": {
-            "socket_path": effective_runtime_socket_path(&cfg, &config_dir_from_path(&ctx.config_path)),
+            "socket_path": effective_runtime_socket_path(&cfg),
             "auto_started": true
         },
         "stack": {
@@ -4804,8 +5201,8 @@ fn runtime_collect_run_status(
     shared: &Arc<(Mutex<RuntimeSharedState>, Condvar)>,
 ) -> Result<serde_json::Value, LuxError> {
     let cfg = read_config(&ctx.config_path)?;
-    let log_root = PathBuf::from(expand_path(&cfg.paths.log_root));
-    let active = load_active_run_state(&log_root)?;
+    let policy = resolve_config_policy_paths(&cfg)?;
+    let active = load_active_run_state(&policy.state_root)?;
     let pending_rotation = {
         let (lock, _) = &**shared;
         let state = lock
@@ -4829,8 +5226,9 @@ fn runtime_collect_run_status(
 
 fn runtime_collect_session_job_status(ctx: &Context) -> Result<serde_json::Value, LuxError> {
     let cfg = read_config(&ctx.config_path)?;
-    let log_root = PathBuf::from(expand_path(&cfg.paths.log_root));
-    let active = load_active_run_state(&log_root)?;
+    let policy = resolve_config_policy_paths(&cfg)?;
+    let log_root = policy.log_root;
+    let active = load_active_run_state(&policy.state_root)?;
     let Some(active) = active else {
         return Ok(json!({
             "active_run_id": null,
@@ -4883,8 +5281,9 @@ fn runtime_collect_session_job_status(ctx: &Context) -> Result<serde_json::Value
 
 fn runtime_collect_collector_pipeline(ctx: &Context) -> Result<serde_json::Value, LuxError> {
     let cfg = read_config(&ctx.config_path)?;
-    let log_root = PathBuf::from(expand_path(&cfg.paths.log_root));
-    let active = load_active_run_state(&log_root)?;
+    let policy = resolve_config_policy_paths(&cfg)?;
+    let log_root = policy.log_root;
+    let active = load_active_run_state(&policy.state_root)?;
     let Some(active) = active else {
         return Ok(json!({"active_run_id": null, "pipeline": []}));
     };
@@ -4959,8 +5358,7 @@ fn runtime_scheduler_tick(
 ) -> Result<(), LuxError> {
     let cfg = read_config(&ctx.config_path)?;
     let runner = RealDockerRunner;
-    let log_root = PathBuf::from(expand_path(&cfg.paths.log_root));
-    let active = load_active_run_state(&log_root)?;
+    let active = load_active_run_state(&resolve_config_policy_paths(&cfg)?.state_root)?;
     let Some(active) = active else {
         return Ok(());
     };
@@ -5528,15 +5926,22 @@ fn handle_runtime(ctx: &Context, command: RuntimeCommand) -> Result<(), LuxError
 
 const SHIM_MARKER: &str = "# lux-shim";
 
-fn normalize_shim_providers(providers: Vec<String>) -> Vec<String> {
+fn resolve_shim_providers(cfg: &Config, providers: Vec<String>) -> Vec<String> {
     if providers.is_empty() {
-        return vec!["codex".to_string(), "claude".to_string()];
+        return cfg.providers.keys().cloned().collect();
     }
-    providers
+    let mut seen = std::collections::BTreeSet::new();
+    let mut ordered = Vec::new();
+    for provider in providers {
+        if seen.insert(provider.clone()) {
+            ordered.push(provider);
+        }
+    }
+    ordered
 }
 
-fn shim_path_for_provider(provider: &str) -> PathBuf {
-    default_bin_dir().join(provider)
+fn shim_path_for_provider(bin_dir: &Path, provider: &str) -> PathBuf {
+    bin_dir.join(provider)
 }
 
 fn shim_script(provider: &str) -> String {
@@ -5550,6 +5955,49 @@ fn is_lux_managed_shim(path: &Path) -> bool {
     fs::read_to_string(path)
         .map(|body| body.contains(SHIM_MARKER))
         .unwrap_or(false)
+}
+
+fn canonical_or_self(path: &Path) -> PathBuf {
+    fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf())
+}
+
+fn paths_equivalent(left: &Path, right: &Path) -> bool {
+    canonical_or_self(left) == canonical_or_self(right)
+}
+
+fn resolve_path_candidates(command: &str) -> Vec<PathBuf> {
+    let mut rows = Vec::new();
+    let mut seen = std::collections::BTreeSet::new();
+    let Some(path_env) = env::var_os("PATH") else {
+        return rows;
+    };
+    for dir in env::split_paths(&path_env) {
+        let candidate = dir.join(command);
+        if !candidate.exists() {
+            continue;
+        }
+        let candidate = canonical_or_self(&candidate);
+        let key = candidate.to_string_lossy().to_string();
+        if seen.insert(key) {
+            rows.push(candidate);
+        }
+    }
+    rows
+}
+
+fn shim_path_safe(policy: &PolicyPaths, shim_path: &Path) -> bool {
+    path_is_within(shim_path, &policy.trusted_root)
+        && !path_is_within(shim_path, &policy.workspace_root)
+        && !path_is_within(&policy.workspace_root, shim_path)
+}
+
+fn shim_path_precedence_ok(provider: &str, shim_path: &Path) -> (bool, Vec<PathBuf>) {
+    let resolved = resolve_path_candidates(provider);
+    let first_matches = resolved
+        .first()
+        .map(|first| paths_equivalent(first, shim_path))
+        .unwrap_or(false);
+    (first_matches, resolved)
 }
 
 #[cfg(unix)]
@@ -5575,12 +6023,13 @@ fn ensure_provider_plane_for_shim<R: DockerRunner>(
     runner: &R,
 ) -> Result<String, LuxError> {
     let cfg = read_config(&ctx.config_path)?;
-    let log_root = PathBuf::from(expand_path(&cfg.paths.log_root));
-    if let Some(active_provider) = load_active_provider_state(&log_root)? {
+    let policy = resolve_config_policy_paths(&cfg)?;
+    let state_root = policy.state_root;
+    if let Some(active_provider) = load_active_provider_state(&state_root)? {
         if active_provider.provider != provider {
             return Err(provider_mismatch_error(&active_provider.provider, provider));
         }
-        let active_workspace = load_active_run_state(&log_root)?
+        let active_workspace = load_active_run_state(&state_root)?
             .filter(|state| state.run_id == active_provider.run_id)
             .map(|state| resolve_active_run_workspace_root(&cfg, &state))
             .transpose()?;
@@ -5600,7 +6049,7 @@ fn ensure_provider_plane_for_shim<R: DockerRunner>(
         None,
         runner,
     )?;
-    let active_provider = load_active_provider_state(&log_root)?.ok_or_else(|| {
+    let active_provider = load_active_provider_state(&state_root)?.ok_or_else(|| {
         LuxError::Process("provider did not register active state after startup".to_string())
     })?;
     Ok(active_provider.run_id)
@@ -5626,25 +6075,90 @@ fn handle_shim<R: DockerRunner>(
     match command {
         ShimCommand::Install { providers } => {
             let cfg = read_config(&ctx.config_path)?;
-            let mut installed = Vec::new();
-            for provider in normalize_shim_providers(providers) {
+            let policy = resolve_config_policy_paths(&cfg)?;
+            let providers = resolve_shim_providers(&cfg, providers);
+            if providers.is_empty() {
+                return Err(LuxError::Process(
+                    "no providers configured for shim install".to_string(),
+                ));
+            }
+
+            let mut preflight: Vec<(String, PathBuf, bool)> = Vec::new();
+            for provider in providers {
                 let _ = provider_from_config(&cfg, &provider)?;
-                let shim_path = shim_path_for_provider(&provider);
-                if shim_path.exists() && !is_lux_managed_shim(&shim_path) {
+                let shim_path = shim_path_for_provider(&policy.shims_bin_dir, &provider);
+                if !shim_path_safe(&policy, &shim_path) {
+                    return Err(LuxError::Process(format!(
+                        "shim path violates trust policy (provider={}, path={}, workspace_root={}, trusted_root={})",
+                        provider,
+                        shim_path.display(),
+                        policy.workspace_root.display(),
+                        policy.trusted_root.display()
+                    )));
+                }
+                let existed_before = shim_path.exists();
+                if existed_before && !is_lux_managed_shim(&shim_path) {
                     return Err(LuxError::Process(format!(
                         "shim install would overwrite existing non-lux binary: {}",
                         shim_path.display()
                     )));
                 }
-                write_shim(&shim_path, &provider)?;
-                installed.push(json!({"provider": provider, "path": shim_path}));
+                preflight.push((provider, shim_path, existed_before));
             }
-            output(ctx, json!({"installed": installed}))
+
+            fs::create_dir_all(&policy.shims_bin_dir).map_err(|err| {
+                LuxError::Config(format!(
+                    "failed to create shims.bin_dir at {}: {}",
+                    policy.shims_bin_dir.display(),
+                    err
+                ))
+            })?;
+
+            let mut installed = Vec::new();
+            let mut created_this_invocation: Vec<PathBuf> = Vec::new();
+            for (provider, shim_path, existed_before) in &preflight {
+                if let Err(err) = write_shim(shim_path, provider) {
+                    for created in &created_this_invocation {
+                        let _ = fs::remove_file(created);
+                    }
+                    return Err(err);
+                }
+                if !*existed_before {
+                    created_this_invocation.push(shim_path.clone());
+                }
+                installed.push(json!({
+                    "provider": provider,
+                    "path": shim_path,
+                }));
+            }
+
+            let mut warnings: Vec<String> = Vec::new();
+            for (provider, shim_path, _) in &preflight {
+                let (path_precedence_ok, candidates) = shim_path_precedence_ok(provider, shim_path);
+                if !path_precedence_ok {
+                    warnings.push(format!(
+                        "PATH precedence mismatch for '{}': expected {} to resolve first",
+                        provider,
+                        shim_path.display()
+                    ));
+                }
+                let _ = candidates;
+            }
+            if !ctx.json {
+                for warning in &warnings {
+                    eprintln!("warning: {warning}");
+                }
+            }
+            output(ctx, json!({"installed": installed, "warnings": warnings}))
         }
         ShimCommand::Uninstall { providers } => {
+            let cfg = read_config(&ctx.config_path)?;
+            let policy = resolve_config_policy_paths(&cfg)?;
+            let providers = resolve_shim_providers(&cfg, providers);
             let mut removed = Vec::new();
-            for provider in normalize_shim_providers(providers) {
-                let shim_path = shim_path_for_provider(&provider);
+            for provider in providers {
+                let _ = provider_from_config(&cfg, &provider)?;
+                let shim_path = shim_path_for_provider(&policy.shims_bin_dir, &provider);
                 if shim_path.exists() && is_lux_managed_shim(&shim_path) {
                     fs::remove_file(&shim_path)?;
                     removed.push(json!({"provider": provider, "path": shim_path, "removed": true}));
@@ -5657,13 +6171,18 @@ fn handle_shim<R: DockerRunner>(
         }
         ShimCommand::List => {
             let cfg = read_config(&ctx.config_path)?;
+            let policy = resolve_config_policy_paths(&cfg)?;
             let mut rows = Vec::new();
             for provider in cfg.providers.keys() {
-                let shim_path = shim_path_for_provider(provider);
+                let shim_path = shim_path_for_provider(&policy.shims_bin_dir, provider);
+                let (path_precedence_ok, candidates) = shim_path_precedence_ok(provider, &shim_path);
                 rows.push(json!({
                     "provider": provider,
                     "path": shim_path,
-                    "installed": shim_path.exists() && is_lux_managed_shim(&shim_path)
+                    "installed": shim_path.exists() && is_lux_managed_shim(&shim_path),
+                    "path_safe": shim_path_safe(&policy, &shim_path),
+                    "path_precedence_ok": path_precedence_ok,
+                    "resolved_candidates": candidates.into_iter().map(|path| path.to_string_lossy().to_string()).collect::<Vec<String>>(),
                 }));
             }
             output(ctx, json!({"shims": rows}))
@@ -5680,17 +6199,18 @@ fn handle_shim<R: DockerRunner>(
             shim_validate_exec_args(&passthrough)?;
             let cfg = read_config(&ctx.config_path)?;
             let provider_cfg = provider_from_config(&cfg, &provider)?;
-            let workspace_root = PathBuf::from(expand_path(&cfg.paths.workspace_root));
-            let log_root = PathBuf::from(expand_path(&cfg.paths.log_root));
-            let cwd = env::current_dir()?;
-            let workspace_canon = fs::canonicalize(&workspace_root).unwrap_or(workspace_root);
-            let cwd_canon = fs::canonicalize(&cwd).unwrap_or(cwd);
-            if !cwd_canon.starts_with(&workspace_canon) {
+            let policy = resolve_config_policy_paths(&cfg)?;
+            let shim_path = shim_path_for_provider(&policy.shims_bin_dir, &provider);
+            if !shim_path_safe(&policy, &shim_path) {
                 return Err(LuxError::Process(format!(
-                    "shim execution must run from within workspace root: {}",
-                    workspace_canon.display()
+                    "shim path violates trust policy (provider={}, path={}, workspace_root={}, trusted_root={})",
+                    provider,
+                    shim_path.display(),
+                    policy.workspace_root.display(),
+                    policy.trusted_root.display()
                 )));
             }
+            let state_root = policy.state_root;
             ensure_runtime_running(ctx)?;
             let run_id = ensure_provider_plane_for_shim(ctx, &provider, runner)?;
             let mut tui_cmd = provider_cfg.commands.tui.clone();
@@ -5708,16 +6228,29 @@ fn handle_shim<R: DockerRunner>(
             args.push("--rm".to_string());
             args.push("-e".to_string());
             args.push("HARNESS_MODE=tui".to_string());
+            let cwd = env::current_dir()?;
             args.push("harness".to_string());
-            let active_workspace = load_active_run_state(&log_root)?
+            let active_workspace = load_active_run_state(&state_root)?
                 .filter(|state| state.run_id == run_id)
                 .map(|state| resolve_active_run_workspace_root(&cfg, &state))
-                .transpose()?;
+                .transpose()?
+                .unwrap_or_else(|| policy.workspace_root.clone());
+            let workspace_canon = fs::canonicalize(&active_workspace).unwrap_or(active_workspace);
+            let cwd_canon = fs::canonicalize(&cwd).unwrap_or(cwd);
+            if !cwd_canon.starts_with(&workspace_canon) {
+                return Err(LuxError::Process(format!(
+                    "shim execution must run from within workspace root: {}",
+                    workspace_canon.display()
+                )));
+            }
+            let container_workdir = map_host_start_dir_to_container(&cwd_canon, &workspace_canon)?;
+            args.push("-e".to_string());
+            args.push(format!("HARNESS_AGENT_WORKDIR={container_workdir}"));
             run_docker_command(
                 ctx,
                 runner,
                 &args,
-                &compose_env_for_run(Some(&run_id), active_workspace.as_deref()),
+                &compose_env_for_run(Some(&run_id), Some(&workspace_canon)),
                 json!({"action":"shim_exec", "provider": provider, "run_id": run_id}),
                 false,
             )
@@ -5743,6 +6276,7 @@ fn handle_up<R: DockerRunner>(
     let cfg = read_config(&ctx.config_path)?;
     let policy = resolve_config_policy_paths(&cfg)?;
     let log_root = policy.log_root;
+    let state_root = policy.state_root;
     let target = resolve_lifecycle_target(provider, collector_only)?;
 
     match target {
@@ -5762,7 +6296,7 @@ fn handle_up<R: DockerRunner>(
             }
             let run_id = run_id_from_now();
             fs::create_dir_all(run_root(&log_root, &run_id))?;
-            write_active_run_state(&log_root, &run_id, &effective_workspace)?;
+            write_active_run_state(&state_root, &run_id, &effective_workspace)?;
 
             let mut args = compose_base_args(ctx, &cfg, false, &[])?;
             args.push("up".to_string());
@@ -5794,7 +6328,7 @@ fn handle_up<R: DockerRunner>(
                 true,
             );
             if result.is_err() {
-                let _ = clear_active_run_state(&log_root);
+                let _ = clear_active_run_state(&state_root);
             }
             result
         }
@@ -5803,7 +6337,7 @@ fn handle_up<R: DockerRunner>(
             if cfg.collector.auto_start {
                 let collector_running =
                     collector_is_running(ctx, runner, &cfg, false, &BTreeMap::new())?;
-                let active_run_valid = load_active_run_state(&log_root)?
+                let active_run_valid = load_active_run_state(&state_root)?
                     .map(|state| run_root(&log_root, &state.run_id).exists())
                     .unwrap_or(false);
                 if !collector_running || !active_run_valid {
@@ -5819,7 +6353,7 @@ fn handle_up<R: DockerRunner>(
                     )?;
                 }
             }
-            let active_run = load_active_run_state(&log_root)?.ok_or_else(|| {
+            let active_run = load_active_run_state(&state_root)?.ok_or_else(|| {
                 LuxError::Process(
                     "no active run found; start collector first with `lux up --collector-only`"
                         .to_string(),
@@ -5838,7 +6372,7 @@ fn handle_up<R: DockerRunner>(
                 }
             }
             if !run_root(&log_root, &active_run.run_id).exists() {
-                clear_active_run_state(&log_root)?;
+                clear_active_run_state(&state_root)?;
                 return Err(LuxError::Process(
                     "active run metadata points to a missing run directory; restart collector with `lux up --collector-only`"
                         .to_string(),
@@ -5851,7 +6385,7 @@ fn handle_up<R: DockerRunner>(
                         .to_string(),
                 ));
             }
-            if let Some(active_provider) = load_active_provider_state(&log_root)? {
+            if let Some(active_provider) = load_active_provider_state(&state_root)? {
                 if active_provider.provider != provider_name {
                     return Err(provider_mismatch_error(
                         &active_provider.provider,
@@ -5906,7 +6440,7 @@ fn handle_up<R: DockerRunner>(
             );
             if result.is_ok() {
                 write_active_provider_state(
-                    &log_root,
+                    &state_root,
                     &provider_name,
                     &provider_cfg.auth_mode,
                     &active_run.run_id,
@@ -5925,9 +6459,9 @@ fn handle_down<R: DockerRunner>(
 ) -> Result<(), LuxError> {
     let cfg = read_config(&ctx.config_path)?;
     let policy = resolve_config_policy_paths(&cfg)?;
-    let log_root = policy.log_root;
+    let state_root = policy.state_root;
     let target = resolve_lifecycle_target(provider, collector_only)?;
-    let active_run = load_active_run_state(&log_root)?;
+    let active_run = load_active_run_state(&state_root)?;
     let run_id = active_run.as_ref().map(|state| state.run_id.clone());
     let workspace_root = active_run
         .as_ref()
@@ -5951,7 +6485,7 @@ fn handle_down<R: DockerRunner>(
         }
         LifecycleTarget::Provider(provider_name) => {
             let _provider_cfg = provider_from_config(&cfg, &provider_name)?;
-            if let Some(active_provider) = load_active_provider_state(&log_root)? {
+            if let Some(active_provider) = load_active_provider_state(&state_root)? {
                 if active_provider.provider != provider_name {
                     return Err(provider_mismatch_error(
                         &active_provider.provider,
@@ -5972,7 +6506,7 @@ fn handle_down<R: DockerRunner>(
                 true,
             );
             if result.is_ok() {
-                clear_active_provider_state(&log_root)?;
+                clear_active_provider_state(&state_root)?;
             }
             result
         }
@@ -5987,8 +6521,8 @@ fn handle_status<R: DockerRunner>(
 ) -> Result<(), LuxError> {
     let cfg = read_config(&ctx.config_path)?;
     let policy = resolve_config_policy_paths(&cfg)?;
-    let log_root = policy.log_root;
-    let active_run = load_active_run_state(&log_root)?;
+    let state_root = policy.state_root;
+    let active_run = load_active_run_state(&state_root)?;
     let run_id = active_run.as_ref().map(|state| state.run_id.clone());
     let workspace_root = active_run
         .as_ref()
@@ -6007,7 +6541,7 @@ fn handle_status<R: DockerRunner>(
         }
         LifecycleTarget::Provider(provider_name) => {
             let _provider_cfg = provider_from_config(&cfg, &provider_name)?;
-            if let Some(active_provider) = load_active_provider_state(&log_root)? {
+            if let Some(active_provider) = load_active_provider_state(&state_root)? {
                 if active_provider.provider != provider_name {
                     return Err(provider_mismatch_error(
                         &active_provider.provider,
@@ -6053,8 +6587,8 @@ fn handle_run(
     let cfg = read_config(&ctx.config_path)?;
     let _provider_cfg = provider_from_config(&cfg, &provider)?;
     let policy = resolve_config_policy_paths(&cfg)?;
-    let log_root = policy.log_root;
-    let active_provider = load_active_provider_state(&log_root)?.ok_or_else(|| {
+    let state_root = policy.state_root;
+    let active_provider = load_active_provider_state(&state_root)?.ok_or_else(|| {
         LuxError::Process(
             "no active provider plane found; start one with `lux up --provider <name>`".to_string(),
         )
@@ -6065,7 +6599,7 @@ fn handle_run(
             &provider,
         ));
     }
-    let active_run = load_active_run_state(&log_root)?.ok_or_else(|| {
+    let active_run = load_active_run_state(&state_root)?.ok_or_else(|| {
         LuxError::Process(
             "no active run metadata found; restart collector with `lux up --collector-only`"
                 .to_string(),
@@ -6138,8 +6672,8 @@ fn handle_tui<R: DockerRunner>(
     let cfg = read_config(&ctx.config_path)?;
     let provider_cfg = provider_from_config(&cfg, &provider)?;
     let policy = resolve_config_policy_paths(&cfg)?;
-    let log_root = policy.log_root;
-    let active_provider = load_active_provider_state(&log_root)?.ok_or_else(|| {
+    let state_root = policy.state_root;
+    let active_provider = load_active_provider_state(&state_root)?.ok_or_else(|| {
         LuxError::Process(
             "no active provider plane found; start one with `lux up --provider <name>`".to_string(),
         )
@@ -6150,7 +6684,7 @@ fn handle_tui<R: DockerRunner>(
             &provider,
         ));
     }
-    let active_run = load_active_run_state(&log_root)?.ok_or_else(|| {
+    let active_run = load_active_run_state(&state_root)?.ok_or_else(|| {
         LuxError::Process(
             "no active run metadata found; restart collector with `lux up --collector-only`"
                 .to_string(),
@@ -6196,10 +6730,13 @@ fn handle_tui<R: DockerRunner>(
 
 fn handle_jobs(ctx: &Context, command: JobsCommand) -> Result<(), LuxError> {
     let cfg = read_config(&ctx.config_path)?;
-    let log_root = PathBuf::from(expand_path(&cfg.paths.log_root));
+    let policy = resolve_config_policy_paths(&cfg)?;
+    let log_root = policy.log_root;
+    let state_root = policy.state_root;
     match command {
         JobsCommand::List { run_id, latest } => {
-            let run_id = resolve_run_id_from_selector(&log_root, run_id.as_deref(), latest)?;
+            let run_id =
+                resolve_run_id_from_selector(&log_root, &state_root, run_id.as_deref(), latest)?;
             let jobs_dir = run_root(&log_root, &run_id).join("harness").join("jobs");
             let mut jobs = Vec::new();
             if jobs_dir.exists() {
@@ -6214,7 +6751,8 @@ fn handle_jobs(ctx: &Context, command: JobsCommand) -> Result<(), LuxError> {
             output(ctx, json!({"run_id": run_id, "jobs": jobs}))
         }
         JobsCommand::Get { id, run_id, latest } => {
-            let run_id = resolve_run_id_from_selector(&log_root, run_id.as_deref(), latest)?;
+            let run_id =
+                resolve_run_id_from_selector(&log_root, &state_root, run_id.as_deref(), latest)?;
             let jobs_dir = run_root(&log_root, &run_id).join("harness").join("jobs");
             let status_path = jobs_dir.join(&id).join("status.json");
             if !status_path.exists() {
@@ -6336,7 +6874,11 @@ fn collect_doctor_checks(ctx: &Context, cfg: &Config) -> Result<Vec<DoctorCheck>
         json!({"missing_files": missing_compose}),
     ));
 
-    let log_root = PathBuf::from(expand_path(&cfg.paths.log_root));
+    let policy = resolve_config_policy_paths(cfg)?;
+    let log_root = policy.log_root.clone();
+    let workspace_root = policy.workspace_root.clone();
+    let trusted_root = policy.trusted_root.clone();
+    let shims_bin_dir = policy.shims_bin_dir.clone();
     let log_writable = host_dir_writable(&log_root);
     checks.push(doctor_check(
         "log_sink_permissions",
@@ -6352,25 +6894,120 @@ fn collect_doctor_checks(ctx: &Context, cfg: &Config) -> Result<Vec<DoctorCheck>
             "Ensure {} exists and is writable by your user.",
             log_root.display()
         ),
-        json!({"log_root": log_root}),
+        json!({"log_root": log_root.clone()}),
     ));
 
-    let workspace_root = PathBuf::from(expand_path(&cfg.paths.workspace_root));
     let workspace_ok = fs::create_dir_all(&workspace_root).is_ok();
+    let path_coherent = workspace_ok
+        && !path_is_within(&workspace_root, &log_root)
+        && !path_is_within(&log_root, &workspace_root)
+        && path_is_within(&log_root, &trusted_root);
     checks.push(doctor_check(
         "path_config_coherence",
-        workspace_ok && workspace_root != log_root,
+        path_coherent,
         "warn",
         true,
-        if workspace_ok && workspace_root != log_root {
-            "workspace/log path config is coherent"
-        } else if workspace_root == log_root {
-            "workspace_root and log_root should not be the same path"
-        } else {
+        if path_coherent {
+            "workspace/log/trusted path config is coherent"
+        } else if !workspace_ok {
             "workspace_root is not writable"
+        } else if !path_is_within(&log_root, &trusted_root) {
+            "log_root must be inside trusted_root"
+        } else {
+            "workspace/log path relationship is invalid"
         },
-        "Set distinct writable `paths.workspace_root` and `paths.log_root` values.",
-        json!({"workspace_root": workspace_root, "log_root": log_root}),
+        "Set valid writable `paths.workspace_root`, `paths.trusted_root`, and `paths.log_root` values.",
+        json!({
+            "workspace_root": workspace_root.clone(),
+            "trusted_root": trusted_root.clone(),
+            "log_root": log_root.clone()
+        }),
+    ));
+
+    let shim_bin_policy_ok = shim_path_safe(&policy, &shims_bin_dir);
+    checks.push(doctor_check(
+        "shim_bin_path_policy",
+        shim_bin_policy_ok,
+        "error",
+        true,
+        if shim_bin_policy_ok {
+            "shims.bin_dir satisfies trust-zone policy"
+        } else {
+            "shims.bin_dir violates trust-zone policy"
+        },
+        "Set `shims.bin_dir` inside `paths.trusted_root` and outside `paths.workspace_root`.",
+        json!({
+            "trusted_root": trusted_root.clone(),
+            "workspace_root": workspace_root.clone(),
+            "shims_bin_dir": shims_bin_dir.clone(),
+        }),
+    ));
+
+    let mut shim_rows = Vec::new();
+    let mut shim_precedence_ok = true;
+    for provider in cfg.providers.keys() {
+        let shim_path = shim_path_for_provider(&policy.shims_bin_dir, provider);
+        let installed = shim_path.exists() && is_lux_managed_shim(&shim_path);
+        let (path_precedence_ok, candidates) = shim_path_precedence_ok(provider, &shim_path);
+        let provider_ok = installed && path_precedence_ok;
+        if !provider_ok {
+            shim_precedence_ok = false;
+        }
+        shim_rows.push(json!({
+            "provider": provider,
+            "path": shim_path,
+            "installed": installed,
+            "path_precedence_ok": path_precedence_ok,
+            "resolved_candidates": candidates.into_iter().map(|path| path.to_string_lossy().to_string()).collect::<Vec<String>>(),
+        }));
+    }
+    checks.push(doctor_check(
+        "shim_path_precedence",
+        shim_precedence_ok,
+        "warn",
+        true,
+        if shim_precedence_ok {
+            "configured provider shims resolve first on PATH"
+        } else {
+            "one or more configured provider shims are not first on PATH"
+        },
+        "Run `lux shim install` and ensure `<trusted_root>/bin` is first in PATH for configured providers.",
+        json!({"providers": shim_rows}),
+    ));
+
+    let trusted_root_permissions = vec![
+        ("trusted_root", policy.trusted_root.clone()),
+        ("log_root", policy.log_root.clone()),
+        ("runtime_root", policy.runtime_root.clone()),
+        ("state_root", policy.state_root.clone()),
+        ("secrets_root", policy.secrets_root.clone()),
+        ("shims_bin_dir", policy.shims_bin_dir.clone()),
+    ];
+    let trusted_permission_rows: Vec<serde_json::Value> = trusted_root_permissions
+        .iter()
+        .map(|(name, path)| {
+            json!({
+                "path_id": name,
+                "path": path,
+                "writable": host_dir_writable(path),
+            })
+        })
+        .collect();
+    let trusted_root_ok = trusted_permission_rows
+        .iter()
+        .all(|row| row["writable"].as_bool().unwrap_or(false));
+    checks.push(doctor_check(
+        "trusted_root_permissions",
+        trusted_root_ok,
+        "error",
+        true,
+        if trusted_root_ok {
+            "trusted root and subdirectories are writable"
+        } else {
+            "trusted root or required subdirectories are not writable"
+        },
+        "Ensure trusted root and key subdirectories are writable by the Lux process user.",
+        json!({"paths": trusted_permission_rows}),
     ));
 
     let (paths, _) = resolve_runtime_paths(ctx)?;
@@ -6536,10 +7173,16 @@ fn handle_paths(ctx: &Context) -> Result<(), LuxError> {
             "config_path": paths.config_path,
             "env_file": paths.env_file,
             "bundle_dir": paths.bundle_dir,
+            "trusted_root": paths.trusted_root,
             "runtime_dir": paths.runtime_dir,
             "runtime_socket_path": paths.runtime_socket_path,
             "runtime_pid_path": paths.runtime_pid_path,
             "runtime_events_path": paths.runtime_events_path,
+            "state_dir": paths.state_dir,
+            "state_active_run_path": paths.state_active_run_path,
+            "state_active_provider_path": paths.state_active_provider_path,
+            "secrets_dir": paths.secrets_dir,
+            "shim_bin_dir": paths.shim_bin_dir,
             "compose_files": compose_files,
             "compose_contract_files": compose_contract_files,
             "log_root": paths.log_root,
@@ -6967,8 +7610,9 @@ fn handle_logs(ctx: &Context, command: LogsCommand) -> Result<(), LuxError> {
 
 fn logs_stats(ctx: &Context, run_id: Option<String>, latest: bool) -> Result<(), LuxError> {
     let cfg = read_config(&ctx.config_path)?;
-    let log_root = PathBuf::from(expand_path(&cfg.paths.log_root));
-    let run_id = resolve_run_id_from_selector(&log_root, run_id.as_deref(), latest)?;
+    let policy = resolve_config_policy_paths(&cfg)?;
+    let log_root = policy.log_root;
+    let run_id = resolve_run_id_from_selector(&log_root, &policy.state_root, run_id.as_deref(), latest)?;
     let run_root = run_root(&log_root, &run_id);
     let sessions_dir = run_root.join("harness").join("sessions");
     let mut total_bytes: u64 = 0;
@@ -7032,8 +7676,9 @@ fn logs_tail(
     latest: bool,
 ) -> Result<(), LuxError> {
     let cfg = read_config(&ctx.config_path)?;
-    let log_root = PathBuf::from(expand_path(&cfg.paths.log_root));
-    let run_id = resolve_run_id_from_selector(&log_root, run_id.as_deref(), latest)?;
+    let policy = resolve_config_policy_paths(&cfg)?;
+    let log_root = policy.log_root;
+    let run_id = resolve_run_id_from_selector(&log_root, &policy.state_root, run_id.as_deref(), latest)?;
     let run_root = run_root(&log_root, &run_id);
     let target = match file.as_deref() {
         Some("audit") => run_root.join("collector").join("raw").join("audit.log"),
@@ -7188,7 +7833,10 @@ mod tests {
         let base = path.parent().unwrap_or_else(|| Path::new("."));
         let home = required_home_dir().expect("home");
         let mut cfg = Config::default();
-        cfg.paths.log_root = base.join("logs").to_string_lossy().to_string();
+        let trusted_root = base.join("trusted");
+        cfg.paths.trusted_root = trusted_root.to_string_lossy().to_string();
+        cfg.paths.log_root = trusted_root.join("logs").to_string_lossy().to_string();
+        cfg.shims.bin_dir = trusted_root.join("bin").to_string_lossy().to_string();
         cfg.paths.workspace_root = home
             .join("lux-test-workspace")
             .to_string_lossy()
@@ -7244,11 +7892,12 @@ paths:
     #[cfg(unix)]
     #[test]
     fn runtime_socket_path_falls_back_when_default_is_too_long() {
-        let cfg: Config = serde_yaml::from_str("version: 2").expect("config");
-        let deep_config_dir = PathBuf::from(format!("/tmp/{}", "a".repeat(180)));
-        let preferred = deep_config_dir.join("runtime").join("control_plane.sock");
+        let mut cfg: Config = serde_yaml::from_str("version: 2").expect("config");
+        let deep_trusted_root = PathBuf::from(format!("/tmp/{}", "a".repeat(180)));
+        cfg.paths.trusted_root = deep_trusted_root.to_string_lossy().to_string();
+        let preferred = deep_trusted_root.join("runtime").join("control_plane.sock");
         assert!(unix_socket_path_too_long(&preferred));
-        let effective = effective_runtime_socket_path(&cfg, &deep_config_dir);
+        let effective = effective_runtime_socket_path(&cfg);
         assert!(!unix_socket_path_too_long(&effective));
         assert_ne!(effective, preferred);
     }
@@ -7256,10 +7905,9 @@ paths:
     #[cfg(unix)]
     #[test]
     fn config_validate_rejects_overlong_runtime_socket_path() {
-        let yaml = format!(
-            "version: 2\nruntime_control_plane:\n  socket_path: \"/tmp/{}\"\n",
-            "b".repeat(180)
-        );
+        let mut cfg = Config::default();
+        cfg.runtime_control_plane.socket_path = format!("/tmp/{}", "b".repeat(180));
+        let yaml = serde_yaml::to_string(&cfg).expect("serialize config");
         let err = read_config_from_str(&yaml).expect_err("long socket path should fail");
         assert!(err
             .to_string()
@@ -7295,7 +7943,7 @@ paths:
         let dir = tempdir().unwrap();
         let env_path = dir.path().join("compose.env");
         let cfg: Config = serde_yaml::from_str("version: 2").unwrap();
-        let envs = config_to_env(&cfg, &dir.path().join("config.yaml"));
+        let envs = config_to_env(&cfg);
         write_env_file(&env_path, &envs).unwrap();
         let content = fs::read_to_string(&env_path).unwrap();
         assert!(content.contains("LUX_VERSION="));
@@ -7526,7 +8174,10 @@ providers:
         let dir = tempdir().unwrap();
         let home = required_home_dir().unwrap();
         let mut cfg = Config::default();
-        cfg.paths.log_root = dir.path().join("logs").to_string_lossy().to_string();
+        let trusted_root = dir.path().join("trusted");
+        cfg.paths.trusted_root = trusted_root.to_string_lossy().to_string();
+        cfg.paths.log_root = trusted_root.join("logs").to_string_lossy().to_string();
+        cfg.shims.bin_dir = trusted_root.join("bin").to_string_lossy().to_string();
         cfg.paths.workspace_root = home.join("workspace").to_string_lossy().to_string();
 
         let override_workspace = home.join("workspace-alt");
@@ -7546,7 +8197,10 @@ providers:
         let dir = tempdir().unwrap();
         let home = required_home_dir().unwrap();
         let mut cfg = Config::default();
-        cfg.paths.log_root = dir.path().join("logs").to_string_lossy().to_string();
+        let trusted_root = dir.path().join("trusted");
+        cfg.paths.trusted_root = trusted_root.to_string_lossy().to_string();
+        cfg.paths.log_root = trusted_root.join("logs").to_string_lossy().to_string();
+        cfg.shims.bin_dir = trusted_root.join("bin").to_string_lossy().to_string();
         cfg.paths.workspace_root = home.join("workspace").to_string_lossy().to_string();
 
         let workspace_root = resolve_effective_workspace_root(&cfg, None).unwrap();

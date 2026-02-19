@@ -30,7 +30,9 @@ def detect_log_root() -> Path:
 LOG_ROOT = detect_log_root()
 LOG_ROOT_RW = Path(os.getenv("UI_LOG_ROOT_RW", str(LOG_ROOT)))
 RUN_PREFIX = "lux__"
-ACTIVE_RUN_STATE_PATH = LOG_ROOT / ".active_run.json"
+ACTIVE_RUN_STATE_PATH = Path(
+    os.getenv("UI_ACTIVE_RUN_STATE_PATH", "/state/.active_run.json")
+)
 RUN_ID_RE = re.compile(r"^[A-Za-z0-9._-]+$")
 RUNTIME_SOCKET_PATH = Path(
     os.getenv("UI_RUNTIME_CONTROL_PLANE_SOCKET", "/run/lux/runtime/control_plane.sock")

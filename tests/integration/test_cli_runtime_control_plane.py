@@ -76,24 +76,31 @@ def _runtime_healthz(socket_path: Path) -> tuple[int, dict]:
     return status_code, payload
 
 
-def _policy_paths(base: Path) -> tuple[Path, Path, Path]:
+def _policy_paths(base: Path) -> tuple[Path, Path, Path, Path]:
     home = base / "home"
-    log_root = base / "logs"
+    trusted_root = base / "trusted"
+    log_root = trusted_root / "logs"
     workspace_root = home / "work"
     home.mkdir(parents=True, exist_ok=True)
+    trusted_root.mkdir(parents=True, exist_ok=True)
     log_root.mkdir(parents=True, exist_ok=True)
     workspace_root.mkdir(parents=True, exist_ok=True)
-    return home, log_root, workspace_root
+    return home, trusted_root, log_root, workspace_root
 
 
-def _write_minimal_config(config_path: Path, *, log_root: Path, workspace_root: Path) -> None:
+def _write_minimal_config(
+    config_path: Path, *, trusted_root: Path, log_root: Path, workspace_root: Path
+) -> None:
     config_path.write_text(
         "\n".join(
             [
                 "version: 2",
                 "paths:",
+                f"  trusted_root: {trusted_root}",
                 f"  log_root: {log_root}",
                 f"  workspace_root: {workspace_root}",
+                "shims:",
+                f"  bin_dir: {trusted_root / 'bin'}",
                 "",
             ]
         ),
@@ -103,8 +110,13 @@ def _write_minimal_config(config_path: Path, *, log_root: Path, workspace_root: 
 
 def test_runtime_up_status_down_exposes_healthz(tmp_path: Path, lux_cli_binary: Path) -> None:
     config_path = tmp_path / "config.yaml"
-    home, log_root, workspace_root = _policy_paths(tmp_path)
-    _write_minimal_config(config_path, log_root=log_root, workspace_root=workspace_root)
+    home, trusted_root, log_root, workspace_root = _policy_paths(tmp_path)
+    _write_minimal_config(
+        config_path,
+        trusted_root=trusted_root,
+        log_root=log_root,
+        workspace_root=workspace_root,
+    )
     env = os.environ.copy()
     env["HOME"] = str(home)
 
@@ -145,8 +157,13 @@ def test_runtime_auto_starts_for_routed_cli_command(
     lux_cli_binary: Path,
 ) -> None:
     config_path = tmp_path / "config.yaml"
-    home, log_root, workspace_root = _policy_paths(tmp_path)
-    _write_minimal_config(config_path, log_root=log_root, workspace_root=workspace_root)
+    home, trusted_root, log_root, workspace_root = _policy_paths(tmp_path)
+    _write_minimal_config(
+        config_path,
+        trusted_root=trusted_root,
+        log_root=log_root,
+        workspace_root=workspace_root,
+    )
     env = os.environ.copy()
     env["HOME"] = str(home)
 

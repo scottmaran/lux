@@ -4,12 +4,14 @@ services:
     volumes:
       - ${LUX_LOG_ROOT:-./logs}:/logs:ro
       - ${LUX_LOG_ROOT:-./logs}:/logs_rw:rw
+      - ${LUX_STATE_DIR:-./state}:/state:ro
       - ${LUX_RUNTIME_DIR:-./runtime}:/run/lux/runtime:rw
     group_add:
       - "${LUX_RUNTIME_GID:-0}"
     environment:
       - UI_LOG_ROOT=/logs
       - UI_LOG_ROOT_RW=/logs_rw
+      - UI_ACTIVE_RUN_STATE_PATH=/state/.active_run.json
       - UI_RUNTIME_CONTROL_PLANE_SOCKET=/run/lux/runtime/control_plane.sock
     ports:
       - "127.0.0.1:8090:8090"

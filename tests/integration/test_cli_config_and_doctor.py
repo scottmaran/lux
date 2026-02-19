@@ -40,19 +40,44 @@ def _run(
     return result
 
 
-def _policy_paths(base: Path) -> tuple[Path, Path, Path]:
+def _policy_paths(base: Path) -> tuple[Path, Path, Path, Path]:
     home = base / "home"
-    log_root = base / "logs"
+    trusted_root = base / "trusted"
+    log_root = trusted_root / "logs"
     workspace_root = home / "work"
     home.mkdir(parents=True, exist_ok=True)
+    trusted_root.mkdir(parents=True, exist_ok=True)
     log_root.mkdir(parents=True, exist_ok=True)
     workspace_root.mkdir(parents=True, exist_ok=True)
-    return home, log_root, workspace_root
+    return home, trusted_root, log_root, workspace_root
+
+
+def _write_config(
+    config_path: Path,
+    *,
+    trusted_root: Path,
+    log_root: Path,
+    workspace_root: Path,
+    release_tag: str | None = None,
+) -> None:
+    rows: list[str] = [
+        "version: 2",
+        "paths:",
+        f"  trusted_root: {trusted_root}",
+        f"  log_root: {log_root}",
+        f"  workspace_root: {workspace_root}",
+        "shims:",
+        f"  bin_dir: {trusted_root / 'bin'}",
+    ]
+    if release_tag is not None:
+        rows.extend(["release:", f'  tag: "{release_tag}"'])
+    rows.append("")
+    config_path.write_text("\n".join(rows), encoding="utf-8")
 
 
 def test_config_init_creates_and_preserves_existing(tmp_path: Path, lux_cli_binary: Path) -> None:
     config_dir = tmp_path / "config"
-    home, _, _ = _policy_paths(tmp_path)
+    home, _, _, _ = _policy_paths(tmp_path)
     env = os.environ.copy()
     env["HOME"] = str(home)
     env["LUX_CONFIG_DIR"] = str(config_dir)
@@ -85,13 +110,15 @@ def test_config_init_creates_and_preserves_existing(tmp_path: Path, lux_cli_bina
 
 def test_config_validate_rejects_unknown_fields(tmp_path: Path, lux_cli_binary: Path) -> None:
     config_path = tmp_path / "config.yaml"
+    trusted_root = tmp_path / "trusted"
     config_path.write_text(
         "\n".join(
             [
                 "version: 2",
                 "unknown_field: true",
                 "paths:",
-                f"  log_root: {tmp_path / 'logs'}",
+                f"  trusted_root: {trusted_root}",
+                f"  log_root: {trusted_root / 'logs'}",
                 f"  workspace_root: {tmp_path / 'work'}",
                 "",
             ]
@@ -114,20 +141,14 @@ def test_config_validate_rejects_unknown_fields(tmp_path: Path, lux_cli_binary: 
 
 
 def test_config_apply_writes_env_file_and_creates_dirs(tmp_path: Path, lux_cli_binary: Path) -> None:
-    home, log_root, work_root = _policy_paths(tmp_path)
+    home, trusted_root, log_root, work_root = _policy_paths(tmp_path)
     env_file = tmp_path / "compose.env"
     config_path = tmp_path / "config.yaml"
-    config_path.write_text(
-        "\n".join(
-            [
-                "version: 2",
-                "paths:",
-                f"  log_root: {log_root}",
-                f"  workspace_root: {work_root}",
-                "",
-            ]
-        ),
-        encoding="utf-8",
+    _write_config(
+        config_path,
+        trusted_root=trusted_root,
+        log_root=log_root,
+        workspace_root=work_root,
     )
 
     env = os.environ.copy()
@@ -172,19 +193,13 @@ def test_config_apply_invalid_config_is_actionable(tmp_path: Path, lux_cli_binar
 
 
 def test_doctor_reports_missing_docker_in_json(tmp_path: Path, lux_cli_binary: Path) -> None:
-    home, log_root, work_root = _policy_paths(tmp_path)
+    home, trusted_root, log_root, work_root = _policy_paths(tmp_path)
     config_path = tmp_path / "config.yaml"
-    config_path.write_text(
-        "\n".join(
-            [
-                "version: 2",
-                "paths:",
-                f"  log_root: {log_root}",
-                f"  workspace_root: {work_root}",
-                "",
-            ]
-        ),
-        encoding="utf-8",
+    _write_config(
+        config_path,
+        trusted_root=trusted_root,
+        log_root=log_root,
+        workspace_root=work_root,
     )
     env = os.environ.copy()
     env["HOME"] = str(home)
@@ -209,19 +224,13 @@ def test_doctor_reports_missing_docker_in_json(tmp_path: Path, lux_cli_binary: P
 
 
 def test_doctor_reports_log_root_unwritable_in_json(tmp_path: Path, lux_cli_binary: Path) -> None:
-    home, _, work_root = _policy_paths(tmp_path)
+    home, _, _, work_root = _policy_paths(tmp_path)
     config_path = tmp_path / "config.yaml"
-    config_path.write_text(
-        "\n".join(
-            [
-                "version: 2",
-                "paths:",
-                "  log_root: /root/lux-denied",
-                f"  workspace_root: {work_root}",
-                "",
-            ]
-        ),
-        encoding="utf-8",
+    _write_config(
+        config_path,
+        trusted_root=Path("/root/lux-denied"),
+        log_root=Path("/root/lux-denied/logs"),
+        workspace_root=work_root,
     )
     env = os.environ.copy()
     env["HOME"] = str(home)
@@ -243,19 +252,13 @@ def test_doctor_reports_log_root_unwritable_in_json(tmp_path: Path, lux_cli_bina
 
 
 def test_status_fails_when_docker_missing(tmp_path: Path, lux_cli_binary: Path) -> None:
-    home, log_root, work_root = _policy_paths(tmp_path)
+    home, trusted_root, log_root, work_root = _policy_paths(tmp_path)
     config_path = tmp_path / "config.yaml"
-    config_path.write_text(
-        "\n".join(
-            [
-                "version: 2",
-                "paths:",
-                f"  log_root: {log_root}",
-                f"  workspace_root: {work_root}",
-                "",
-            ]
-        ),
-        encoding="utf-8",
+    _write_config(
+        config_path,
+        trusted_root=trusted_root,
+        log_root=log_root,
+        workspace_root=work_root,
     )
     env = os.environ.copy()
     env["HOME"] = str(home)
@@ -292,7 +295,7 @@ def test_config_apply_rewrites_env_file_when_release_tag_changes(
     tmp_path: Path,
     lux_cli_binary: Path,
 ) -> None:
-    home, log_root, work_root = _policy_paths(tmp_path)
+    home, trusted_root, log_root, work_root = _policy_paths(tmp_path)
     config_path = tmp_path / "config.yaml"
     env_file = tmp_path / "compose.env"
 
@@ -300,19 +303,12 @@ def test_config_apply_rewrites_env_file_when_release_tag_changes(
     env["HOME"] = str(home)
     env["LUX_ENV_FILE"] = str(env_file)
 
-    config_path.write_text(
-        "\n".join(
-            [
-                "version: 2",
-                "paths:",
-                f"  log_root: {log_root}",
-                f"  workspace_root: {work_root}",
-                "release:",
-                '  tag: "v0.1.0"',
-                "",
-            ]
-        ),
-        encoding="utf-8",
+    _write_config(
+        config_path,
+        trusted_root=trusted_root,
+        log_root=log_root,
+        workspace_root=work_root,
+        release_tag="v0.1.0",
     )
     _run(
         [str(lux_cli_binary), "--config", str(config_path), "config", "apply"],
@@ -322,19 +318,12 @@ def test_config_apply_rewrites_env_file_when_release_tag_changes(
     )
     assert "LUX_VERSION=v0.1.0" in env_file.read_text(encoding="utf-8", errors="replace")
 
-    config_path.write_text(
-        "\n".join(
-            [
-                "version: 2",
-                "paths:",
-                f"  log_root: {log_root}",
-                f"  workspace_root: {work_root}",
-                "release:",
-                '  tag: "v0.1.1"',
-                "",
-            ]
-        ),
-        encoding="utf-8",
+    _write_config(
+        config_path,
+        trusted_root=trusted_root,
+        log_root=log_root,
+        workspace_root=work_root,
+        release_tag="v0.1.1",
     )
     _run(
         [str(lux_cli_binary), "--config", str(config_path), "config", "apply"],

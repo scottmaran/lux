@@ -9,9 +9,9 @@ the local-only UI.
 - Same origin as the UI (e.g., `http://localhost:8090`).
 - All responses are JSON except `/api/runtime/events` (SSE).
 - Error responses use `{ "error": "message" }` with appropriate status codes.
-- Default run selection uses `<log_root>/.active_run.json`.
+- Default run selection uses `<trusted_root>/state/.active_run.json`.
 - `lux up` manages active-run state automatically.
-- In manual `docker compose` workflows, keep a shared `LUX_RUN_ID` across collector/harness runs and write `.active_run.json`, or pass `?run_id=<id>` explicitly in API calls.
+- In manual `docker compose` workflows, keep a shared `LUX_RUN_ID` across collector/harness runs and write `<trusted_root>/state/.active_run.json`, or pass `?run_id=<id>` explicitly in API calls.
 
 ## Runtime Proxy Routes
 
@@ -26,6 +26,7 @@ UI exposes runtime control-plane state via same-origin proxy routes:
 
 Behavior:
 - UI server connects to Unix socket from `UI_RUNTIME_CONTROL_PLANE_SOCKET`.
+- UI server reads active-run state from `UI_ACTIVE_RUN_STATE_PATH` (default `/state/.active_run.json`).
 - Browser never connects to runtime socket directly.
 - SSE route forwards `Last-Event-ID` (header and/or query) for replay semantics.
 
