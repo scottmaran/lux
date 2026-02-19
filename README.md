@@ -66,5 +66,13 @@ Developers/contributors: see `docs/README.md` for the full documentation map.
 Licensed under the GNU Affero General Public License v3.0 only (`AGPL-3.0-only`).
 See `LICENSE`.
 
+## Security and Legal
+- Security reporting policy: `SECURITY.md`
+- Community conduct policy: `CODE_OF_CONDUCT.md`
+- Contributor license agreement: `CLA.md`
+- Legal use and monitoring consent: `legal/legal_use.md`
+- Log retention/deletion policy: `legal/log_retention.md`
+- Open source compliance/source availability: `legal/open_source_compliance.md`
+
 ## Contributing
 See `CONTRIBUTING.md`.

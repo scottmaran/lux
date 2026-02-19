@@ -21,3 +21,7 @@ To sign off a commit:
 ```bash
 git commit -s
 ```
+
+## Community Standards
+
+By participating in Lux spaces, you agree to `CODE_OF_CONDUCT.md`.

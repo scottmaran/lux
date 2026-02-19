@@ -10,6 +10,10 @@ RUN npm run build
 
 FROM python:3.11.8-slim-bookworm@sha256:90f8795536170fd08236d2ceb74fe7065dbf74f738d8b84bfbf263656654dc9b
 
+LABEL org.opencontainers.image.title="lux-ui" \
+      org.opencontainers.image.source="https://github.com/scottmaran/lux" \
+      org.opencontainers.image.licenses="AGPL-3.0-only"
+
 WORKDIR /ui
 
 COPY server.py /ui/server.py
