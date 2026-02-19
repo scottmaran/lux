@@ -145,7 +145,6 @@ Readiness checks for:
 - docker/compose/runtime prerequisites
 - trust-root path permissions and path coherence
 - shim bin trust policy and PATH precedence
-- collector sensor prerequisites
 - harness token/API sanity
 - attribution prerequisites
 - contract/schema compatibility checks

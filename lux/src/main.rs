@@ -7062,23 +7062,6 @@ fn collect_doctor_checks(ctx: &Context, cfg: &Config) -> Result<Vec<DoctorCheck>
         json!({}),
     ));
 
-    let collector_sensor_ok = ["/sys/fs/bpf", "/sys/kernel/tracing", "/sys/kernel/debug"]
-        .iter()
-        .all(|path| Path::new(path).exists());
-    checks.push(doctor_check(
-        "collector_sensor_readiness",
-        collector_sensor_ok,
-        "warn",
-        false,
-        if collector_sensor_ok {
-            "collector sensor paths look available"
-        } else {
-            "collector sensor prerequisite paths missing on host"
-        },
-        "Verify Docker host runtime supports collector requirements (audit/eBPF prerequisites).",
-        json!({"required_paths": ["/sys/fs/bpf", "/sys/kernel/tracing", "/sys/kernel/debug"]}),
-    ));
-
     let attribution_ok = cfg
         .providers
         .values()
