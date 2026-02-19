@@ -1,6 +1,6 @@
 [project]
 name = "lux-tests"
-version = "0.6.0"
+version = "0.7.0"
 description = "Testing and CI tooling for Lux"
 requires-python = ">=3.10"
 dependencies = [

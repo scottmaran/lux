@@ -22,9 +22,7 @@ To run the interactive setup wizard automatically after install:
 VERSION=vX.Y.Z
 curl -fsSL "https://raw.githubusercontent.com/scottmaran/lux/${VERSION}/install_lux.sh" | bash -s -- --version "${VERSION}" --setup
 ```
-Private repo note: if the repo or release assets are private, unauthenticated
-`curl` downloads may return 404. In that case, download the release bundle with
-`gh release download` and run `install_lux.sh` with `--bundle/--checksum`.
+
 If `lux` is "command not found" after install, ensure `~/.local/bin` is in your `PATH`.
 This installs the CLI bundle but does **not** create log/workspace directories. Run `lux setup` to configure `config.yaml` (paths + provider auth) and generate the runtime `compose.env`.
 
@@ -65,14 +63,3 @@ Developers/contributors: see `docs/README.md` for the full documentation map.
 ## License
 Licensed under the GNU Affero General Public License v3.0 only (`AGPL-3.0-only`).
 See `LICENSE`.
-
-## Security and Legal
-- Security reporting policy: `SECURITY.md`
-- Community conduct policy: `CODE_OF_CONDUCT.md`
-- Contributor license agreement: `CLA.md`
-- Legal use and monitoring consent: `legal/legal_use.md`
-- Log retention/deletion policy: `legal/log_retention.md`
-- Open source compliance/source availability: `legal/open_source_compliance.md`
-
-## Contributing
-See `CONTRIBUTING.md`.
