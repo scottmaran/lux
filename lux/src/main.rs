@@ -1065,6 +1065,21 @@ fn path_is_within(path: &Path, root: &Path) -> bool {
     path == root || path.starts_with(root)
 }
 
+fn display_path_with_home(path: &Path, home: Option<&Path>) -> String {
+    if let Some(home_path) = home {
+        if path == home_path {
+            return "$HOME".to_string();
+        }
+        if let Ok(relative) = path.strip_prefix(home_path) {
+            if relative.as_os_str().is_empty() {
+                return "$HOME".to_string();
+            }
+            return format!("$HOME/{}", relative.display());
+        }
+    }
+    path.display().to_string()
+}
+
 fn resolve_config_policy_paths(cfg: &Config) -> Result<PolicyPaths, LuxError> {
     let home = required_home_dir()?;
     let workspace_root =
@@ -1074,22 +1089,22 @@ fn resolve_config_policy_paths(cfg: &Config) -> Result<PolicyPaths, LuxError> {
     if !path_is_within(&workspace_root, &home) {
         return Err(LuxError::Config(format!(
             "paths.workspace_root must be under $HOME (home={}, workspace={})",
-            home.display(),
-            workspace_root.display()
+            display_path_with_home(&home, Some(&home)),
+            display_path_with_home(&workspace_root, Some(&home))
         )));
     }
     if path_is_within(&log_root, &home) {
         return Err(LuxError::Config(format!(
             "paths.log_root must be outside $HOME to protect evidence integrity (home={}, log_root={})",
-            home.display(),
-            log_root.display()
+            display_path_with_home(&home, Some(&home)),
+            display_path_with_home(&log_root, Some(&home))
         )));
     }
     if path_is_within(&workspace_root, &log_root) || path_is_within(&log_root, &workspace_root) {
         return Err(LuxError::Config(format!(
             "paths.workspace_root and paths.log_root must not overlap (workspace={}, log_root={})",
-            workspace_root.display(),
-            log_root.display()
+            display_path_with_home(&workspace_root, Some(&home)),
+            display_path_with_home(&log_root, Some(&home))
         )));
     }
 
@@ -1502,10 +1517,7 @@ fn config_to_env(cfg: &Config, config_path: &Path) -> BTreeMap<String, String> {
         cfg.release.tag.trim().to_string()
     };
     envs.insert("LUX_VERSION".to_string(), tag);
-    envs.insert(
-        "LUX_LOG_ROOT".to_string(),
-        expand_path(&cfg.paths.log_root),
-    );
+    envs.insert("LUX_LOG_ROOT".to_string(), expand_path(&cfg.paths.log_root));
     envs.insert(
         "LUX_WORKSPACE_ROOT".to_string(),
         expand_path(&cfg.paths.workspace_root),
@@ -1614,6 +1626,7 @@ fn handle_setup(
 
     let config_path = &ctx.config_path;
     let config_exists = config_path.exists();
+    let home_for_display = required_home_dir().ok();
     let mut base_yaml = if config_exists {
         fs::read_to_string(config_path)?
     } else {
@@ -1627,7 +1640,7 @@ fn handle_setup(
         Err(err) => {
             return Err(LuxError::Config(format!(
                 "config is invalid. Please edit {} and try again. ({})",
-                config_path.display(),
+                display_path_with_home(config_path, home_for_display.as_deref()),
                 err
             )));
         }
@@ -1652,7 +1665,7 @@ fn handle_setup(
             if value.trim().is_empty() {
                 return Err(LuxError::Process(format!(
                     "provider '{provider_name}' uses auth_mode=api_key but secrets file is missing at {}; set {} in your environment or create the secrets file manually",
-                    secrets_file.display(),
+                    display_path_with_home(&secrets_file, home_for_display.as_deref()),
                     env_key
                 )));
             }
@@ -1705,12 +1718,16 @@ fn handle_setup(
         overwrite: bool,
     }
 
-    fn manual_secrets_instructions(env_key: &str, secrets_file: &Path) -> String {
+    fn manual_secrets_instructions(
+        env_key: &str,
+        secrets_file: &Path,
+        home_for_display: Option<&Path>,
+    ) -> String {
         let dir = secrets_file.parent().unwrap_or_else(|| Path::new("."));
         format!(
             "mkdir -p {dir}\nchmod 700 {dir}\nprintf '{env_key}=%s\\n' 'YOUR_KEY' > {file}\nchmod 600 {file}",
-            dir = dir.to_string_lossy(),
-            file = secrets_file.to_string_lossy(),
+            dir = display_path_with_home(dir, home_for_display),
+            file = display_path_with_home(secrets_file, home_for_display),
             env_key = env_key
         )
     }
@@ -1745,7 +1762,11 @@ fn handle_setup(
     println!();
     println!(
         "{}",
-        style(format!("Config: {}", config_path.display())).dim()
+        style(format!(
+            "Config: {}",
+            display_path_with_home(config_path, home_for_display.as_deref())
+        ))
+        .dim()
     );
     // println!(
     //     "{}",
@@ -1815,7 +1836,10 @@ For safety and policy compliance, workspace must be under $HOME."
             "{}",
             style(format!(
                 "Default workspace for this host: {}",
-                default_paths.workspace_root
+                display_path_with_home(
+                    Path::new(&default_paths.workspace_root),
+                    home_for_display.as_deref()
+                )
             ))
             .dim()
         );
@@ -1879,7 +1903,7 @@ if you're using an API key or a subscription-based plan"
                     if !host_path.exists() {
                         warnings.push(format!(
                             "provider '{provider_name}': host-state path missing: {}",
-                            host_path.display()
+                            display_path_with_home(&host_path, home_for_display.as_deref())
                         ));
                     }
                 }
@@ -1913,7 +1937,7 @@ if you're using an API key or a subscription-based plan"
                     .with_prompt(format!(
                         "Secrets file exists for provider '{}' at {}. Overwrite?",
                         item.provider,
-                        item.secrets_file.display()
+                        display_path_with_home(&item.secrets_file, home_for_display.as_deref())
                     ))
                     .default(false)
                     .interact()?
@@ -1922,7 +1946,7 @@ if you're using an API key or a subscription-based plan"
                     .with_prompt(format!(
                         "Create secrets file for provider '{}' at {} now?",
                         item.provider,
-                        item.secrets_file.display()
+                        display_path_with_home(&item.secrets_file, home_for_display.as_deref())
                     ))
                     .default(true)
                     .interact()?
@@ -2003,11 +2027,7 @@ if you're using an API key or a subscription-based plan"
             provider.auth_mode = match auth_mode.as_str() {
                 "api_key" => AuthMode::ApiKey,
                 "host_state" => AuthMode::HostState,
-                other => {
-                    return Err(LuxError::Config(format!(
-                        "unsupported auth_mode '{other}'"
-                    )))
-                }
+                other => return Err(LuxError::Config(format!("unsupported auth_mode '{other}'"))),
             };
         }
         let resolved_policy_paths = match resolve_config_policy_paths(&desired_cfg) {
@@ -2053,48 +2073,84 @@ if you're using an API key or a subscription-based plan"
         let should_write_config = created_config || yaml_changed;
 
         print_step(4, total_steps, "Review");
-        println!("{} {}", style("Config:").bold(), config_path.display());
+        println!(
+            "{} {}",
+            style("Config:").bold(),
+            display_path_with_home(config_path, home_for_display.as_deref())
+        );
 
         println!("\n{}", style("Paths").bold());
         if desired_cfg.paths.log_root == base_cfg.paths.log_root {
             println!(
                 "  {} {}",
                 style("paths.log_root:").dim(),
-                style(&desired_cfg.paths.log_root).dim()
+                style(display_path_with_home(
+                    Path::new(&desired_cfg.paths.log_root),
+                    home_for_display.as_deref()
+                ))
+                .dim()
             );
         } else {
             println!(
                 "  {} {} {} {}",
                 style("paths.log_root:").dim(),
-                style(&base_cfg.paths.log_root).dim(),
+                style(display_path_with_home(
+                    Path::new(&base_cfg.paths.log_root),
+                    home_for_display.as_deref()
+                ))
+                .dim(),
                 style("->").dim(),
-                style(&desired_cfg.paths.log_root).green()
+                style(display_path_with_home(
+                    Path::new(&desired_cfg.paths.log_root),
+                    home_for_display.as_deref()
+                ))
+                .green()
             );
         }
         println!(
             "  {} {}",
             style("resolved log root:").dim(),
-            style(resolved_policy_paths.log_root.display()).dim()
+            style(display_path_with_home(
+                &resolved_policy_paths.log_root,
+                home_for_display.as_deref()
+            ))
+            .dim()
         );
         if desired_cfg.paths.workspace_root == base_cfg.paths.workspace_root {
             println!(
                 "  {} {}",
                 style("paths.workspace_root:").dim(),
-                style(&desired_cfg.paths.workspace_root).dim()
+                style(display_path_with_home(
+                    Path::new(&desired_cfg.paths.workspace_root),
+                    home_for_display.as_deref()
+                ))
+                .dim()
             );
         } else {
             println!(
                 "  {} {} {} {}",
                 style("paths.workspace_root:").dim(),
-                style(&base_cfg.paths.workspace_root).dim(),
+                style(display_path_with_home(
+                    Path::new(&base_cfg.paths.workspace_root),
+                    home_for_display.as_deref()
+                ))
+                .dim(),
                 style("->").dim(),
-                style(&desired_cfg.paths.workspace_root).green()
+                style(display_path_with_home(
+                    Path::new(&desired_cfg.paths.workspace_root),
+                    home_for_display.as_deref()
+                ))
+                .green()
             );
         }
         println!(
             "  {} {}",
             style("resolved workspace root:").dim(),
-            style(resolved_policy_paths.workspace_root.display()).dim()
+            style(display_path_with_home(
+                &resolved_policy_paths.workspace_root,
+                home_for_display.as_deref()
+            ))
+            .dim()
         );
 
         println!("\n{}", style("Provider Auth").bold());
@@ -2136,7 +2192,11 @@ if you're using an API key or a subscription-based plan"
                         "create"
                     })
                     .yellow(),
-                    style(item.path.display()).dim(),
+                    style(display_path_with_home(
+                        &item.path,
+                        home_for_display.as_deref()
+                    ))
+                    .dim(),
                 );
             }
             for (provider_name, env_key, secrets_file) in &missing_api_key_secrets {
@@ -2144,7 +2204,11 @@ if you're using an API key or a subscription-based plan"
                     "  {} {} {}",
                     style(format!("{provider_name}:")).dim(),
                     style("missing").red(),
-                    style(format!("{env_key} at {}", secrets_file.display())).dim(),
+                    style(format!(
+                        "{env_key} at {}",
+                        display_path_with_home(secrets_file, home_for_display.as_deref())
+                    ))
+                    .dim(),
                 );
             }
         }
@@ -2193,7 +2257,11 @@ if you're using an API key or a subscription-based plan"
                         "\n{} {}:\n{}",
                         style("Provider").dim(),
                         style(format!("'{provider_name}' ({env_key})")).bold(),
-                        manual_secrets_instructions(env_key, secrets_file)
+                        manual_secrets_instructions(
+                            env_key,
+                            secrets_file,
+                            home_for_display.as_deref()
+                        )
                     );
                 }
             }
@@ -2246,16 +2314,18 @@ if you're using an API key or a subscription-based plan"
         println!();
         println!(
             "{}",
-            style("Manual secrets next steps (required before `lux up --provider <name>` will work):")
-                .yellow()
-                .bold()
+            style(
+                "Manual secrets next steps (required before `lux up --provider <name>` will work):"
+            )
+            .yellow()
+            .bold()
         );
         for (provider_name, env_key, secrets_file) in &missing_api_key_secrets {
             println!(
                 "\n{} {}:\n{}",
                 style("Provider").dim(),
                 style(format!("'{provider_name}' ({env_key})")).bold(),
-                manual_secrets_instructions(env_key, secrets_file)
+                manual_secrets_instructions(env_key, secrets_file, home_for_display.as_deref())
             );
         }
     }
@@ -2336,9 +2406,7 @@ fn handle_config(ctx: &Context, command: ConfigCommand) -> Result<(), LuxError> 
                 let status = Command::new(editor)
                     .arg(&ctx.config_path)
                     .status()
-                    .map_err(|err| {
-                        LuxError::Process(format!("failed to launch editor: {err}"))
-                    })?;
+                    .map_err(|err| LuxError::Process(format!("failed to launch editor: {err}")))?;
                 if !status.success() {
                     return Err(LuxError::Process("editor exited with error".to_string()));
                 }
@@ -3467,9 +3535,7 @@ fn resolve_lifecycle_target(
         LuxError::Config("missing required --provider for this command".to_string())
     })?;
     if provider.trim().is_empty() {
-        return Err(LuxError::Config(
-            "--provider must be non-empty".to_string(),
-        ));
+        return Err(LuxError::Config("--provider must be non-empty".to_string()));
     }
     Ok(LifecycleTarget::Provider(provider))
 }
@@ -3621,9 +3687,9 @@ fn generate_provider_runtime_compose(
             ));
         }
     }
-    agent.environment.push(format!(
-        "LUX_PROVIDER_HOST_STATE_COUNT={host_state_count}"
-    ));
+    agent
+        .environment
+        .push(format!("LUX_PROVIDER_HOST_STATE_COUNT={host_state_count}"));
 
     if provider.auth_mode == AuthMode::ApiKey {
         let secrets_file = PathBuf::from(expand_path(&provider.auth.api_key.secrets_file));
@@ -3804,15 +3870,15 @@ fn validate_workspace_policy(
     if !path_is_within(workspace_root, home) {
         return Err(LuxError::Config(format!(
             "{field} must be under $HOME (home={}, workspace={})",
-            home.display(),
-            workspace_root.display()
+            display_path_with_home(home, Some(home)),
+            display_path_with_home(workspace_root, Some(home))
         )));
     }
     if path_is_within(workspace_root, log_root) || path_is_within(log_root, workspace_root) {
         return Err(LuxError::Config(format!(
             "{field} must not overlap log root (workspace={}, log_root={})",
-            workspace_root.display(),
-            log_root.display()
+            display_path_with_home(workspace_root, Some(home)),
+            display_path_with_home(log_root, Some(home))
         )));
     }
     Ok(())
@@ -4457,10 +4523,7 @@ fn runtime_run_cli_subprocess(ctx: &Context, argv: &[String]) -> Result<CommandO
     let mut cmd = Command::new(exe);
     cmd.args(argv);
     cmd.env(RUNTIME_BYPASS_ENV, "1");
-    cmd.env(
-        "LUX_CONFIG",
-        ctx.config_path.to_string_lossy().to_string(),
-    );
+    cmd.env("LUX_CONFIG", ctx.config_path.to_string_lossy().to_string());
     cmd.env("LUX_ENV_FILE", ctx.env_file.to_string_lossy().to_string());
     cmd.env(
         "LUX_BUNDLE_DIR",
@@ -4532,9 +4595,8 @@ fn runtime_read_http_request(
             ));
         }
     }
-    let header_end = header_end.ok_or_else(|| {
-        LuxError::Process("runtime request missing header delimiter".to_string())
-    })?;
+    let header_end = header_end
+        .ok_or_else(|| LuxError::Process("runtime request missing header delimiter".to_string()))?;
     let header_text = String::from_utf8_lossy(&buf[..header_end]);
     let mut lines = header_text.lines();
     let request_line = lines
@@ -5954,8 +6016,7 @@ fn handle_run(
     let log_root = policy.log_root;
     let active_provider = load_active_provider_state(&log_root)?.ok_or_else(|| {
         LuxError::Process(
-            "no active provider plane found; start one with `lux up --provider <name>`"
-                .to_string(),
+            "no active provider plane found; start one with `lux up --provider <name>`".to_string(),
         )
     })?;
     if active_provider.provider != provider {
@@ -6040,8 +6101,7 @@ fn handle_tui<R: DockerRunner>(
     let log_root = policy.log_root;
     let active_provider = load_active_provider_state(&log_root)?.ok_or_else(|| {
         LuxError::Process(
-            "no active provider plane found; start one with `lux up --provider <name>`"
-                .to_string(),
+            "no active provider plane found; start one with `lux up --provider <name>`".to_string(),
         )
     })?;
     if active_provider.provider != provider {
@@ -7165,6 +7225,24 @@ paths:
     fn expand_tilde_works() {
         let expanded = expand_path("~/lux-logs");
         assert!(!expanded.starts_with("~/"));
+    }
+
+    #[test]
+    fn display_path_with_home_rewrites_home_prefix() {
+        let home = PathBuf::from("/tmp/lux-home");
+        assert_eq!(display_path_with_home(&home, Some(&home)), "$HOME");
+        assert_eq!(
+            display_path_with_home(&home.join("workspace"), Some(&home)),
+            "$HOME/workspace"
+        );
+        assert_eq!(
+            display_path_with_home(Path::new("/var/lib/lux/logs"), Some(&home)),
+            "/var/lib/lux/logs"
+        );
+        assert_eq!(
+            display_path_with_home(&home.join("workspace"), None),
+            "/tmp/lux-home/workspace"
+        );
     }
 
     #[test]
