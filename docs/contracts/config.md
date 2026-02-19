@@ -64,8 +64,8 @@ providers:
     auth_mode: api_key
     mount_host_state_in_api_mode: false
     commands:
-      tui: "codex -C /work -s danger-full-access"
-      run_template: "codex -C /work -s danger-full-access exec {prompt}"
+      tui: "codex -s danger-full-access"
+      run_template: "codex -s danger-full-access exec --skip-git-repo-check {prompt}"
     auth:
       api_key:
         secrets_file: /var/lib/lux/secrets/codex.env

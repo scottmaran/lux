@@ -91,8 +91,8 @@ def _write_cli_config(
                 "    auth_mode: host_state",
                 "    mount_host_state_in_api_mode: false",
                 "    commands:",
-                '      tui: "codex -C /work -s danger-full-access"',
-                '      run_template: "codex -C /work -s danger-full-access exec --skip-git-repo-check {prompt}"',
+                '      tui: "codex -s danger-full-access"',
+                '      run_template: "codex -s danger-full-access exec --skip-git-repo-check {prompt}"',
                 "    auth:",
                 "      api_key:",
                 f"        secrets_file: {trusted_root / 'secrets' / 'codex.env'}",
@@ -390,7 +390,7 @@ def test_codex_tui_via_lux_cli_produces_prompt_driven_session_evidence(
     assert meta.get("mode") == "tui", f"Unexpected session mode: {meta}"
     assert isinstance(meta.get("root_pid"), int), f"Expected integer root_pid in session meta: {meta}"
     assert isinstance(meta.get("root_sid"), int), f"Expected integer root_sid in session meta: {meta}"
-    assert "codex -C /work -s danger-full-access" in str(meta.get("command", "")), (
+    assert "codex -s danger-full-access" in str(meta.get("command", "")), (
         "Expected default harness TUI command in session meta.\n"
         f"meta={meta}"
     )
