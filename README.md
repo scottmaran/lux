@@ -24,14 +24,14 @@ curl -fsSL "https://raw.githubusercontent.com/scottmaran/lux/${VERSION}/install_
 ```
 
 If `lux` is "command not found" after install, ensure `~/.local/bin` is in your `PATH`.
-This installs the CLI bundle but does **not** create log/workspace directories. Run `lux setup` to configure `config.yaml` (paths + provider auth) and generate the runtime `compose.env`.
+This installs the CLI bundle but does **not** create runtime directories. Run `lux setup` to configure `config.yaml` (paths + provider auth) and generate the runtime env file (`<trusted_root>/state/compose.env` by default).
 
 Quick start (after install):
 ```bash
 lux setup
 lux runtime up
 lux ui up --wait
-lux shim install codex claude
+lux shim install
 codex
 ```
 
@@ -44,7 +44,7 @@ To view more info about user configs, see `docs/contracts/config.md`.
 Each `lux up` creates a new run directory under `paths.log_root`, for example:
 
 ```text
-~/lux-logs/
+<trusted_root>/logs/
   lux__2026_02_12_12_23_54/
     collector/raw/
     collector/filtered/

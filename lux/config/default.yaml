@@ -2,8 +2,12 @@ version: 2
 
 paths:
   # `lux config init`/`lux setup` rewrite these using host-OS defaults.
+  trusted_root: /var/lib/lux
   log_root: /var/lib/lux/logs
   workspace_root: ~/
+
+shims:
+  bin_dir: /var/lib/lux/bin
 
 release:
   tag: ""
@@ -14,7 +18,7 @@ docker:
 harness:
   api_host: 127.0.0.1
   api_port: 8081
-  api_token: ""
+  api_token: "TEMP_STR_TO_CHANGE"
 
 collector:
   auto_start: true
@@ -33,7 +37,7 @@ providers:
       run_template: "codex -C /work -s danger-full-access exec {prompt}"
     auth:
       api_key:
-        secrets_file: ~/.config/lux/secrets/codex.env
+        secrets_file: /var/lib/lux/secrets/codex.env
         env_key: OPENAI_API_KEY
       host_state:
         paths:
@@ -54,7 +58,7 @@ providers:
       run_template: "claude -p {prompt}"
     auth:
       api_key:
-        secrets_file: ~/.config/lux/secrets/claude.env
+        secrets_file: /var/lib/lux/secrets/claude.env
         env_key: ANTHROPIC_API_KEY
       host_state:
         paths:

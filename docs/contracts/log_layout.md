@@ -44,4 +44,4 @@ Notes:
   `/logs/${LUX_RUN_ID:-lux__adhoc}/...` (`/logs` is the mount for
   `<log_root>`, and `LUX_RUN_ID` resolves to `<run_id>`).
 - In manual `docker compose` workflows, export one shared `LUX_RUN_ID` for collector/harness commands so artifacts stay in the same run directory.
-- For UI defaults in manual workflows, write `<log_root>/.active_run.json` or pass explicit `run_id` selectors.
+- For UI defaults in manual workflows, write `<trusted_root>/state/.active_run.json` or pass explicit `run_id` selectors.

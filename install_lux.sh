@@ -7,7 +7,7 @@ CHECKSUM_PATH=""
 RUN_SETUP="false"
 
 usage() {
-  cat <<USAGE
+  cat <<'USAGE'
 Usage: install_lux.sh --version vX.Y.Z [--bundle <path>] [--checksum <path>] [--setup]
 
 Installs the Lux CLI bundle without creating log/workspace directories.
@@ -20,7 +20,7 @@ Optional (offline / private repo flow):
                      (must be named like lux_<ver>_<os>_<arch>.tar.gz)
   --checksum <path>  Local path to the checksum file for the tarball
                      (must be named like lux_<ver>_<os>_<arch>.tar.gz.sha256)
-  --setup            Run `lux setup` after install (interactive; TTY only)
+  --setup            Run lux setup after install (interactive; TTY only)
 
 Environment:
   LUX_RELEASE_BASE_URL  Base URL for release downloads
@@ -181,12 +181,12 @@ case ":${PATH:-}:" in
     ;;
   *)
     cat <<EOFMSG
-NOTE: ${BIN_DIR} is not on your PATH, so `lux` may be "command not found".
+NOTE: \$HOME/.local/bin is not on your PATH, so 'lux' may be "command not found".
 
 Add this to your shell profile (zsh: ~/.zprofile or ~/.zshrc):
-  export PATH="${BIN_DIR}:\$PATH"
+  export PATH="\$HOME/.local/bin:\$PATH"
 
-Then restart your terminal (or `source ~/.zprofile`).
+Then restart your terminal (or run: source ~/.zprofile).
 EOFMSG
     ;;
 esac
@@ -195,7 +195,7 @@ cat <<EOFMSG
 ✅ Lux installed.
 
 Next steps:
-1) Run setup wizard: ${INSTALL_DIR}/current/lux setup
+1) Run setup wizard: lux setup
    - workspace default: \$HOME (must stay under \$HOME)
    - log root default: OS-specific outside \$HOME
 2) Start stack:

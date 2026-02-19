@@ -1,15 +1,15 @@
 # Runtime Control Plane
 Layer: Contract
 
-The runtime control-plane is a local Unix-socket HTTP service used by CLI and
+The runtime control plane is a local Unix-socket HTTP service used by CLI and
 UI for lifecycle, health, and evidence-state visibility.
 
 ## Transport And Auth
 
 - Transport: HTTP over Unix domain socket.
-- Default socket path: `<config_dir>/runtime/control_plane.sock`.
-  - If that path exceeds Unix socket length limits on the host, runtime falls
-    back to a deterministic shorter path under the system temp directory.
+- Default socket path: `<trusted_root>/runtime/control_plane.sock`.
+  - If that path exceeds Unix socket length limits, runtime falls back to a
+    deterministic shorter path under the system temp directory.
 - Auth model: filesystem permissions on runtime dir/socket.
   - Runtime dir: `0770`
   - Socket file: `0660`
@@ -43,7 +43,7 @@ Returns current runtime + stack summary.
 ```json
 {
   "runtime": {
-    "socket_path": "/Users/me/.config/lux/runtime/control_plane.sock",
+    "socket_path": "/var/lib/lux/runtime/control_plane.sock",
     "auto_started": true
   },
   "stack": {

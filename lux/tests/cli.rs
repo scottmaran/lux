@@ -16,14 +16,56 @@ fn parse_json(bytes: &[u8]) -> Value {
     serde_json::from_slice(bytes).expect("json output")
 }
 
-fn make_policy_paths(root: &Path) -> (PathBuf, PathBuf, PathBuf) {
+fn make_policy_paths(root: &Path) -> (PathBuf, PathBuf, PathBuf, PathBuf) {
     let home = root.join("home");
-    let log_root = root.join("logs");
+    let trusted_root = root.join("trusted");
+    let log_root = trusted_root.join("logs");
     let workspace_root = home.join("workspace");
     fs::create_dir_all(&home).unwrap();
+    fs::create_dir_all(&trusted_root).unwrap();
     fs::create_dir_all(&log_root).unwrap();
     fs::create_dir_all(&workspace_root).unwrap();
-    (home, log_root, workspace_root)
+    (home, trusted_root, log_root, workspace_root)
+}
+
+fn write_config_with_paths(
+    config_path: &Path,
+    trusted_root: &Path,
+    log_root: &Path,
+    workspace_root: &Path,
+) {
+    let shims_bin_dir = trusted_root.join("bin");
+    fs::create_dir_all(&shims_bin_dir).unwrap();
+    fs::write(
+        config_path,
+        format!(
+            "version: 2\npaths:\n  trusted_root: {}\n  log_root: {}\n  workspace_root: {}\nshims:\n  bin_dir: {}\n",
+            trusted_root.display(),
+            log_root.display(),
+            workspace_root.display(),
+            shims_bin_dir.display()
+        ),
+    )
+    .unwrap();
+}
+
+fn write_valid_config(config_path: &Path) {
+    let parent = config_path.parent().unwrap_or_else(|| Path::new("."));
+    let trusted_root = parent.join("trusted");
+    let log_root = trusted_root.join("logs");
+    let home = PathBuf::from(std::env::var("HOME").expect("HOME"));
+    let workspace_root = home.join("workspace");
+    write_config_with_paths(config_path, &trusted_root, &log_root, &workspace_root);
+}
+
+fn write_default_template_config(config_dir: &Path, trusted_root: &Path) -> PathBuf {
+    let template =
+        fs::read_to_string("config/default.yaml").expect("read config/default.yaml template");
+    let trusted_root_text = trusted_root.to_string_lossy().to_string();
+    let config = template.replace("/var/lib/lux", &trusted_root_text);
+    let config_path = config_dir.join("config.yaml");
+    fs::write(&config_path, config).unwrap();
+    config_path
 }
 
 #[test]
@@ -76,7 +118,7 @@ fn config_validate_rejects_unknown_fields() {
     let config_path = dir.path().join("config.yaml");
     fs::write(
         &config_path,
-        "version: 2\nunknown_field: true\npaths:\n  log_root: /tmp/logs\n  workspace_root: /tmp/work\n",
+        "version: 2\nunknown_field: true\npaths:\n  trusted_root: /var/lib/lux\n  log_root: /var/lib/lux/logs\n  workspace_root: /tmp/work\n",
     )
     .unwrap();
 
@@ -104,14 +146,18 @@ fn config_validate_rejects_workspace_outside_home() {
     let home = dir.path().join("home");
     fs::create_dir_all(&home).unwrap();
     let config_path = dir.path().join("config.yaml");
-    let log_root = dir.path().join("logs");
+    let trusted_root = dir.path().join("trusted");
+    let log_root = trusted_root.join("logs");
     let workspace_root = dir.path().join("workspace-outside-home");
+    let shims_bin_dir = trusted_root.join("bin");
     fs::write(
         &config_path,
         format!(
-            "version: 2\npaths:\n  log_root: {}\n  workspace_root: {}\n",
+            "version: 2\npaths:\n  trusted_root: {}\n  log_root: {}\n  workspace_root: {}\nshims:\n  bin_dir: {}\n",
+            trusted_root.display(),
             log_root.display(),
-            workspace_root.display()
+            workspace_root.display(),
+            shims_bin_dir.display()
         ),
     )
     .unwrap();
@@ -139,14 +185,18 @@ fn config_validate_rejects_log_root_inside_home() {
     let home = dir.path().join("home");
     fs::create_dir_all(&home).unwrap();
     let config_path = dir.path().join("config.yaml");
+    let trusted_root = dir.path().join("trusted");
     let log_root = home.join("logs-inside-home");
     let workspace_root = home.join("workspace");
+    let shims_bin_dir = trusted_root.join("bin");
     fs::write(
         &config_path,
         format!(
-            "version: 2\npaths:\n  log_root: {}\n  workspace_root: {}\n",
+            "version: 2\npaths:\n  trusted_root: {}\n  log_root: {}\n  workspace_root: {}\nshims:\n  bin_dir: {}\n",
+            trusted_root.display(),
             log_root.display(),
-            workspace_root.display()
+            workspace_root.display(),
+            shims_bin_dir.display()
         ),
     )
     .unwrap();
@@ -165,7 +215,7 @@ fn config_validate_rejects_log_root_inside_home() {
         .clone();
     let value = parse_json(&output);
     let error = value["error"].as_str().unwrap_or_default();
-    assert!(error.contains("paths.log_root must be outside $HOME"));
+    assert!(error.contains("paths.log_root must be inside paths.trusted_root"));
 }
 
 #[test]
@@ -189,16 +239,10 @@ fn run_rejects_removed_cwd_flag() {
 #[test]
 fn config_apply_writes_env_and_dirs() {
     let dir = tempdir().unwrap();
-    let (home, log_root, work_root) = make_policy_paths(dir.path());
+    let (home, trusted_root, log_root, work_root) = make_policy_paths(dir.path());
     let config_path = dir.path().join("config.yaml");
     let env_file = dir.path().join("compose.env");
-
-    let yaml = format!(
-        "version: 2\npaths:\n  log_root: {}\n  workspace_root: {}\n",
-        log_root.display(),
-        work_root.display()
-    );
-    fs::write(&config_path, yaml).unwrap();
+    write_config_with_paths(&config_path, &trusted_root, &log_root, &work_root);
 
     bin()
         .arg("--config")
@@ -246,15 +290,9 @@ fn config_apply_invalid_config_is_actionable() {
 #[test]
 fn doctor_reports_missing_docker_in_json() {
     let dir = tempdir().unwrap();
-    let (home, log_root, work_root) = make_policy_paths(dir.path());
+    let (home, trusted_root, log_root, work_root) = make_policy_paths(dir.path());
     let config_path = dir.path().join("config.yaml");
-
-    let yaml = format!(
-        "version: 2\npaths:\n  log_root: {}\n  workspace_root: {}\n",
-        log_root.display(),
-        work_root.display()
-    );
-    fs::write(&config_path, yaml).unwrap();
+    write_config_with_paths(&config_path, &trusted_root, &log_root, &work_root);
 
     let output = bin()
         .env("HOME", &home)
@@ -288,7 +326,7 @@ fn doctor_reports_missing_docker_in_json() {
 fn doctor_strict_fails_when_checks_fail() {
     let dir = tempdir().unwrap();
     let config_path = dir.path().join("config.yaml");
-    fs::write(&config_path, "version: 2\n").unwrap();
+    write_valid_config(&config_path);
 
     bin()
         .env("PATH", "")
@@ -304,7 +342,7 @@ fn doctor_strict_fails_when_checks_fail() {
 fn status_fails_when_docker_missing() {
     let dir = tempdir().unwrap();
     let config_path = dir.path().join("config.yaml");
-    fs::write(&config_path, "version: 2\n").unwrap();
+    write_valid_config(&config_path);
 
     bin()
         .env("PATH", "")
@@ -324,7 +362,7 @@ fn status_fails_when_docker_missing() {
 fn status_json_includes_structured_docker_error_details() {
     let dir = tempdir().unwrap();
     let config_path = dir.path().join("config.yaml");
-    fs::write(&config_path, "version: 2\n").unwrap();
+    write_valid_config(&config_path);
 
     let output = bin()
         .env("PATH", "")
@@ -358,7 +396,7 @@ fn status_json_includes_structured_docker_error_details() {
 fn run_requires_active_provider_plane() {
     let dir = tempdir().unwrap();
     let config_path = dir.path().join("config.yaml");
-    fs::write(&config_path, "version: 2\n").unwrap();
+    write_valid_config(&config_path);
 
     let output = bin()
         .arg("--json")
@@ -382,17 +420,9 @@ fn run_requires_active_provider_plane() {
 #[test]
 fn logs_tail_without_active_run_fails_with_actionable_error() {
     let dir = tempdir().unwrap();
-    let (home, log_root, work_root) = make_policy_paths(dir.path());
+    let (home, trusted_root, log_root, work_root) = make_policy_paths(dir.path());
     let config_path = dir.path().join("config.yaml");
-    fs::write(
-        &config_path,
-        format!(
-            "version: 2\npaths:\n  log_root: {}\n  workspace_root: {}\n",
-            log_root.display(),
-            work_root.display()
-        ),
-    )
-    .unwrap();
+    write_config_with_paths(&config_path, &trusted_root, &log_root, &work_root);
 
     let output = bin()
         .env("HOME", &home)
@@ -414,17 +444,9 @@ fn logs_tail_without_active_run_fails_with_actionable_error() {
 #[test]
 fn logs_tail_latest_resolves_most_recent_run_directory() {
     let dir = tempdir().unwrap();
-    let (home, log_root, work_root) = make_policy_paths(dir.path());
+    let (home, trusted_root, log_root, work_root) = make_policy_paths(dir.path());
     let config_path = dir.path().join("config.yaml");
-    fs::write(
-        &config_path,
-        format!(
-            "version: 2\npaths:\n  log_root: {}\n  workspace_root: {}\n",
-            log_root.display(),
-            work_root.display()
-        ),
-    )
-    .unwrap();
+    write_config_with_paths(&config_path, &trusted_root, &log_root, &work_root);
 
     let run_1 = "lux__2026_02_11_12_00_00";
     let run_2 = "lux__2026_02_12_12_00_00";
@@ -465,17 +487,9 @@ fn logs_tail_latest_resolves_most_recent_run_directory() {
 #[test]
 fn jobs_list_with_run_id_uses_run_scoped_jobs_directory() {
     let dir = tempdir().unwrap();
-    let (home, log_root, work_root) = make_policy_paths(dir.path());
+    let (home, trusted_root, log_root, work_root) = make_policy_paths(dir.path());
     let config_path = dir.path().join("config.yaml");
-    fs::write(
-        &config_path,
-        format!(
-            "version: 2\npaths:\n  log_root: {}\n  workspace_root: {}\n",
-            log_root.display(),
-            work_root.display()
-        ),
-    )
-    .unwrap();
+    write_config_with_paths(&config_path, &trusted_root, &log_root, &work_root);
 
     let run_id = "lux__2026_02_12_12_00_00";
     let jobs_dir = log_root.join(run_id).join("harness").join("jobs");
@@ -510,7 +524,7 @@ fn jobs_list_with_run_id_uses_run_scoped_jobs_directory() {
 #[test]
 fn paths_reports_resolved_values() {
     let dir = tempdir().unwrap();
-    let (home, log_root, work_root) = make_policy_paths(dir.path());
+    let (home, trusted_root, log_root, work_root) = make_policy_paths(dir.path());
     let canonical_log_root = fs::canonicalize(&log_root).unwrap();
     let canonical_work_root = fs::canonicalize(&work_root).unwrap();
     let config_path = dir.path().join("config.yaml");
@@ -518,15 +532,7 @@ fn paths_reports_resolved_values() {
     let install_dir = home.join(".lux");
     let bin_dir = home.join(".local").join("bin");
     fs::write(&env_file, "LUX_VERSION=v0.1.0\n").unwrap();
-    fs::write(
-        &config_path,
-        format!(
-            "version: 2\npaths:\n  log_root: {}\n  workspace_root: {}\n",
-            log_root.display(),
-            work_root.display()
-        ),
-    )
-    .unwrap();
+    write_config_with_paths(&config_path, &trusted_root, &log_root, &work_root);
 
     let output = bin()
         .arg("--json")
@@ -566,12 +572,12 @@ fn setup_defaults_creates_secrets_from_env_when_missing() {
     let dir = tempdir().unwrap();
     let home = dir.path().join("home");
     let config_dir = dir.path().join("config");
+    let trusted_root = dir.path().join("trusted");
     fs::create_dir_all(&home).unwrap();
     fs::create_dir_all(&config_dir).unwrap();
+    let _config_path = write_default_template_config(&config_dir, &trusted_root);
 
-    let secrets_path = home
-        .join(".config")
-        .join("lux")
+    let secrets_path = trusted_root
         .join("secrets")
         .join("codex.env");
     assert!(!secrets_path.exists());
@@ -615,8 +621,10 @@ fn setup_defaults_errors_when_api_key_missing_and_env_missing() {
     let dir = tempdir().unwrap();
     let home = dir.path().join("home");
     let config_dir = dir.path().join("config");
+    let trusted_root = dir.path().join("trusted");
     fs::create_dir_all(&home).unwrap();
     fs::create_dir_all(&config_dir).unwrap();
+    let _config_path = write_default_template_config(&config_dir, &trusted_root);
 
     let output = bin()
         .env("HOME", &home)
@@ -679,7 +687,7 @@ fn setup_dry_run_writes_nothing() {
 fn uninstall_requires_yes_without_dry_run() {
     let dir = tempdir().unwrap();
     let config_path = dir.path().join("config.yaml");
-    fs::write(&config_path, "version: 2\n").unwrap();
+    write_valid_config(&config_path);
 
     let output = bin()
         .arg("--json")
@@ -702,16 +710,18 @@ fn uninstall_requires_yes_without_dry_run() {
 #[test]
 fn uninstall_dry_run_preserves_files() {
     let dir = tempdir().unwrap();
-    let home = dir.path();
+    let home = dir.path().join("home");
     let config_path = dir.path().join("config.yaml");
     let env_file = dir.path().join("compose.env");
-    let log_root = dir.path().join("logs");
-    let work_root = dir.path().join("work");
+    let trusted_root = dir.path().join("trusted");
+    let log_root = trusted_root.join("logs");
+    let work_root = home.join("work");
     let install_dir = home.join(".lux");
     let versions_dir = install_dir.join("versions").join("0.1.0");
     let current_link = install_dir.join("current");
     let bin_dir = home.join(".local").join("bin");
     let bin_link = bin_dir.join("lux");
+    fs::create_dir_all(&home).unwrap();
     fs::create_dir_all(&versions_dir).unwrap();
     fs::create_dir_all(&bin_dir).unwrap();
     fs::create_dir_all(&log_root).unwrap();
@@ -720,21 +730,13 @@ fn uninstall_dry_run_preserves_files() {
     symlink(&versions_dir, &current_link).unwrap();
     symlink(current_link.join("lux"), &bin_link).unwrap();
     fs::write(&env_file, "LUX_VERSION=v0.1.0\n").unwrap();
-    fs::write(
-        &config_path,
-        format!(
-            "version: 2\npaths:\n  log_root: {}\n  workspace_root: {}\n",
-            log_root.display(),
-            work_root.display()
-        ),
-    )
-    .unwrap();
+    write_config_with_paths(&config_path, &trusted_root, &log_root, &work_root);
 
     let output = bin()
         .arg("--json")
         .arg("--config")
         .arg(&config_path)
-        .env("HOME", home)
+        .env("HOME", &home)
         .env("LUX_ENV_FILE", &env_file)
         .arg("uninstall")
         .arg("--dry-run")
@@ -762,16 +764,18 @@ fn uninstall_dry_run_preserves_files() {
 #[test]
 fn uninstall_exec_removes_requested_targets() {
     let dir = tempdir().unwrap();
-    let home = dir.path();
+    let home = dir.path().join("home");
     let config_path = dir.path().join("config.yaml");
     let env_file = dir.path().join("compose.env");
-    let log_root = dir.path().join("logs");
-    let work_root = dir.path().join("work");
+    let trusted_root = dir.path().join("trusted");
+    let log_root = trusted_root.join("logs");
+    let work_root = home.join("work");
     let install_dir = home.join(".lux");
     let versions_dir = install_dir.join("versions").join("0.1.0");
     let current_link = install_dir.join("current");
     let bin_dir = home.join(".local").join("bin");
     let bin_link = bin_dir.join("lux");
+    fs::create_dir_all(&home).unwrap();
     fs::create_dir_all(&versions_dir).unwrap();
     fs::create_dir_all(&bin_dir).unwrap();
     fs::create_dir_all(&log_root).unwrap();
@@ -780,21 +784,13 @@ fn uninstall_exec_removes_requested_targets() {
     symlink(&versions_dir, &current_link).unwrap();
     symlink(current_link.join("lux"), &bin_link).unwrap();
     fs::write(&env_file, "LUX_VERSION=v0.1.0\n").unwrap();
-    fs::write(
-        &config_path,
-        format!(
-            "version: 2\npaths:\n  log_root: {}\n  workspace_root: {}\n",
-            log_root.display(),
-            work_root.display()
-        ),
-    )
-    .unwrap();
+    write_config_with_paths(&config_path, &trusted_root, &log_root, &work_root);
 
     let output = bin()
         .arg("--json")
         .arg("--config")
         .arg(&config_path)
-        .env("HOME", home)
+        .env("HOME", &home)
         .env("LUX_ENV_FILE", &env_file)
         .arg("uninstall")
         .arg("--yes")
@@ -822,7 +818,7 @@ fn uninstall_exec_removes_requested_targets() {
 fn update_apply_requires_yes_without_dry_run() {
     let dir = tempdir().unwrap();
     let config_path = dir.path().join("config.yaml");
-    fs::write(&config_path, "version: 2\n").unwrap();
+    write_valid_config(&config_path);
 
     let output = bin()
         .arg("--json")
@@ -846,15 +842,19 @@ fn update_apply_requires_yes_without_dry_run() {
 #[test]
 fn update_apply_dry_run_reports_target() {
     let dir = tempdir().unwrap();
-    let home = dir.path();
+    let home = dir.path().join("home");
+    fs::create_dir_all(&home).unwrap();
     let config_path = dir.path().join("config.yaml");
-    fs::write(&config_path, "version: 2\n").unwrap();
+    let trusted_root = dir.path().join("trusted");
+    let log_root = trusted_root.join("logs");
+    let workspace_root = home.join("workspace");
+    write_config_with_paths(&config_path, &trusted_root, &log_root, &workspace_root);
 
     let output = bin()
         .arg("--json")
         .arg("--config")
         .arg(&config_path)
-        .env("HOME", home)
+        .env("HOME", &home)
         .arg("update")
         .arg("apply")
         .arg("--to")
@@ -876,7 +876,8 @@ fn update_apply_dry_run_reports_target() {
 #[test]
 fn update_rollback_dry_run_previous_selects_prior_version() {
     let dir = tempdir().unwrap();
-    let home = dir.path();
+    let home = dir.path().join("home");
+    fs::create_dir_all(&home).unwrap();
     let config_path = dir.path().join("config.yaml");
     let install_dir = home.join(".lux");
     let versions_dir = install_dir.join("versions");
@@ -887,13 +888,16 @@ fn update_rollback_dry_run_previous_selects_prior_version() {
     fs::write(v1.join("lux"), "v1").unwrap();
     fs::write(v2.join("lux"), "v2").unwrap();
     symlink(&v2, install_dir.join("current")).unwrap();
-    fs::write(&config_path, "version: 2\n").unwrap();
+    let trusted_root = dir.path().join("trusted");
+    let log_root = trusted_root.join("logs");
+    let workspace_root = home.join("workspace");
+    write_config_with_paths(&config_path, &trusted_root, &log_root, &workspace_root);
 
     let output = bin()
         .arg("--json")
         .arg("--config")
         .arg(&config_path)
-        .env("HOME", home)
+        .env("HOME", &home)
         .arg("update")
         .arg("rollback")
         .arg("--dry-run")
@@ -913,7 +917,7 @@ fn update_rollback_dry_run_previous_selects_prior_version() {
 fn ui_url_returns_default_local_url() {
     let dir = tempdir().unwrap();
     let config_path = dir.path().join("config.yaml");
-    fs::write(&config_path, "version: 2\n").unwrap();
+    write_valid_config(&config_path);
 
     let output = bin()
         .arg("--json")
@@ -934,7 +938,7 @@ fn ui_url_returns_default_local_url() {
 fn up_rejects_removed_ui_flag() {
     let dir = tempdir().unwrap();
     let config_path = dir.path().join("config.yaml");
-    fs::write(&config_path, "version: 2\n").unwrap();
+    write_valid_config(&config_path);
 
     bin()
         .arg("--config")
@@ -952,7 +956,7 @@ fn up_rejects_removed_ui_flag() {
 fn runtime_up_status_down_cycle() {
     let dir = tempdir().unwrap();
     let config_path = dir.path().join("config.yaml");
-    fs::write(&config_path, "version: 2\n").unwrap();
+    write_valid_config(&config_path);
 
     let up = bin()
         .arg("--json")
@@ -1004,7 +1008,10 @@ fn shim_install_list_uninstall_roundtrip() {
     let home = dir.path().join("home");
     fs::create_dir_all(&home).unwrap();
     let config_path = dir.path().join("config.yaml");
-    fs::write(&config_path, "version: 2\n").unwrap();
+    let trusted_root = dir.path().join("trusted");
+    let log_root = trusted_root.join("logs");
+    let workspace_root = home.join("workspace");
+    write_config_with_paths(&config_path, &trusted_root, &log_root, &workspace_root);
 
     let install = bin()
         .env("HOME", &home)
@@ -1013,7 +1020,6 @@ fn shim_install_list_uninstall_roundtrip() {
         .arg(&config_path)
         .arg("shim")
         .arg("install")
-        .arg("codex")
         .assert()
         .success()
         .get_output()
@@ -1021,8 +1027,10 @@ fn shim_install_list_uninstall_roundtrip() {
         .clone();
     let install_value = parse_json(&install);
     assert!(install_value["result"]["installed"].as_array().is_some());
-    let shim_path = home.join(".local").join("bin").join("codex");
+    let shim_path = trusted_root.join("bin").join("codex");
+    let claude_shim_path = trusted_root.join("bin").join("claude");
     assert!(shim_path.exists());
+    assert!(claude_shim_path.exists());
 
     let list = bin()
         .env("HOME", &home)
@@ -1043,6 +1051,11 @@ fn shim_install_list_uninstall_roundtrip() {
         .find(|row| row["provider"] == "codex")
         .expect("codex shim row");
     assert_eq!(codex["installed"], true);
+    let claude = rows
+        .iter()
+        .find(|row| row["provider"] == "claude")
+        .expect("claude shim row");
+    assert_eq!(claude["installed"], true);
 
     bin()
         .env("HOME", &home)
@@ -1051,31 +1064,27 @@ fn shim_install_list_uninstall_roundtrip() {
         .arg(&config_path)
         .arg("shim")
         .arg("uninstall")
-        .arg("codex")
         .assert()
         .success();
     assert!(!shim_path.exists());
+    assert!(!claude_shim_path.exists());
 }
 
 #[test]
 fn shim_exec_rejects_absolute_paths() {
     let dir = tempdir().unwrap();
-    let workspace = dir.path().join("workspace");
-    let logs = dir.path().join("logs");
+    let home = dir.path().join("home");
+    let workspace = home.join("workspace");
+    let trusted_root = dir.path().join("trusted");
+    let logs = trusted_root.join("logs");
     fs::create_dir_all(&workspace).unwrap();
     fs::create_dir_all(&logs).unwrap();
+    fs::create_dir_all(&home).unwrap();
     let config_path = dir.path().join("config.yaml");
-    fs::write(
-        &config_path,
-        format!(
-            "version: 2\npaths:\n  workspace_root: {}\n  log_root: {}\n",
-            workspace.display(),
-            logs.display()
-        ),
-    )
-    .unwrap();
+    write_config_with_paths(&config_path, &trusted_root, &logs, &workspace);
 
     let output = bin()
+        .env("HOME", &home)
         .current_dir(&workspace)
         .arg("--json")
         .arg("--config")

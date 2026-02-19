@@ -5,7 +5,7 @@ This directory contains the Rust source for the `lux` CLI.
 ## What it does
 
 - Reads the canonical config (`~/.config/lux/config.yaml`).
-- Writes a compose env file (`~/.config/lux/compose.env`).
+- Writes a compose env file (default `<trusted_root>/state/compose.env`).
 - Runs a local runtime control-plane daemon over Unix socket.
 - Wraps `docker compose` for stack lifecycle commands.
 - Calls the harness HTTP API for non‑interactive runs.
@@ -31,7 +31,7 @@ export LUX_BUNDLE_DIR=$(cd .. && pwd)
 ./target/debug/lux config apply
 ./target/debug/lux runtime up
 ./target/debug/lux ui up
-./target/debug/lux shim install codex
+./target/debug/lux shim install
 ./target/debug/lux run --provider codex --start-dir "$PWD" "hello"
 ```
 

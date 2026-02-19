@@ -55,6 +55,7 @@ def _run_lux(
 def _write_cli_config(
     *,
     config_path: Path,
+    trusted_root: Path,
     log_root: Path,
     workspace_root: Path,
     project_name: str,
@@ -66,8 +67,11 @@ def _write_cli_config(
             [
                 "version: 2",
                 "paths:",
+                f"  trusted_root: {trusted_root}",
                 f"  log_root: {log_root}",
                 f"  workspace_root: {workspace_root}",
+                "shims:",
+                f"  bin_dir: {trusted_root / 'bin'}",
                 "release:",
                 '  tag: "local"',
                 "docker:",
@@ -85,7 +89,7 @@ def _write_cli_config(
                 '      run_template: "codex -C /work -s danger-full-access exec {prompt}"',
                 "    auth:",
                 "      api_key:",
-                "        secrets_file: ~/.config/lux/secrets/codex.env",
+                f"        secrets_file: {trusted_root / 'secrets' / 'codex.env'}",
                 "        env_key: OPENAI_API_KEY",
                 "      host_state:",
                 "        paths:",
@@ -118,11 +122,13 @@ def test_cli_up_wait_status_down_removes_volumes(
 ) -> None:
     runtime_root = tmp_path / f"cli-lifecycle-{uuid.uuid4().hex[:8]}"
     home_root = runtime_root / "home"
-    log_root = runtime_root / "logs"
+    trusted_root = runtime_root / "trusted"
+    log_root = trusted_root / "logs"
     workspace_root = home_root / "workspace"
     config_dir = runtime_root / "config"
     home_root.mkdir(parents=True, exist_ok=True)
     config_dir.mkdir(parents=True, exist_ok=True)
+    trusted_root.mkdir(parents=True, exist_ok=True)
     log_root.mkdir(parents=True, exist_ok=True)
     workspace_root.mkdir(parents=True, exist_ok=True)
 
@@ -135,6 +141,7 @@ def test_cli_up_wait_status_down_removes_volumes(
 
     _write_cli_config(
         config_path=config_path,
+        trusted_root=trusted_root,
         log_root=log_root,
         workspace_root=workspace_root,
         project_name=project_name,

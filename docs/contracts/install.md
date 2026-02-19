@@ -67,7 +67,11 @@ This:
 **Note:** The installer does **not** create log/workspace directories. The
 recommended next step is `lux setup`, which configures paths + auth and runs
 `lux config apply` for you.
-By default, setup uses workspace=`$HOME` and an OS-specific log root outside `$HOME`.
+By default, setup uses:
+- workspace=`$HOME`
+- trusted root outside `$HOME` (`/Users/Shared/Lux` on macOS, `/var/lib/lux` on Linux)
+- log root at `<trusted_root>/logs`
+- shim bin dir at `<trusted_root>/bin`
 
 If `lux` is "command not found" after install, ensure `~/.local/bin` is in
 your `PATH`.
@@ -136,7 +140,7 @@ provider secrets files (API-key mode).
 ```bash
 lux runtime up
 lux ui up --wait
-lux shim install codex claude
+lux shim install
 codex
 ```
 
