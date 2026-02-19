@@ -71,6 +71,10 @@ def test_installer_uses_fixed_layout_and_does_not_create_data_dirs(
             timeout=300,
         )
         assert "not on your PATH" in installer.stdout
+        assert "$HOME/.local/bin" in installer.stdout
+        assert "'lux' may be \"command not found\"" in installer.stdout
+        assert "source ~/.zprofile" in installer.stdout
+        assert "command not found" not in installer.stderr
 
         install_dir = home / ".lux"
         version_dir = install_dir / "versions" / "0.1.0"
@@ -135,6 +139,8 @@ def test_installer_supports_local_bundle_and_checksum(
         timeout=300,
     )
     assert "not on your PATH" in installer.stdout
+    assert "$HOME/.local/bin" in installer.stdout
+    assert "command not found" not in installer.stderr
 
     bin_link = home / ".local" / "bin" / "lux"
     assert bin_link.exists()
