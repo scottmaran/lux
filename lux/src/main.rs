@@ -591,8 +591,9 @@ fn default_providers() -> BTreeMap<String, Provider> {
             auth_mode: AuthMode::ApiKey,
             mount_host_state_in_api_mode: false,
             commands: ProviderCommands {
-                tui: "codex -C /work -s danger-full-access".to_string(),
-                run_template: "codex -C /work -s danger-full-access exec {prompt}".to_string(),
+                tui: "codex -s danger-full-access".to_string(),
+                run_template: "codex -s danger-full-access exec --skip-git-repo-check {prompt}"
+                    .to_string(),
             },
             auth: ProviderAuth {
                 api_key: ProviderApiKeyAuth {
@@ -1470,9 +1471,7 @@ fn read_config_from_str(content: &str) -> Result<Config, LuxError> {
         .as_mapping()
         .and_then(|root| root.get(&serde_yaml::Value::String("paths".to_string())))
         .and_then(|paths| paths.as_mapping())
-        .map(|paths| {
-            paths.contains_key(&serde_yaml::Value::String("trusted_root".to_string()))
-        })
+        .map(|paths| paths.contains_key(&serde_yaml::Value::String("trusted_root".to_string())))
         .unwrap_or(false);
     if !has_explicit_trusted_root {
         return Err(LuxError::Config(
@@ -4679,6 +4678,16 @@ fn run_docker_command<R: DockerRunner>(
     output(ctx, json_payload)
 }
 
+fn append_harness_tui_run_args(args: &mut Vec<String>, container_workdir: &str) {
+    args.push("run".to_string());
+    args.push("--rm".to_string());
+    args.push("-e".to_string());
+    args.push("HARNESS_MODE=tui".to_string());
+    args.push("-e".to_string());
+    args.push(format!("HARNESS_AGENT_WORKDIR={container_workdir}"));
+    args.push("harness".to_string());
+}
+
 fn handle_ui<R: DockerRunner>(
     ctx: &Context,
     command: UiCommand,
@@ -6192,7 +6201,8 @@ fn handle_shim<R: DockerRunner>(
             let mut rows = Vec::new();
             for provider in cfg.providers.keys() {
                 let shim_path = shim_path_for_provider(&policy.shims_bin_dir, provider);
-                let (path_precedence_ok, candidates) = shim_path_precedence_ok(provider, &shim_path);
+                let (path_precedence_ok, candidates) =
+                    shim_path_precedence_ok(provider, &shim_path);
                 rows.push(json!({
                     "provider": provider,
                     "path": shim_path,
@@ -6241,12 +6251,7 @@ fn handle_shim<R: DockerRunner>(
                 eprintln!("warning: {warning}");
             }
             let mut args = compose_base_args(ctx, &cfg, false, &[runtime.override_file.clone()])?;
-            args.push("run".to_string());
-            args.push("--rm".to_string());
-            args.push("-e".to_string());
-            args.push("HARNESS_MODE=tui".to_string());
             let cwd = env::current_dir()?;
-            args.push("harness".to_string());
             let active_workspace = load_active_run_state(&state_root)?
                 .filter(|state| state.run_id == run_id)
                 .map(|state| resolve_active_run_workspace_root(&cfg, &state))
@@ -6261,8 +6266,7 @@ fn handle_shim<R: DockerRunner>(
                 )));
             }
             let container_workdir = map_host_start_dir_to_container(&cwd_canon, &workspace_canon)?;
-            args.push("-e".to_string());
-            args.push(format!("HARNESS_AGENT_WORKDIR={container_workdir}"));
+            append_harness_tui_run_args(&mut args, &container_workdir);
             run_docker_command(
                 ctx,
                 runner,
@@ -6722,13 +6726,7 @@ fn handle_tui<R: DockerRunner>(
         eprintln!("warning: {warning}");
     }
     let mut args = compose_base_args(ctx, &cfg, false, &[runtime.override_file.clone()])?;
-    args.push("run".to_string());
-    args.push("--rm".to_string());
-    args.push("-e".to_string());
-    args.push("HARNESS_MODE=tui".to_string());
-    args.push("-e".to_string());
-    args.push(format!("HARNESS_AGENT_WORKDIR={container_start_dir}"));
-    args.push("harness".to_string());
+    append_harness_tui_run_args(&mut args, &container_start_dir);
     let env_overrides = compose_env_for_run(Some(&active_provider.run_id), Some(&workspace_root));
     if !provider_plane_is_running(ctx, runner, &cfg, false, &env_overrides)? {
         return Err(LuxError::Process(format!(
@@ -7612,7 +7610,8 @@ fn logs_stats(ctx: &Context, run_id: Option<String>, latest: bool) -> Result<(),
     let cfg = read_config(&ctx.config_path)?;
     let policy = resolve_config_policy_paths(&cfg)?;
     let log_root = policy.log_root;
-    let run_id = resolve_run_id_from_selector(&log_root, &policy.state_root, run_id.as_deref(), latest)?;
+    let run_id =
+        resolve_run_id_from_selector(&log_root, &policy.state_root, run_id.as_deref(), latest)?;
     let run_root = run_root(&log_root, &run_id);
     let sessions_dir = run_root.join("harness").join("sessions");
     let mut total_bytes: u64 = 0;
@@ -7678,7 +7677,8 @@ fn logs_tail(
     let cfg = read_config(&ctx.config_path)?;
     let policy = resolve_config_policy_paths(&cfg)?;
     let log_root = policy.log_root;
-    let run_id = resolve_run_id_from_selector(&log_root, &policy.state_root, run_id.as_deref(), latest)?;
+    let run_id =
+        resolve_run_id_from_selector(&log_root, &policy.state_root, run_id.as_deref(), latest)?;
     let run_root = run_root(&log_root, &run_id);
     let target = match file.as_deref() {
         Some("audit") => run_root.join("collector").join("raw").join("audit.log"),
@@ -8147,6 +8147,24 @@ providers:
         let nested = workspace.join("src").join("project");
         let mapped_nested = map_host_start_dir_to_container(&nested, &workspace).unwrap();
         assert_eq!(mapped_nested, "/work/src/project");
+    }
+
+    #[test]
+    fn append_harness_tui_run_args_places_env_before_service_name() {
+        let mut args = Vec::new();
+        append_harness_tui_run_args(&mut args, "/work/project");
+        assert_eq!(
+            args,
+            vec![
+                "run".to_string(),
+                "--rm".to_string(),
+                "-e".to_string(),
+                "HARNESS_MODE=tui".to_string(),
+                "-e".to_string(),
+                "HARNESS_AGENT_WORKDIR=/work/project".to_string(),
+                "harness".to_string(),
+            ]
+        );
     }
 
     #[cfg(unix)]
