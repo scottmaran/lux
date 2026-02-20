@@ -1,5 +1,11 @@
 # Lux
 
+Use claude code but worried about it making breaking changes to your computer? Come back to your laptop after a long agent run wondering what's changed?
+
+If only there were something watching everything your agents did so you didn't miss anything important.
+
+## About
+
 Lux is an OS‑level observation system for third‑party agents: it runs the agent in a container, uses auditd + eBPF inside the Docker Desktop VM to capture exec/fs/network/IPC metadata, and correlates that into a session‑tagged timeline. The stack includes a harness (PTY + API), a collector pipeline (filter → summary → merge), a dedicated container to run the agent, and a UI for log review.
 
 ## Lux CLI (beta)
@@ -8,7 +14,7 @@ versioned Docker images from GHCR and manages config + compose wiring.
 
 Temporary support note (February 2026): 
 - Linux host runtime support is temporarily not guaranteed while bind-mount permission compatibility work is in progress. The currently recommended host is macOS with Docker Desktop.
-- On MacOS for subscription-based Claude Code sessions on MacOS, you need to log in upon starting the TUI
+- For subscription-based Claude Code sessions on MacOS, you need to log in upon starting the TUI
 See platform support/caveats: `docs/contracts/platform.md`.
 
 ### Install (beta)
