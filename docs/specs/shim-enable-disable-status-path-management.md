@@ -94,16 +94,33 @@ Add a managed PATH block with stable markers:
 - begin marker: `# >>> lux-shim-path >>>`
 - end marker: `# <<< lux-shim-path <<<`
 
-Rendered block prepends `shims.bin_dir` with duplicate guard:
+Rendered block prepends `shims.bin_dir` with duplicate guard using exact
+string equality (not glob pattern matching):
 
 ```sh
 # >>> lux-shim-path >>>
-case ":$PATH:" in
-  *":<shims_bin_dir>:"*) ;;
-  *) export PATH="<shims_bin_dir>:$PATH" ;;
-esac
+_lux_shim_dir="<shims_bin_dir>"
+_lux_has_dir=false
+IFS=:
+for _lux_path_entry in $PATH; do
+  if [ "$_lux_path_entry" = "$_lux_shim_dir" ]; then
+    _lux_has_dir=true
+    break
+  fi
+done
+unset IFS
+if [ "$_lux_has_dir" != "true" ]; then
+  export PATH="$_lux_shim_dir:$PATH"
+fi
+unset _lux_path_entry _lux_has_dir _lux_shim_dir
 # <<< lux-shim-path <<<
 ```
+
+`shims.bin_dir` source-of-truth:
+- resolved from `config.shims.bin_dir` on each command invocation
+- default is `<trusted_root>/bin` (for example `/Users/Shared/Lux/bin` on macOS)
+- not globally fixed forever; if config changes, `enable` rewrites managed PATH
+  blocks to the current configured value
 
 Candidate file sets (existing files only):
 - Shell targeting policy:
@@ -145,10 +162,15 @@ Deterministic rules:
 - If shim phase fails:
   - command exits non-zero
   - PATH file phase is not attempted
-- If shim phase succeeds and PATH file phase has any mutation error on existing
-  files:
+- PATH file phase is transactional across targeted existing files:
+  - either all targeted files are updated
+  - or all files are restored to pre-command contents
+- If shim phase succeeds and PATH file phase fails on any targeted existing
+  file:
   - command exits non-zero
-  - output reports partial outcome (`shim.ok=true`, `path.ok=false`)
+  - JSON error envelope remains standard (`ok=false`, `result=null`)
+  - partial outcome is reported in `error_details.partial_outcome`
+  - path block changes are rolled back (`path.rolled_back=true`)
 - If no startup files exist:
   - command exits zero
   - output sets `path.state=no_startup_files`
@@ -261,6 +283,33 @@ Required enums:
 - shim summary state: `enabled | disabled | degraded`
 - path persistence state: `configured | partial | absent | no_startup_files`
 
+Failure envelope for PATH-phase failure (non-zero):
+
+```json
+{
+  "ok": false,
+  "result": null,
+  "error": "process error: ...",
+  "error_details": {
+    "error_code": "shim_path_mutation_failed",
+    "hint": "Fix shell startup file permissions and retry `lux shim enable`.",
+    "partial_outcome": {
+      "action": "shim_enable",
+      "providers": ["codex"],
+      "shim": { "ok": true },
+      "path": {
+        "ok": false,
+        "rolled_back": true,
+        "state": "absent",
+        "files": [
+          { "path": "~/.zprofile", "existed": true, "changed": false, "error": "permission denied" }
+        ]
+      }
+    }
+  }
+}
+```
+
 ## Security / Trust Model
 - No change to evidence integrity invariants.
 - Existing shim trust-path policy remains enforced.
@@ -276,7 +325,8 @@ Required enums:
   - command fails before mutation.
 - Existing startup file is unreadable/unwritable:
   - command reports file-specific error.
-  - if reached after shim success, command exits non-zero with partial outcome.
+  - if reached after shim success, command exits non-zero with partial outcome
+    under `error_details.partial_outcome` and transactional rollback.
 - No startup files exist:
   - command succeeds with explicit manual PATH guidance and
     `path.state=no_startup_files`; no files created.
@@ -291,8 +341,10 @@ Required enums:
   writes/removals only, provider validation, trust policy checks).
 - `enable` and `disable` follow explicit two-phase exit semantics:
   - shim failure => non-zero and no PATH mutation attempt
-  - PATH mutation error on existing files => non-zero with partial outcome
+  - PATH mutation error on existing files => non-zero with `result=null`,
+    partial outcome in `error_details.partial_outcome`, and rollback applied
   - no startup files => zero with `no_startup_files` state
+- PATH file mutation is all-or-nothing across targeted existing files.
 - PATH marker block is inserted/removed idempotently in existing zsh/bash
   startup files.
 - Missing startup files are never created by Lux.
@@ -302,6 +354,8 @@ Required enums:
 - Setup/help/install docs and next-step output reference only new shim verbs.
 - JSON output for `enable`, `disable`, and `status` includes required fields and
   enums defined in this spec.
+- Failure JSON envelope remains consistent with CLI contract (`ok=false`,
+  `result=null`) while carrying partial outcome in `error_details`.
 - Canonical repository test lanes pass:
   - `uv run python scripts/all_tests.py --lane fast`
   - `uv run python scripts/all_tests.py --lane pr`
@@ -315,6 +369,8 @@ Required enums:
   - summary state computation (`enabled|disabled|degraded`)
   - PATH persistence state computation (`configured|partial|absent|no_startup_files`)
   - phase outcome computation and exit-status mapping for shim/path errors
+  - transactional rollback semantics for PATH phase failure
+  - non-zero JSON error envelope with `result=null` + `error_details.partial_outcome`
 - CLI tests (`lux/tests/cli.rs`):
   - `enable -> status -> disable` roundtrip
   - no-provider defaults use configured providers
