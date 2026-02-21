@@ -45,7 +45,7 @@ This creates avoidable UX friction for the core workflow:
 ## User Experience
 - `lux shim enable`:
   - enables shims for configured providers (or explicit providers)
-  - persists PATH block in existing zsh/bash startup files
+  - persists PATH block in existing zsh/bash startup files found on host
   - prints guidance for current-session activation
 - `lux shim disable`:
   - disables shims for configured providers (or explicit providers)
@@ -106,12 +106,18 @@ esac
 ```
 
 Candidate file sets (existing files only):
+- Shell targeting policy:
+  - does not depend on the shell currently running `lux`
+  - always considers both zsh and bash file sets below
+  - acts only on files that already exist
 - zsh:
   - `~/.zprofile`
   - `~/.zshrc`
 - bash:
-  - login file: first existing of `~/.bash_profile`, `~/.bash_login`, `~/.profile`
-  - interactive file: `~/.bashrc` (if exists)
+  - `~/.bash_profile`
+  - `~/.bash_login`
+  - `~/.profile`
+  - `~/.bashrc`
 
 Persistence behavior:
 - `enable`: insert or replace managed block in all existing candidate files.
@@ -126,11 +132,30 @@ Edit behavior:
 Because `lux` cannot mutate the parent shell environment directly:
 - command output includes explicit one-shot activation instructions for the
   current shell session.
-- instructions are shell-specific and show:
-  - apply (`export PATH=...`)
-  - or refresh startup files (`source ...`) if user prefers.
+- instructions show:
+  - immediate apply (`export PATH=...`)
+  - shell reload guidance where applicable.
 
-### 5) `status` summary model
+### 5) Command outcome and exit semantics
+`enable` and `disable` are two-phase operations:
+1. shim phase
+2. PATH file phase
+
+Deterministic rules:
+- If shim phase fails:
+  - command exits non-zero
+  - PATH file phase is not attempted
+- If shim phase succeeds and PATH file phase has any mutation error on existing
+  files:
+  - command exits non-zero
+  - output reports partial outcome (`shim.ok=true`, `path.ok=false`)
+- If no startup files exist:
+  - command exits zero
+  - output sets `path.state=no_startup_files`
+- If both phases succeed:
+  - command exits zero
+
+### 6) `status` summary model
 `status` computes summary over targeted providers:
 - `enabled`: all targeted providers installed and `path_precedence_ok=true`
 - `disabled`: none targeted providers installed
@@ -140,8 +165,9 @@ Because `lux` cannot mutate the parent shell environment directly:
 - `configured`: Lux PATH block present in all existing candidate files
 - `partial`: Lux PATH block present in some existing candidate files
 - `absent`: Lux PATH block present in none of the existing candidate files
+- `no_startup_files`: no candidate startup files exist on host
 
-### 6) Docs/help/setup alignment
+### 7) Docs/help/setup alignment
 Update all user-facing references to old commands:
 - `lux setup` next steps
 - `README.md`
@@ -152,13 +178,88 @@ Update all user-facing references to old commands:
 ## Data / Schema Changes
 No evidence/log schema changes.
 
-CLI JSON response shape changes for shim commands:
-- `enable` response replaces old `installed` naming with `enabled` payload.
-- `disable` response replaces old `removed` naming with `disabled` payload.
-- `status` response adds:
-  - top-level `state`
-  - top-level `path_persistence`
-  - per-file PATH block status details
+CLI JSON response shape changes for shim commands.
+
+`enable` result fragment:
+
+```json
+{
+  "action": "shim_enable",
+  "providers": ["codex", "claude"],
+  "shim": {
+    "ok": true,
+    "rows": [
+      { "provider": "codex", "path": "/Users/Shared/Lux/bin/codex", "changed": true },
+      { "provider": "claude", "path": "/Users/Shared/Lux/bin/claude", "changed": true }
+    ]
+  },
+  "path": {
+    "ok": true,
+    "state": "configured",
+    "files": [
+      { "path": "~/.zprofile", "existed": true, "managed_block_present": true, "changed": true },
+      { "path": "~/.zshrc", "existed": true, "managed_block_present": true, "changed": false }
+    ]
+  },
+  "warnings": [],
+  "errors": []
+}
+```
+
+`disable` result fragment:
+
+```json
+{
+  "action": "shim_disable",
+  "providers": ["codex", "claude"],
+  "shim": {
+    "ok": true,
+    "rows": [
+      { "provider": "codex", "path": "/Users/Shared/Lux/bin/codex", "changed": true },
+      { "provider": "claude", "path": "/Users/Shared/Lux/bin/claude", "changed": true }
+    ]
+  },
+  "path": {
+    "ok": true,
+    "state": "absent",
+    "files": [
+      { "path": "~/.zprofile", "existed": true, "managed_block_present": false, "changed": true }
+    ]
+  },
+  "warnings": [],
+  "errors": []
+}
+```
+
+`status` result fragment:
+
+```json
+{
+  "action": "shim_status",
+  "providers": ["codex", "claude"],
+  "state": "enabled",
+  "shims": [
+    {
+      "provider": "codex",
+      "path": "/Users/Shared/Lux/bin/codex",
+      "installed": true,
+      "path_safe": true,
+      "path_precedence_ok": true,
+      "resolved_candidates": ["/Users/Shared/Lux/bin/codex", "/usr/local/bin/codex"]
+    }
+  ],
+  "path_persistence": {
+    "state": "configured",
+    "files": [
+      { "path": "~/.zprofile", "existed": true, "managed_block_present": true }
+    ]
+  }
+}
+```
+
+Required enums:
+- shim summary state: `enabled | disabled | degraded`
+- path persistence state: `configured | partial | absent | no_startup_files`
 
 ## Security / Trust Model
 - No change to evidence integrity invariants.
@@ -174,9 +275,11 @@ CLI JSON response shape changes for shim commands:
 - Shim path violates trust policy:
   - command fails before mutation.
 - Existing startup file is unreadable/unwritable:
-  - command reports file-specific warning/error and continues for other files.
+  - command reports file-specific error.
+  - if reached after shim success, command exits non-zero with partial outcome.
 - No startup files exist:
-  - command succeeds with explicit manual PATH guidance; no files created.
+  - command succeeds with explicit manual PATH guidance and
+    `path.state=no_startup_files`; no files created.
 - PATH precedence not first after enable:
   - status reports `degraded`; command emits remediation guidance.
 
@@ -186,12 +289,19 @@ CLI JSON response shape changes for shim commands:
   docs.
 - `enable` and `disable` preserve existing shim safety semantics (Lux-managed
   writes/removals only, provider validation, trust policy checks).
+- `enable` and `disable` follow explicit two-phase exit semantics:
+  - shim failure => non-zero and no PATH mutation attempt
+  - PATH mutation error on existing files => non-zero with partial outcome
+  - no startup files => zero with `no_startup_files` state
 - PATH marker block is inserted/removed idempotently in existing zsh/bash
   startup files.
 - Missing startup files are never created by Lux.
 - `status` includes top-level summary state and per-provider rows.
 - `status` includes PATH persistence coverage over managed shell files.
+- `status` reports `no_startup_files` distinctly from `configured`.
 - Setup/help/install docs and next-step output reference only new shim verbs.
+- JSON output for `enable`, `disable`, and `status` includes required fields and
+  enums defined in this spec.
 - Canonical repository test lanes pass:
   - `uv run python scripts/all_tests.py --lane fast`
   - `uv run python scripts/all_tests.py --lane pr`
@@ -199,15 +309,19 @@ CLI JSON response shape changes for shim commands:
 
 ## Test Plan
 - Unit tests (`lux/src/main.rs`):
-  - shell startup file selection logic (existing-only behavior)
+  - shell startup file selection logic (host-wide existing-file behavior across
+    zsh and bash sets)
   - marker block render/insert/replace/remove idempotence
   - summary state computation (`enabled|disabled|degraded`)
-  - PATH persistence state computation (`configured|partial|absent`)
+  - PATH persistence state computation (`configured|partial|absent|no_startup_files`)
+  - phase outcome computation and exit-status mapping for shim/path errors
 - CLI tests (`lux/tests/cli.rs`):
   - `enable -> status -> disable` roundtrip
   - no-provider defaults use configured providers
   - missing shell files are not created
+  - zero-startup-file case returns `path.state=no_startup_files`
   - existing files are updated and cleaned correctly
+  - path mutation failure on existing file returns non-zero with partial outcome
   - old subcommands rejected
 - Integration coverage (`tests/integration/`):
   - setup output references `lux shim enable`
@@ -221,6 +335,11 @@ CLI JSON response shape changes for shim commands:
 2. Add shell PATH block management helpers and status reporting.
 3. Update setup/help/docs/tests to new command contract.
 4. Run canonical verification lanes after targeted tests pass.
+
+Verification policy:
+- Canonical lanes (`fast`, `pr`, `full`) are required.
+- If a lane fails for a demonstrably unrelated reason, record evidence and keep
+  shim-targeted tests green before merge approval.
 
 ## Open Questions
 - None for draft review.
