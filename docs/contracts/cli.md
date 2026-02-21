@@ -15,7 +15,7 @@ provider execution.
 
 ```bash
 lux setup
-lux shim install
+lux shim enable
 codex
 ```
 
@@ -102,16 +102,28 @@ Rules:
 
 ### `shim`
 
-- `lux shim install [provider...]`
-- `lux shim uninstall [provider...]`
-- `lux shim list`
+- `lux shim enable [provider...]`
+- `lux shim disable [provider...]`
+- `lux shim status [provider...]`
 - `lux shim exec <provider> -- <argv...>`
 
 Shim contract:
-- `install` with no provider args targets all providers in `config.providers`.
-- install is preflighted and atomic (rollback on partial failure).
-- install warns when configured shim path is not first PATH resolution.
-- list reports `path_safe`, `path_precedence_ok`, and `resolved_candidates`.
+- `enable|disable|status` with no provider args target all providers in `config.providers`.
+- `enable` is preflighted and atomic for shim writes (rollback on partial shim-write failure).
+- `enable` and `disable` mutate only existing zsh/bash startup files via Lux-managed marker blocks.
+- `status` reports summary state (`enabled|disabled|degraded`), per-provider readiness, and PATH persistence (`configured|partial|absent|no_startup_files`).
+- `enable`/`disable` use two phases: shim mutation first, then shell PATH file mutation.
+  - If shim mutation fails, PATH file mutation is skipped.
+  - If PATH file mutation fails, command exits non-zero with `ok=false`, `result=null`, and partial progress in `error_details.partial_outcome`.
+- `enable`/`disable` success JSON includes:
+  - `action`, `providers`
+  - `shim.ok`, `shim.rows[]` (`provider`, `path`, `changed`)
+  - `path.ok`, `path.state`, `path.files[]` (`path`, `existed`, `managed_block_present`, `changed`)
+  - `warnings[]`, `errors[]`
+- `status` JSON includes:
+  - `action`, `providers`, top-level `state`
+  - `shims[]` (`provider`, `path`, `installed`, `path_safe`, `path_precedence_ok`, `resolved_candidates`)
+  - `path_persistence.state`, `path_persistence.files[]` (`path`, `existed`, `managed_block_present`)
 - exec preserves argv passthrough and cwd semantics via container workdir
   mapping; absolute host paths are rejected.
 
@@ -186,3 +198,4 @@ Process/command failures may also include structured details:
 - `error_details.hint`
 - `error_details.command`
 - `error_details.raw_stderr`
+- `error_details.partial_outcome` (for partial progress details while preserving `result: null`)

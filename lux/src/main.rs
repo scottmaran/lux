@@ -228,13 +228,15 @@ enum RuntimeCommand {
 
 #[derive(Subcommand, Debug)]
 enum ShimCommand {
-    Install {
+    Enable {
         providers: Vec<String>,
     },
-    Uninstall {
+    Disable {
         providers: Vec<String>,
     },
-    List,
+    Status {
+        providers: Vec<String>,
+    },
     Exec {
         provider: String,
         #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
@@ -666,6 +668,8 @@ struct ProcessErrorDetails {
     command: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     raw_stderr: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    partial_outcome: Option<serde_json::Value>,
 }
 
 #[derive(Debug, Clone)]
@@ -2698,7 +2702,7 @@ if you're using an API key or a subscription-based plan"
     }
     println!("  lux runtime up");
     println!("  lux ui up --wait");
-    println!("  lux shim install");
+    println!("  lux shim enable");
     if cfg_after_yaml.providers.contains_key("codex") {
         println!("  codex");
     } else if let Some(example) = cfg_after_yaml.providers.keys().next() {
@@ -4519,6 +4523,7 @@ fn docker_spawn_error_details(err: &io::Error, command: &str) -> ProcessErrorDet
             hint: Some("Install Docker and ensure `docker` is on your PATH.".to_string()),
             command: Some(command.to_string()),
             raw_stderr: None,
+            partial_outcome: None,
         };
     }
     ProcessErrorDetails {
@@ -4526,6 +4531,7 @@ fn docker_spawn_error_details(err: &io::Error, command: &str) -> ProcessErrorDet
         hint: None,
         command: Some(command.to_string()),
         raw_stderr: None,
+        partial_outcome: None,
     }
 }
 
@@ -4656,6 +4662,7 @@ fn execute_docker<R: DockerRunner>(
                 } else {
                     Some(stderr)
                 },
+                partial_outcome: None,
             },
         });
     }
@@ -5934,6 +5941,47 @@ fn handle_runtime(ctx: &Context, command: RuntimeCommand) -> Result<(), LuxError
 }
 
 const SHIM_MARKER: &str = "# lux-shim";
+const SHIM_PATH_BEGIN_MARKER: &str = "# >>> lux-shim-path >>>";
+const SHIM_PATH_END_MARKER: &str = "# <<< lux-shim-path <<<";
+
+#[derive(Debug, Clone, Copy)]
+enum ShimPathAction {
+    Enable,
+    Disable,
+}
+
+impl ShimPathAction {
+    fn action_id(self) -> &'static str {
+        match self {
+            Self::Enable => "shim_enable",
+            Self::Disable => "shim_disable",
+        }
+    }
+
+    fn command_name(self) -> &'static str {
+        match self {
+            Self::Enable => "lux shim enable",
+            Self::Disable => "lux shim disable",
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+struct ShimPathFileStatus {
+    path: PathBuf,
+    existed: bool,
+    managed_block_present: bool,
+    changed: bool,
+    error: Option<String>,
+}
+
+#[derive(Debug, Clone)]
+struct ShimPathPhase {
+    ok: bool,
+    state: String,
+    files: Vec<ShimPathFileStatus>,
+    rolled_back: Option<bool>,
+}
 
 fn resolve_shim_providers(cfg: &Config, providers: Vec<String>) -> Vec<String> {
     if providers.is_empty() {
@@ -5947,6 +5995,20 @@ fn resolve_shim_providers(cfg: &Config, providers: Vec<String>) -> Vec<String> {
         }
     }
     ordered
+}
+
+fn resolve_shim_providers_or_error(
+    cfg: &Config,
+    providers: Vec<String>,
+    action: &str,
+) -> Result<Vec<String>, LuxError> {
+    let resolved = resolve_shim_providers(cfg, providers);
+    if resolved.is_empty() {
+        return Err(LuxError::Process(format!(
+            "no providers configured for shim {action}"
+        )));
+    }
+    Ok(resolved)
 }
 
 fn shim_path_for_provider(bin_dir: &Path, provider: &str) -> PathBuf {
@@ -6009,6 +6071,365 @@ fn shim_path_precedence_ok(provider: &str, shim_path: &Path) -> (bool, Vec<PathB
     (first_matches, resolved)
 }
 
+fn display_path_with_tilde(path: &Path, home: &Path) -> String {
+    if path == home {
+        return "~".to_string();
+    }
+    if let Ok(stripped) = path.strip_prefix(home) {
+        if stripped.as_os_str().is_empty() {
+            "~".to_string()
+        } else {
+            format!("~/{}", stripped.display())
+        }
+    } else {
+        path.to_string_lossy().to_string()
+    }
+}
+
+fn shim_startup_candidate_files(home: &Path) -> Vec<PathBuf> {
+    vec![
+        home.join(".zprofile"),
+        home.join(".zshrc"),
+        home.join(".bash_profile"),
+        home.join(".bash_login"),
+        home.join(".profile"),
+        home.join(".bashrc"),
+    ]
+}
+
+fn existing_shim_startup_files(home: &Path) -> Vec<PathBuf> {
+    shim_startup_candidate_files(home)
+        .into_iter()
+        .filter(|path| path.exists())
+        .collect()
+}
+
+fn render_shim_path_block(shims_bin_dir: &Path) -> String {
+    let shim_dir = shims_bin_dir
+        .to_string_lossy()
+        .replace('\\', "\\\\")
+        .replace('"', "\\\"");
+    format!(
+        "{begin}\n_lux_shim_dir=\"{shim_dir}\"\n_lux_has_dir=false\nIFS=:\nfor _lux_path_entry in $PATH; do\n  if [ \"$_lux_path_entry\" = \"$_lux_shim_dir\" ]; then\n    _lux_has_dir=true\n    break\n  fi\ndone\nunset IFS\nif [ \"$_lux_has_dir\" != \"true\" ]; then\n  export PATH=\"$_lux_shim_dir:$PATH\"\nfi\nunset _lux_path_entry _lux_has_dir _lux_shim_dir\n{end}\n",
+        begin = SHIM_PATH_BEGIN_MARKER,
+        end = SHIM_PATH_END_MARKER,
+    )
+}
+
+fn managed_path_block_present(body: &str) -> bool {
+    let Some(begin) = body.find(SHIM_PATH_BEGIN_MARKER) else {
+        return false;
+    };
+    let after_begin = begin + SHIM_PATH_BEGIN_MARKER.len();
+    body[after_begin..].contains(SHIM_PATH_END_MARKER)
+}
+
+fn strip_managed_path_blocks(body: &str) -> Result<(String, bool), String> {
+    let mut remaining = body;
+    let mut output = String::with_capacity(body.len());
+    let mut removed_any = false;
+
+    loop {
+        let Some(begin_idx) = remaining.find(SHIM_PATH_BEGIN_MARKER) else {
+            output.push_str(remaining);
+            break;
+        };
+        output.push_str(&remaining[..begin_idx]);
+        let after_begin = begin_idx + SHIM_PATH_BEGIN_MARKER.len();
+        let Some(end_rel) = remaining[after_begin..].find(SHIM_PATH_END_MARKER) else {
+            return Err(
+                "found Lux-managed PATH begin marker without matching end marker".to_string(),
+            );
+        };
+        let mut cut_idx = after_begin + end_rel + SHIM_PATH_END_MARKER.len();
+        if remaining[cut_idx..].starts_with("\r\n") {
+            cut_idx += 2;
+        } else if remaining[cut_idx..].starts_with('\n') {
+            cut_idx += 1;
+        }
+        remaining = &remaining[cut_idx..];
+        removed_any = true;
+    }
+    Ok((output, removed_any))
+}
+
+fn apply_managed_path_block(body: &str, block: &str) -> Result<(String, bool, bool), String> {
+    let (stripped, _) = strip_managed_path_blocks(body)?;
+    let mut updated = stripped.trim_end_matches('\n').to_string();
+    if !updated.is_empty() {
+        updated.push_str("\n\n");
+    }
+    updated.push_str(block.trim_end_matches('\n'));
+    updated.push('\n');
+    let changed = updated != body;
+    Ok((updated, true, changed))
+}
+
+fn remove_managed_path_block(body: &str) -> Result<(String, bool, bool), String> {
+    let (updated, _) = strip_managed_path_blocks(body)?;
+    let changed = updated != body;
+    Ok((updated, false, changed))
+}
+
+fn shim_path_persistence_state(rows: &[ShimPathFileStatus]) -> String {
+    if rows.is_empty() {
+        return "no_startup_files".to_string();
+    }
+    let present = rows.iter().filter(|row| row.managed_block_present).count();
+    if present == 0 {
+        "absent".to_string()
+    } else if present == rows.len() {
+        "configured".to_string()
+    } else {
+        "partial".to_string()
+    }
+}
+
+fn rollback_startup_file_mutations(
+    changed_paths: &[PathBuf],
+    originals: &BTreeMap<PathBuf, String>,
+) -> bool {
+    let mut rolled_back = true;
+    for path in changed_paths.iter().rev() {
+        let Some(original) = originals.get(path) else {
+            continue;
+        };
+        if fs::write(path, original.as_bytes()).is_err() {
+            rolled_back = false;
+        }
+    }
+    rolled_back
+}
+
+fn build_shim_path_failure(
+    startup_files: &[PathBuf],
+    originals: &BTreeMap<PathBuf, String>,
+    failing_path: &Path,
+    error_message: String,
+    rolled_back: bool,
+) -> ShimPathPhase {
+    let mut rows = Vec::new();
+    for path in startup_files {
+        let present = originals
+            .get(path)
+            .map(|body| managed_path_block_present(body))
+            .unwrap_or(false);
+        rows.push(ShimPathFileStatus {
+            path: path.clone(),
+            existed: true,
+            managed_block_present: present,
+            changed: false,
+            error: if path == failing_path {
+                Some(error_message.clone())
+            } else {
+                None
+            },
+        });
+    }
+    ShimPathPhase {
+        ok: false,
+        state: shim_path_persistence_state(&rows),
+        files: rows,
+        rolled_back: Some(rolled_back),
+    }
+}
+
+fn mutate_shell_path_persistence(
+    policy: &PolicyPaths,
+    action: ShimPathAction,
+) -> Result<ShimPathPhase, ShimPathPhase> {
+    let startup_files = existing_shim_startup_files(&policy.home);
+    if startup_files.is_empty() {
+        return Ok(ShimPathPhase {
+            ok: true,
+            state: "no_startup_files".to_string(),
+            files: Vec::new(),
+            rolled_back: None,
+        });
+    }
+
+    let mut originals = BTreeMap::new();
+    for path in &startup_files {
+        let content = match fs::read_to_string(path) {
+            Ok(content) => content,
+            Err(err) => {
+                return Err(build_shim_path_failure(
+                    &startup_files,
+                    &originals,
+                    path,
+                    format!("failed to read startup file {}: {}", path.display(), err),
+                    true,
+                ));
+            }
+        };
+        originals.insert(path.clone(), content);
+    }
+
+    let managed_block = render_shim_path_block(&policy.shims_bin_dir);
+    let mut changed_paths: Vec<PathBuf> = Vec::new();
+    let mut rows: Vec<ShimPathFileStatus> = Vec::new();
+
+    for path in &startup_files {
+        let original = originals.get(path).expect("startup file original content");
+        let transformed = match action {
+            ShimPathAction::Enable => apply_managed_path_block(original, &managed_block),
+            ShimPathAction::Disable => remove_managed_path_block(original),
+        };
+        let (updated, managed_block_present, changed) = match transformed {
+            Ok(row) => row,
+            Err(err) => {
+                let rolled_back = rollback_startup_file_mutations(&changed_paths, &originals);
+                return Err(build_shim_path_failure(
+                    &startup_files,
+                    &originals,
+                    path,
+                    format!("failed to update startup file {}: {}", path.display(), err),
+                    rolled_back,
+                ));
+            }
+        };
+
+        if changed {
+            if let Err(err) = fs::write(path, updated.as_bytes()) {
+                let rolled_back = rollback_startup_file_mutations(&changed_paths, &originals);
+                return Err(build_shim_path_failure(
+                    &startup_files,
+                    &originals,
+                    path,
+                    format!("failed to write startup file {}: {}", path.display(), err),
+                    rolled_back,
+                ));
+            }
+            changed_paths.push(path.clone());
+        }
+
+        rows.push(ShimPathFileStatus {
+            path: path.clone(),
+            existed: true,
+            managed_block_present,
+            changed,
+            error: None,
+        });
+    }
+
+    Ok(ShimPathPhase {
+        ok: true,
+        state: shim_path_persistence_state(&rows),
+        files: rows,
+        rolled_back: None,
+    })
+}
+
+fn inspect_shell_path_persistence(policy: &PolicyPaths) -> Result<ShimPathPhase, LuxError> {
+    let startup_files = existing_shim_startup_files(&policy.home);
+    if startup_files.is_empty() {
+        return Ok(ShimPathPhase {
+            ok: true,
+            state: "no_startup_files".to_string(),
+            files: Vec::new(),
+            rolled_back: None,
+        });
+    }
+    let mut rows = Vec::new();
+    for path in startup_files {
+        let content = fs::read_to_string(&path).map_err(|err| {
+            LuxError::Process(format!(
+                "failed to read startup file {}: {}",
+                path.display(),
+                err
+            ))
+        })?;
+        rows.push(ShimPathFileStatus {
+            path,
+            existed: true,
+            managed_block_present: managed_path_block_present(&content),
+            changed: false,
+            error: None,
+        });
+    }
+    Ok(ShimPathPhase {
+        ok: true,
+        state: shim_path_persistence_state(&rows),
+        files: rows,
+        rolled_back: None,
+    })
+}
+
+fn shim_path_files_json(
+    rows: &[ShimPathFileStatus],
+    home: &Path,
+    include_changed: bool,
+    include_error: bool,
+) -> Vec<serde_json::Value> {
+    let mut json_rows = Vec::new();
+    for row in rows {
+        let mut item = json!({
+            "path": display_path_with_tilde(&row.path, home),
+            "existed": row.existed,
+            "managed_block_present": row.managed_block_present,
+        });
+        if include_changed {
+            item["changed"] = json!(row.changed);
+        }
+        if include_error {
+            if let Some(error) = &row.error {
+                item["error"] = json!(error);
+            }
+        }
+        json_rows.push(item);
+    }
+    json_rows
+}
+
+fn shim_status_summary_state(rows: &[serde_json::Value]) -> String {
+    let installed_count = rows
+        .iter()
+        .filter(|row| row["installed"].as_bool().unwrap_or(false))
+        .count();
+    if installed_count == 0 {
+        return "disabled".to_string();
+    }
+    let all_ready = rows.iter().all(|row| {
+        row["installed"].as_bool().unwrap_or(false)
+            && row["path_precedence_ok"].as_bool().unwrap_or(false)
+    });
+    if all_ready {
+        "enabled".to_string()
+    } else {
+        "degraded".to_string()
+    }
+}
+
+fn emit_shim_current_session_guidance(
+    action: ShimPathAction,
+    policy: &PolicyPaths,
+    no_startup_files: bool,
+) {
+    let shim_dir = policy.shims_bin_dir.to_string_lossy();
+    eprintln!();
+    match action {
+        ShimPathAction::Enable => {
+            eprintln!("Current session PATH update:");
+            eprintln!("  export PATH=\"{}:$PATH\"", shim_dir);
+            eprintln!("Reload shell startup files (if changed):");
+            eprintln!("  source ~/.zprofile  # zsh login shell");
+            eprintln!("  source ~/.bashrc    # bash interactive shell");
+        }
+        ShimPathAction::Disable => {
+            let quoted = shell_single_quote(&shim_dir);
+            eprintln!("Current session PATH update:");
+            eprintln!(
+                "  export PATH=\"$(printf '%s' \"$PATH\" | tr ':' '\\n' | grep -Fxv {} | paste -sd ':' -)\"",
+                quoted
+            );
+            eprintln!("Or start a new shell session.");
+        }
+    }
+    if no_startup_files {
+        eprintln!("No supported zsh/bash startup files were found; Lux did not create any files.");
+    }
+}
+
 #[cfg(unix)]
 fn write_shim(path: &Path, provider: &str) -> Result<(), LuxError> {
     use std::os::unix::fs::PermissionsExt;
@@ -6022,7 +6443,7 @@ fn write_shim(path: &Path, provider: &str) -> Result<(), LuxError> {
 #[cfg(not(unix))]
 fn write_shim(_path: &Path, _provider: &str) -> Result<(), LuxError> {
     Err(LuxError::Config(
-        "shim install is only supported on unix hosts".to_string(),
+        "shim enable is only supported on unix hosts".to_string(),
     ))
 }
 
@@ -6082,18 +6503,14 @@ fn handle_shim<R: DockerRunner>(
     runner: &R,
 ) -> Result<(), LuxError> {
     match command {
-        ShimCommand::Install { providers } => {
+        ShimCommand::Enable { providers } => {
             let cfg = read_config(&ctx.config_path)?;
             let policy = resolve_config_policy_paths(&cfg)?;
-            let providers = resolve_shim_providers(&cfg, providers);
-            if providers.is_empty() {
-                return Err(LuxError::Process(
-                    "no providers configured for shim install".to_string(),
-                ));
-            }
+            let providers = resolve_shim_providers_or_error(&cfg, providers, "enable")?;
 
-            let mut preflight: Vec<(String, PathBuf, bool)> = Vec::new();
-            for provider in providers {
+            let mut preflight: Vec<(String, PathBuf, bool, bool)> = Vec::new();
+            let mut rollback_data: BTreeMap<PathBuf, (bool, Option<String>)> = BTreeMap::new();
+            for provider in &providers {
                 let _ = provider_from_config(&cfg, &provider)?;
                 let shim_path = shim_path_for_provider(&policy.shims_bin_dir, &provider);
                 if !shim_path_safe(&policy, &shim_path) {
@@ -6106,13 +6523,22 @@ fn handle_shim<R: DockerRunner>(
                     )));
                 }
                 let existed_before = shim_path.exists();
-                if existed_before && !is_lux_managed_shim(&shim_path) {
-                    return Err(LuxError::Process(format!(
-                        "shim install would overwrite existing non-lux binary: {}",
-                        shim_path.display()
-                    )));
+                if existed_before {
+                    if !is_lux_managed_shim(&shim_path) {
+                        return Err(LuxError::Process(format!(
+                            "shim enable would overwrite existing non-lux binary: {}",
+                            shim_path.display()
+                        )));
+                    }
+                    let existing_body = fs::read_to_string(&shim_path)?;
+                    let desired = shim_script(provider);
+                    let needs_write = existing_body != desired;
+                    rollback_data.insert(shim_path.clone(), (true, Some(existing_body)));
+                    preflight.push((provider.clone(), shim_path, true, needs_write));
+                } else {
+                    rollback_data.insert(shim_path.clone(), (false, None));
+                    preflight.push((provider.clone(), shim_path, false, true));
                 }
-                preflight.push((provider, shim_path, existed_before));
             }
 
             fs::create_dir_all(&policy.shims_bin_dir).map_err(|err| {
@@ -6123,87 +6549,199 @@ fn handle_shim<R: DockerRunner>(
                 ))
             })?;
 
-            let mut installed = Vec::new();
-            let mut created_this_invocation: Vec<PathBuf> = Vec::new();
-            for (provider, shim_path, existed_before) in &preflight {
+            let mut changed_paths = Vec::new();
+            for (provider, shim_path, _existed_before, needs_write) in &preflight {
+                if !needs_write {
+                    continue;
+                }
                 if let Err(err) = write_shim(shim_path, provider) {
-                    for created in &created_this_invocation {
-                        let _ = fs::remove_file(created);
+                    for rollback_path in changed_paths.iter().rev() {
+                        let Some((existed_before, original_content)) =
+                            rollback_data.get(rollback_path)
+                        else {
+                            continue;
+                        };
+                        if *existed_before {
+                            if let Some(original_content) = original_content {
+                                let _ = fs::write(rollback_path, original_content.as_bytes());
+                            }
+                        } else {
+                            let _ = fs::remove_file(rollback_path);
+                        }
                     }
                     return Err(err);
                 }
-                if !*existed_before {
-                    created_this_invocation.push(shim_path.clone());
-                }
-                installed.push(json!({
-                    "provider": provider,
-                    "path": shim_path,
-                }));
+                changed_paths.push(shim_path.clone());
             }
 
+            let mut shim_rows = Vec::new();
             let mut warnings: Vec<String> = Vec::new();
-            let mut path_precedence_mismatch = false;
-            for (provider, shim_path, _) in &preflight {
-                let (path_precedence_ok, candidates) = shim_path_precedence_ok(provider, shim_path);
+            for (provider, shim_path, _existed_before, needs_write) in &preflight {
+                let (path_precedence_ok, _candidates) =
+                    shim_path_precedence_ok(provider, shim_path);
                 if !path_precedence_ok {
-                    path_precedence_mismatch = true;
                     warnings.push(format!(
                         "PATH precedence mismatch for '{}': expected {} to resolve first",
                         provider,
                         shim_path.display()
                     ));
                 }
-                let _ = candidates;
+                shim_rows.push(json!({
+                    "provider": provider,
+                    "path": shim_path,
+                    "changed": needs_write,
+                }));
             }
+
+            let path_phase = match mutate_shell_path_persistence(&policy, ShimPathAction::Enable) {
+                Ok(phase) => phase,
+                Err(path_failure) => {
+                    let partial_outcome = json!({
+                        "action": ShimPathAction::Enable.action_id(),
+                        "providers": providers,
+                        "shim": {"ok": true, "rows": shim_rows},
+                        "path": {
+                            "ok": path_failure.ok,
+                            "rolled_back": path_failure.rolled_back.unwrap_or(false),
+                            "state": path_failure.state,
+                            "files": shim_path_files_json(&path_failure.files, &policy.home, true, true),
+                        },
+                    });
+                    return Err(LuxError::ProcessDetailed {
+                        message: format!(
+                            "shell startup file mutation failed during `{}`",
+                            ShimPathAction::Enable.command_name()
+                        ),
+                        details: ProcessErrorDetails {
+                            error_code: "shim_path_mutation_failed".to_string(),
+                            hint: Some(
+                                "Fix shell startup file permissions and retry `lux shim enable`."
+                                    .to_string(),
+                            ),
+                            command: Some(ShimPathAction::Enable.command_name().to_string()),
+                            raw_stderr: None,
+                            partial_outcome: Some(partial_outcome),
+                        },
+                    });
+                }
+            };
+
             if !ctx.json {
                 for warning in &warnings {
                     eprintln!("warning: {warning}");
                 }
-                if path_precedence_mismatch {
-                    let shim_bin_dir = policy.shims_bin_dir.to_string_lossy();
-                    eprintln!();
-                    eprintln!("  Run this now:");
-                    eprintln!();
-                    eprintln!("  export PATH=\"{}:$PATH\"", shim_bin_dir);
-                    eprintln!();
-                    eprintln!("  If you want it permanent in zsh:");
-                    eprintln!();
-                    eprintln!(
-                        "  echo 'export PATH=\"{}:$PATH\"' >> ~/.zprofile",
-                        shim_bin_dir
-                    );
-                    eprintln!("  source ~/.zprofile");
-                }
+                emit_shim_current_session_guidance(
+                    ShimPathAction::Enable,
+                    &policy,
+                    path_phase.state == "no_startup_files",
+                );
             }
-            output(ctx, json!({"installed": installed, "warnings": warnings}))
+
+            output(
+                ctx,
+                json!({
+                    "action": ShimPathAction::Enable.action_id(),
+                    "providers": providers,
+                    "shim": {"ok": true, "rows": shim_rows},
+                    "path": {
+                        "ok": path_phase.ok,
+                        "state": path_phase.state,
+                        "files": shim_path_files_json(&path_phase.files, &policy.home, true, false),
+                    },
+                    "warnings": warnings,
+                    "errors": Vec::<String>::new(),
+                }),
+            )
         }
-        ShimCommand::Uninstall { providers } => {
+        ShimCommand::Disable { providers } => {
             let cfg = read_config(&ctx.config_path)?;
             let policy = resolve_config_policy_paths(&cfg)?;
-            let providers = resolve_shim_providers(&cfg, providers);
-            let mut removed = Vec::new();
-            for provider in providers {
+            let providers = resolve_shim_providers_or_error(&cfg, providers, "disable")?;
+            let mut shim_rows = Vec::new();
+            for provider in &providers {
                 let _ = provider_from_config(&cfg, &provider)?;
                 let shim_path = shim_path_for_provider(&policy.shims_bin_dir, &provider);
+                let mut changed = false;
                 if shim_path.exists() && is_lux_managed_shim(&shim_path) {
                     fs::remove_file(&shim_path)?;
-                    removed.push(json!({"provider": provider, "path": shim_path, "removed": true}));
-                } else {
-                    removed
-                        .push(json!({"provider": provider, "path": shim_path, "removed": false}));
+                    changed = true;
                 }
+                shim_rows.push(json!({
+                    "provider": provider,
+                    "path": shim_path,
+                    "changed": changed,
+                }));
             }
-            output(ctx, json!({"removed": removed}))
+
+            let path_phase = match mutate_shell_path_persistence(&policy, ShimPathAction::Disable) {
+                Ok(phase) => phase,
+                Err(path_failure) => {
+                    let partial_outcome = json!({
+                        "action": ShimPathAction::Disable.action_id(),
+                        "providers": providers,
+                        "shim": {"ok": true, "rows": shim_rows},
+                        "path": {
+                            "ok": path_failure.ok,
+                            "rolled_back": path_failure.rolled_back.unwrap_or(false),
+                            "state": path_failure.state,
+                            "files": shim_path_files_json(&path_failure.files, &policy.home, true, true),
+                        },
+                    });
+                    return Err(LuxError::ProcessDetailed {
+                        message: format!(
+                            "shell startup file mutation failed during `{}`",
+                            ShimPathAction::Disable.command_name()
+                        ),
+                        details: ProcessErrorDetails {
+                            error_code: "shim_path_mutation_failed".to_string(),
+                            hint: Some(
+                                "Fix shell startup file permissions and retry `lux shim disable`."
+                                    .to_string(),
+                            ),
+                            command: Some(ShimPathAction::Disable.command_name().to_string()),
+                            raw_stderr: None,
+                            partial_outcome: Some(partial_outcome),
+                        },
+                    });
+                }
+            };
+
+            if !ctx.json {
+                emit_shim_current_session_guidance(
+                    ShimPathAction::Disable,
+                    &policy,
+                    path_phase.state == "no_startup_files",
+                );
+            }
+
+            output(
+                ctx,
+                json!({
+                    "action": ShimPathAction::Disable.action_id(),
+                    "providers": providers,
+                    "shim": {"ok": true, "rows": shim_rows},
+                    "path": {
+                        "ok": path_phase.ok,
+                        "state": path_phase.state,
+                        "files": shim_path_files_json(&path_phase.files, &policy.home, true, false),
+                    },
+                    "warnings": Vec::<String>::new(),
+                    "errors": Vec::<String>::new(),
+                }),
+            )
         }
-        ShimCommand::List => {
+        ShimCommand::Status { providers } => {
             let cfg = read_config(&ctx.config_path)?;
             let policy = resolve_config_policy_paths(&cfg)?;
-            let mut rows = Vec::new();
-            for provider in cfg.providers.keys() {
+            let providers = resolve_shim_providers_or_error(&cfg, providers, "status")?;
+
+            let mut shim_rows = Vec::new();
+            for provider in &providers {
+                let _ = provider_from_config(&cfg, provider)?;
                 let shim_path = shim_path_for_provider(&policy.shims_bin_dir, provider);
                 let (path_precedence_ok, candidates) =
                     shim_path_precedence_ok(provider, &shim_path);
-                rows.push(json!({
+                shim_rows.push(json!({
                     "provider": provider,
                     "path": shim_path,
                     "installed": shim_path.exists() && is_lux_managed_shim(&shim_path),
@@ -6212,7 +6750,20 @@ fn handle_shim<R: DockerRunner>(
                     "resolved_candidates": candidates.into_iter().map(|path| path.to_string_lossy().to_string()).collect::<Vec<String>>(),
                 }));
             }
-            output(ctx, json!({"shims": rows}))
+            let path_status = inspect_shell_path_persistence(&policy)?;
+            output(
+                ctx,
+                json!({
+                    "action": "shim_status",
+                    "providers": providers,
+                    "state": shim_status_summary_state(&shim_rows),
+                    "shims": shim_rows,
+                    "path_persistence": {
+                        "state": path_status.state,
+                        "files": shim_path_files_json(&path_status.files, &policy.home, false, false),
+                    }
+                }),
+            )
         }
         ShimCommand::Exec { provider, argv } => {
             let mut passthrough = argv;
@@ -6986,7 +7537,7 @@ fn collect_doctor_checks(ctx: &Context, cfg: &Config) -> Result<Vec<DoctorCheck>
         } else {
             "one or more configured provider shims are not first on PATH"
         },
-        "Run `lux shim install` and ensure `<trusted_root>/bin` is first in PATH for configured providers.",
+        "Run `lux shim enable` and ensure `<trusted_root>/bin` is first in PATH for configured providers.",
         json!({"providers": shim_rows}),
     ));
 
@@ -8316,5 +8867,115 @@ providers:
             }
             other => panic!("unexpected error variant: {other:?}"),
         }
+    }
+
+    #[test]
+    fn shim_path_block_insert_replace_remove_is_idempotent() {
+        let initial = "# shell profile\n";
+        let block = render_shim_path_block(Path::new("/tmp/lux/bin"));
+
+        let (enabled, enabled_present, enabled_changed) =
+            apply_managed_path_block(initial, &block).expect("enable should work");
+        assert!(enabled_present);
+        assert!(enabled_changed);
+        assert_eq!(enabled.matches(SHIM_PATH_BEGIN_MARKER).count(), 1);
+
+        let (enabled_again, enabled_again_present, enabled_again_changed) =
+            apply_managed_path_block(&enabled, &block).expect("enable re-run should work");
+        assert!(enabled_again_present);
+        assert!(!enabled_again_changed);
+        assert_eq!(enabled_again.matches(SHIM_PATH_BEGIN_MARKER).count(), 1);
+
+        let (disabled, disabled_present, disabled_changed) =
+            remove_managed_path_block(&enabled_again).expect("disable should work");
+        assert!(!disabled_present);
+        assert!(disabled_changed);
+        assert!(!disabled.contains(SHIM_PATH_BEGIN_MARKER));
+
+        let (disabled_again, disabled_again_present, disabled_again_changed) =
+            remove_managed_path_block(&disabled).expect("disable re-run should work");
+        assert!(!disabled_again_present);
+        assert!(!disabled_again_changed);
+        assert_eq!(disabled, disabled_again);
+    }
+
+    #[test]
+    fn shim_path_persistence_state_computation() {
+        assert_eq!(shim_path_persistence_state(&[]), "no_startup_files");
+
+        let absent = vec![
+            ShimPathFileStatus {
+                path: PathBuf::from("/tmp/.zprofile"),
+                existed: true,
+                managed_block_present: false,
+                changed: false,
+                error: None,
+            },
+            ShimPathFileStatus {
+                path: PathBuf::from("/tmp/.bashrc"),
+                existed: true,
+                managed_block_present: false,
+                changed: false,
+                error: None,
+            },
+        ];
+        assert_eq!(shim_path_persistence_state(&absent), "absent");
+
+        let partial = vec![
+            ShimPathFileStatus {
+                path: PathBuf::from("/tmp/.zprofile"),
+                existed: true,
+                managed_block_present: true,
+                changed: false,
+                error: None,
+            },
+            ShimPathFileStatus {
+                path: PathBuf::from("/tmp/.bashrc"),
+                existed: true,
+                managed_block_present: false,
+                changed: false,
+                error: None,
+            },
+        ];
+        assert_eq!(shim_path_persistence_state(&partial), "partial");
+
+        let configured = vec![
+            ShimPathFileStatus {
+                path: PathBuf::from("/tmp/.zprofile"),
+                existed: true,
+                managed_block_present: true,
+                changed: false,
+                error: None,
+            },
+            ShimPathFileStatus {
+                path: PathBuf::from("/tmp/.bashrc"),
+                existed: true,
+                managed_block_present: true,
+                changed: false,
+                error: None,
+            },
+        ];
+        assert_eq!(shim_path_persistence_state(&configured), "configured");
+    }
+
+    #[test]
+    fn shim_status_summary_state_computation() {
+        let disabled_rows = vec![
+            json!({"provider":"codex","installed":false,"path_precedence_ok":false}),
+            json!({"provider":"claude","installed":false,"path_precedence_ok":false}),
+        ];
+        assert_eq!(shim_status_summary_state(&disabled_rows), "disabled");
+
+        let enabled_rows = vec![
+            json!({"provider":"codex","installed":true,"path_precedence_ok":true}),
+            json!({"provider":"claude","installed":true,"path_precedence_ok":true}),
+        ];
+        assert_eq!(shim_status_summary_state(&enabled_rows), "enabled");
+
+        let degraded_rows = vec![
+            json!({"provider":"codex","installed":true,"path_precedence_ok":false}),
+            json!({"provider":"claude","installed":true,"path_precedence_ok":true}),
+        ];
+        assert_eq!(shim_status_summary_state(&degraded_rows), "degraded");
     }
 }

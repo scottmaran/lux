@@ -37,7 +37,7 @@ Quick start (after install):
 lux setup
 lux runtime up
 lux ui up --wait
-lux shim install
+lux shim enable
 codex
 ```
 

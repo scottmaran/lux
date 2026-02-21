@@ -140,7 +140,7 @@ provider secrets files (API-key mode).
 ```bash
 lux runtime up
 lux ui up --wait
-lux shim install
+lux shim enable
 codex
 ```
 

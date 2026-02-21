@@ -31,7 +31,7 @@ export LUX_BUNDLE_DIR=$(cd .. && pwd)
 ./target/debug/lux config apply
 ./target/debug/lux runtime up
 ./target/debug/lux ui up
-./target/debug/lux shim install
+./target/debug/lux shim enable
 ./target/debug/lux run --provider codex --start-dir "$PWD" "hello"
 ```
 
