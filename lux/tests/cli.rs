@@ -577,9 +577,7 @@ fn setup_defaults_creates_secrets_from_env_when_missing() {
     fs::create_dir_all(&config_dir).unwrap();
     let _config_path = write_default_template_config(&config_dir, &trusted_root);
 
-    let secrets_path = trusted_root
-        .join("secrets")
-        .join("codex.env");
+    let secrets_path = trusted_root.join("secrets").join("codex.env");
     assert!(!secrets_path.exists());
 
     let output = bin()
@@ -1003,7 +1001,140 @@ fn runtime_up_status_down_cycle() {
 
 #[cfg(unix)]
 #[test]
-fn shim_install_list_uninstall_roundtrip() {
+fn shim_enable_status_disable_roundtrip() {
+    let dir = tempdir().unwrap();
+    let home = dir.path().join("home");
+    fs::create_dir_all(&home).unwrap();
+    fs::write(home.join(".zprofile"), "# existing zprofile\n").unwrap();
+    fs::write(home.join(".bashrc"), "# existing bashrc\n").unwrap();
+    let config_path = dir.path().join("config.yaml");
+    let trusted_root = dir.path().join("trusted");
+    let log_root = trusted_root.join("logs");
+    let workspace_root = home.join("workspace");
+    write_config_with_paths(&config_path, &trusted_root, &log_root, &workspace_root);
+
+    let shims_bin = trusted_root.join("bin");
+    let path_env = format!(
+        "{}:{}",
+        shims_bin.display(),
+        std::env::var("PATH").unwrap_or_default()
+    );
+
+    let enable = bin()
+        .env("PATH", &path_env)
+        .env("HOME", &home)
+        .arg("--json")
+        .arg("--config")
+        .arg(&config_path)
+        .arg("shim")
+        .arg("enable")
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    let enable_value = parse_json(&enable);
+    assert_eq!(enable_value["result"]["action"], "shim_enable");
+    assert_eq!(enable_value["result"]["path"]["state"], "configured");
+    let path_rows = enable_value["result"]["path"]["files"].as_array().unwrap();
+    assert_eq!(path_rows.len(), 2);
+    assert!(path_rows
+        .iter()
+        .all(|row| row["managed_block_present"].as_bool().unwrap_or(false)));
+
+    let shim_path = trusted_root.join("bin").join("codex");
+    let claude_shim_path = trusted_root.join("bin").join("claude");
+    assert!(shim_path.exists());
+    assert!(claude_shim_path.exists());
+
+    let zprofile = fs::read_to_string(home.join(".zprofile")).unwrap();
+    assert!(zprofile.contains("# >>> lux-shim-path >>>"));
+    assert!(zprofile.contains("# <<< lux-shim-path <<<"));
+
+    let status = bin()
+        .env("PATH", &path_env)
+        .env("HOME", &home)
+        .arg("--json")
+        .arg("--config")
+        .arg(&config_path)
+        .arg("shim")
+        .arg("status")
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    let status_value = parse_json(&status);
+    assert_eq!(status_value["result"]["action"], "shim_status");
+    assert_eq!(status_value["result"]["state"], "enabled");
+    assert_eq!(
+        status_value["result"]["path_persistence"]["state"],
+        "configured"
+    );
+    let shims = status_value["result"]["shims"].as_array().unwrap();
+    let codex = shims
+        .iter()
+        .find(|row| row["provider"] == "codex")
+        .expect("codex shim row");
+    assert_eq!(codex["installed"], true);
+    let claude = shims
+        .iter()
+        .find(|row| row["provider"] == "claude")
+        .expect("claude shim row");
+    assert_eq!(claude["installed"], true);
+
+    let disable = bin()
+        .env("PATH", &path_env)
+        .env("HOME", &home)
+        .arg("--json")
+        .arg("--config")
+        .arg(&config_path)
+        .arg("shim")
+        .arg("disable")
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    let disable_value = parse_json(&disable);
+    assert_eq!(disable_value["result"]["action"], "shim_disable");
+    assert_eq!(disable_value["result"]["path"]["state"], "absent");
+    let disable_rows = disable_value["result"]["path"]["files"].as_array().unwrap();
+    assert_eq!(disable_rows.len(), 2);
+    assert!(disable_rows
+        .iter()
+        .all(|row| !row["managed_block_present"].as_bool().unwrap_or(true)));
+
+    let zprofile_after = fs::read_to_string(home.join(".zprofile")).unwrap();
+    assert!(!zprofile_after.contains("# >>> lux-shim-path >>>"));
+
+    let final_status = bin()
+        .env("PATH", &path_env)
+        .env("HOME", &home)
+        .arg("--json")
+        .arg("--config")
+        .arg(&config_path)
+        .arg("shim")
+        .arg("status")
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    let final_status_value = parse_json(&final_status);
+    assert_eq!(final_status_value["result"]["state"], "disabled");
+    assert_eq!(
+        final_status_value["result"]["path_persistence"]["state"],
+        "absent"
+    );
+
+    assert!(!shim_path.exists());
+    assert!(!claude_shim_path.exists());
+}
+
+#[cfg(unix)]
+#[test]
+fn shim_enable_no_startup_files_returns_no_startup_files_state() {
     let dir = tempdir().unwrap();
     let home = dir.path().join("home");
     fs::create_dir_all(&home).unwrap();
@@ -1013,61 +1144,168 @@ fn shim_install_list_uninstall_roundtrip() {
     let workspace_root = home.join("workspace");
     write_config_with_paths(&config_path, &trusted_root, &log_root, &workspace_root);
 
-    let install = bin()
+    let output = bin()
         .env("HOME", &home)
         .arg("--json")
         .arg("--config")
         .arg(&config_path)
         .arg("shim")
-        .arg("install")
+        .arg("enable")
         .assert()
         .success()
         .get_output()
         .stdout
         .clone();
-    let install_value = parse_json(&install);
-    assert!(install_value["result"]["installed"].as_array().is_some());
-    let shim_path = trusted_root.join("bin").join("codex");
-    let claude_shim_path = trusted_root.join("bin").join("claude");
-    assert!(shim_path.exists());
-    assert!(claude_shim_path.exists());
+    let value = parse_json(&output);
+    assert_eq!(value["result"]["path"]["state"], "no_startup_files");
+    let files = value["result"]["path"]["files"].as_array().unwrap();
+    assert!(files.is_empty());
 
-    let list = bin()
+    let status = bin()
         .env("HOME", &home)
         .arg("--json")
         .arg("--config")
         .arg(&config_path)
         .arg("shim")
-        .arg("list")
+        .arg("status")
         .assert()
         .success()
         .get_output()
         .stdout
         .clone();
-    let list_value = parse_json(&list);
-    let rows = list_value["result"]["shims"].as_array().unwrap();
-    let codex = rows
-        .iter()
-        .find(|row| row["provider"] == "codex")
-        .expect("codex shim row");
-    assert_eq!(codex["installed"], true);
-    let claude = rows
-        .iter()
-        .find(|row| row["provider"] == "claude")
-        .expect("claude shim row");
-    assert_eq!(claude["installed"], true);
+    let status_value = parse_json(&status);
+    assert_eq!(
+        status_value["result"]["path_persistence"]["state"],
+        "no_startup_files"
+    );
 
-    bin()
+    assert!(!home.join(".zprofile").exists());
+    assert!(!home.join(".zshrc").exists());
+    assert!(!home.join(".bash_profile").exists());
+    assert!(!home.join(".bash_login").exists());
+    assert!(!home.join(".profile").exists());
+    assert!(!home.join(".bashrc").exists());
+}
+
+#[cfg(unix)]
+#[test]
+fn shim_enable_path_failure_returns_json_partial_outcome() {
+    let dir = tempdir().unwrap();
+    let home = dir.path().join("home");
+    fs::create_dir_all(&home).unwrap();
+    fs::create_dir_all(home.join(".zprofile")).unwrap();
+    fs::write(home.join(".bashrc"), "# bashrc\n").unwrap();
+
+    let config_path = dir.path().join("config.yaml");
+    let trusted_root = dir.path().join("trusted");
+    let log_root = trusted_root.join("logs");
+    let workspace_root = home.join("workspace");
+    write_config_with_paths(&config_path, &trusted_root, &log_root, &workspace_root);
+
+    let output = bin()
         .env("HOME", &home)
         .arg("--json")
         .arg("--config")
         .arg(&config_path)
         .arg("shim")
-        .arg("uninstall")
+        .arg("enable")
         .assert()
-        .success();
-    assert!(!shim_path.exists());
-    assert!(!claude_shim_path.exists());
+        .failure()
+        .get_output()
+        .stdout
+        .clone();
+    let value = parse_json(&output);
+    assert_eq!(value["ok"], false);
+    assert_eq!(value["result"], Value::Null);
+    assert_eq!(
+        value["error_details"]["error_code"],
+        "shim_path_mutation_failed"
+    );
+    assert_eq!(
+        value["error_details"]["partial_outcome"]["action"],
+        "shim_enable"
+    );
+    assert_eq!(
+        value["error_details"]["partial_outcome"]["shim"]["ok"],
+        true
+    );
+    assert_eq!(
+        value["error_details"]["partial_outcome"]["path"]["ok"],
+        false
+    );
+    assert_eq!(
+        value["error_details"]["partial_outcome"]["path"]["rolled_back"],
+        true
+    );
+    let files = value["error_details"]["partial_outcome"]["path"]["files"]
+        .as_array()
+        .unwrap();
+    let zprofile_row = files
+        .iter()
+        .find(|row| row["path"] == "~/.zprofile")
+        .expect("zprofile error row");
+    assert!(zprofile_row["error"]
+        .as_str()
+        .unwrap_or_default()
+        .contains("failed to read"));
+}
+
+#[test]
+fn shim_old_subcommands_are_rejected() {
+    for legacy in ["install", "uninstall", "list"] {
+        let output = bin()
+            .arg("shim")
+            .arg(legacy)
+            .assert()
+            .failure()
+            .get_output()
+            .stderr
+            .clone();
+        let stderr = String::from_utf8_lossy(&output);
+        assert!(stderr.contains("unrecognized subcommand"));
+    }
+}
+
+#[test]
+fn shim_enable_fails_when_no_providers_configured() {
+    let dir = tempdir().unwrap();
+    let home = dir.path().join("home");
+    fs::create_dir_all(&home).unwrap();
+    let config_path = dir.path().join("config.yaml");
+    let trusted_root = dir.path().join("trusted");
+    let log_root = trusted_root.join("logs");
+    let workspace_root = home.join("workspace");
+    fs::create_dir_all(&trusted_root).unwrap();
+    fs::create_dir_all(&log_root).unwrap();
+    fs::create_dir_all(&workspace_root).unwrap();
+    let shims_bin_dir = trusted_root.join("bin");
+    fs::write(
+        &config_path,
+        format!(
+            "version: 2\npaths:\n  trusted_root: {}\n  log_root: {}\n  workspace_root: {}\nshims:\n  bin_dir: {}\nproviders: {{}}\n",
+            trusted_root.display(),
+            log_root.display(),
+            workspace_root.display(),
+            shims_bin_dir.display()
+        ),
+    )
+    .unwrap();
+
+    let output = bin()
+        .env("HOME", &home)
+        .arg("--json")
+        .arg("--config")
+        .arg(&config_path)
+        .arg("shim")
+        .arg("enable")
+        .assert()
+        .failure()
+        .get_output()
+        .stdout
+        .clone();
+    let value = parse_json(&output);
+    let error = value["error"].as_str().unwrap_or_default();
+    assert!(error.contains("config.providers must contain at least one provider"));
 }
 
 #[test]
