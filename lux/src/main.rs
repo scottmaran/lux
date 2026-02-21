@@ -1948,21 +1948,36 @@ fn handle_setup(
     println!("{}", style("Lux Setup").bold().cyan());
     println!(
         "{}",
-        style("Welcome to Lux! The blackbox for your ai agents. ")
+        style("Welcome to Lux! The blackbox for your ai agents. 
+For when something goes wrong, and you don't know what your agent did.")
     );
     println!(
         "{}",
-        style("Follow the prompts to help set a few configs, stored at: ").dim()
+        style("
+Without you touching your workflow, Lux automatically records
+everything your agent does in each session. 
+
+For when you want to:
+- find that old conversation you forgot about 
+- figure out what your agent has done while you weren't watching
+- or even point your current agent session to the logs to help it debug
+
+But before we start, we just have to answer four questions:
+")
     );
-    println!();
-    println!(
-        "{}",
-        style(format!(
-            "Config: {}",
-            display_path_with_home(config_path, home_for_display.as_deref())
-        ))
-        .dim()
-    );
+
+/* TO DO: want a user input here for the user to click enter to confirm start*/
+
+
+    // println!();
+    // println!(
+    //     "{}",
+    //     style(format!(
+    //         "you can manually edit the config file at: {}",
+    //         display_path_with_home(config_path, home_for_display.as_deref())
+    //     ))
+    //     .dim()
+    // );
     // println!(
     //     "{}",
     //     style("Updates config.yaml in place (preserves comments/formatting).").dim()
@@ -1996,12 +2011,19 @@ fn handle_setup(
         print_step(1, total_steps, "Paths");
         println!(
             "{}",
-            style("Configure trusted/runtime storage and workspace mount points.").dim()
+            style("We need to decide:
+- what folder your logs will be stored in
+- what folders you want your agents to have access to
+")
+        );
+        println!(
+            "{}",
+            style("Don't change the default log directory unless you have a good reason to")
         );
         println!(
             "{}",
             style(
-                "Path policy:
+                "Path policies for custom mounts:
 - trusted_root must be outside $HOME
 - log_root must be inside trusted_root
 - shims.bin_dir must be inside trusted_root
@@ -2103,14 +2125,7 @@ For safety and policy compliance, workspace must be under $HOME."
             .interact_text()?;
 
         print_step(2, total_steps, "Provider Auth");
-        println!(
-            "{}",
-            style(
-                "How Lux authenticates your agents depends on 
-if you're using an API key or a subscription-based plan"
-            )
-            .dim()
-        );
+        println!("{}", style("Do you use an API key or not?") );
         println!(
             "{}",
             style("select host_state if you don't use an API key").dim()
