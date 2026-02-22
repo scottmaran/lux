@@ -28,6 +28,8 @@ use thiserror::Error;
 
 const DEFAULT_CONFIG_YAML: &str = include_str!("../config/default.yaml");
 const RUNTIME_BYPASS_ENV: &str = "LUX_RUNTIME_BYPASS";
+const UI_LOCAL_HOST: &str = "127.0.0.1";
+const UI_LOCAL_PORT: u16 = 8090;
 #[cfg(unix)]
 const UNIX_SOCKET_PATH_LIMIT_BYTES: usize = 100;
 
@@ -2028,7 +2030,15 @@ fn execute_setup_post_actions<R: SetupPostActionRunner>(
                     outcomes.push(setup_post_action_outcome(action, "failed", err.to_string()));
                     return Err((err, outcomes));
                 }
-                outcomes.push(setup_post_action_outcome(action, "ok", "ui is running"));
+                outcomes.push(setup_post_action_outcome(
+                    action,
+                    "ok",
+                    format!(
+                        "ui is running at {} (port {})",
+                        ui_local_url(),
+                        UI_LOCAL_PORT
+                    ),
+                ));
             }
         }
     }
@@ -2107,6 +2117,10 @@ fn setup_wrap_post_action_error(err: LuxError, outcomes: Vec<SetupPostActionOutc
             },
         },
     }
+}
+
+fn ui_local_url() -> String {
+    format!("http://{UI_LOCAL_HOST}:{UI_LOCAL_PORT}")
 }
 
 struct DelegatedSetupPostActionRunner<'a> {
@@ -3352,6 +3366,11 @@ continue using your normal codex/claude command
         println!(
             "{}",
             style("Collector and UI are already running with your updated config.").dim()
+        );
+        println!(
+            "{} {}",
+            style("UI:").dim(),
+            style(format!("{} (port {})", ui_local_url(), UI_LOCAL_PORT)).bold()
         );
     } else {
         println!(
@@ -5487,7 +5506,7 @@ fn handle_ui<R: DockerRunner>(
             Ok(())
         }
         UiCommand::Url => {
-            let payload = json!({"url":"http://127.0.0.1:8090"});
+            let payload = json!({"url": ui_local_url()});
             output(ctx, payload)
         }
     }
@@ -9569,6 +9588,19 @@ paths:
                 "collector_start".to_string(),
             ]
         );
+    }
+
+    #[test]
+    fn setup_post_actions_ui_up_reports_local_url_and_port() {
+        let runner = MockSetupPostActionRunner::default();
+        let actions = vec![SetupPostAction::UiUp];
+
+        let outcomes = execute_setup_post_actions(&runner, &actions).expect("ui up should succeed");
+        assert_eq!(outcomes.len(), 1);
+        assert_eq!(outcomes[0].action, "ui_up");
+        assert_eq!(outcomes[0].status, "ok");
+        assert!(outcomes[0].detail.contains("http://127.0.0.1:8090"));
+        assert!(outcomes[0].detail.contains("port 8090"));
     }
 
     #[test]

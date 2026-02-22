@@ -15,6 +15,7 @@ def test_cli_contract_documents_setup_shims_and_safer_autostart() -> None:
     assert "optional shim enablement" in text
     assert "optional safer auto-start" in text
     assert "provider plane is not auto-started" in text
+    assert "local UI URL + port" in text
     assert "lux setup --defaults" in text
 
 

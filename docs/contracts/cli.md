@@ -77,6 +77,7 @@ Startup option behavior (interactive only):
   - preflight: fails if provider plane is active
   - collector refresh: stop collector when running, then `up --collector-only --wait --pull missing`
   - UI: `ui up --wait --pull missing`
+  - on successful UI startup, setup output includes local UI URL + port
 - provider plane is not auto-started.
 
 Defaults-mode behavior:
