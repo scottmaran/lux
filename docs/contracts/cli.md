@@ -13,26 +13,80 @@ provider execution.
 
 ## Quick Start
 
+Plain-language onboarding entrypoint:
+
+```bash
+lux info
+```
+
+Shim-enabled first run (provider-agnostic):
+
 ```bash
 lux setup
 lux shim enable
-codex
+lux up --collector-only --wait
+lux ui up --wait
+<provider>
 ```
 
-Equivalent explicit flow:
+Manual provider-plane + `lux tui` first run:
 
 ```bash
+lux setup
 lux up --collector-only --wait
-lux up --provider codex --wait
-lux tui --provider codex
+lux ui up --wait
+lux up --provider <provider> --wait
+lux tui --provider <provider>
 ```
 
 ## Core Commands
 
+### `info`
+
+Read-only onboarding command that explains:
+- what Lux does at a high level
+- key technical concepts used across CLI help (`runtime`, `collector-only`,
+  `provider plane`, `ui`, `shims`)
+- two concise provider-agnostic quickstart tracks:
+  - manual provider plane + `lux tui`
+  - shim-enabled startup
+
+`--json` result shape:
+- `overview`
+- `concepts[]` (`term`, `meaning`)
+- `quickstart[]` (`id`, `title`, `provider_agnostic`, `steps[]`)
+- `next[]` (`goal`, `command`)
+- `docs[]` (`path`, `purpose`)
+
 ### `setup`
 
-Interactive setup wizard that updates `config.yaml` and can create provider
-secrets files.
+Interactive setup wizard that updates `config.yaml`, can create provider
+secrets files, supports optional shim enablement, and supports optional safer
+auto-start.
+
+Interactive wizard steps:
+- Paths
+- Provider Auth
+- Secrets
+- Shims
+- Startup
+- Review
+
+Startup option behavior (interactive only):
+- optional safer auto-start refreshes collector and starts UI
+  - preflight: fails if provider plane is active
+  - collector refresh: stop collector when running, then `up --collector-only --wait --pull missing`
+  - UI: `ui up --wait --pull missing`
+  - on successful UI startup, setup output includes local UI URL + port
+- provider plane is not auto-started.
+
+Defaults-mode behavior:
+- `lux setup --defaults` is non-interactive
+- startup auto-actions are disabled by default
+
+Failure semantics:
+- if post-setup shim/startup actions fail, setup exits non-zero
+- config/secrets writes already completed by setup are preserved (no rollback)
 
 Path policy enforced by setup:
 - `paths.trusted_root` must be outside `$HOME`.

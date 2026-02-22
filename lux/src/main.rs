@@ -3,7 +3,7 @@ use clap::{Parser, Subcommand};
 use dialoguer::console::style;
 use dialoguer::console::Term;
 use dialoguer::theme::ColorfulTheme;
-use dialoguer::{Confirm, Input, Password, Select};
+use dialoguer::{Confirm, Input, MultiSelect, Password, Select};
 use dirs::home_dir;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -28,11 +28,17 @@ use thiserror::Error;
 
 const DEFAULT_CONFIG_YAML: &str = include_str!("../config/default.yaml");
 const RUNTIME_BYPASS_ENV: &str = "LUX_RUNTIME_BYPASS";
+const UI_LOCAL_HOST: &str = "127.0.0.1";
+const UI_LOCAL_PORT: u16 = 8090;
 #[cfg(unix)]
 const UNIX_SOCKET_PATH_LIMIT_BYTES: usize = 100;
 
 #[derive(Parser, Debug)]
-#[command(name = "lux", version, about = "Lux CLI")]
+#[command(
+    name = "lux",
+    version,
+    about = "Agent observability CLI for setup, lifecycle control, and log review"
+)]
 struct Cli {
     #[arg(long, global = true)]
     config: Option<PathBuf>,
@@ -50,10 +56,12 @@ struct Cli {
 
 #[derive(Subcommand, Debug)]
 enum Commands {
+    #[command(about = "Initialize, edit, validate, or apply configuration")]
     Config {
         #[command(subcommand)]
         command: ConfigCommand,
     },
+    #[command(about = "Interactive setup wizard for paths, auth, secrets, shims, and startup")]
     Setup {
         #[arg(long, default_value_t = false)]
         defaults: bool,
@@ -64,6 +72,7 @@ enum Commands {
         #[arg(long, default_value_t = false)]
         dry_run: bool,
     },
+    #[command(about = "Start collector-only or provider plane services")]
     Up {
         #[arg(long, conflicts_with = "collector_only")]
         provider: Option<String>,
@@ -78,30 +87,36 @@ enum Commands {
         #[arg(long)]
         timeout_sec: Option<u64>,
     },
+    #[command(about = "Stop collector-only or provider plane services")]
     Down {
         #[arg(long, conflicts_with = "collector_only")]
         provider: Option<String>,
         #[arg(long, default_value_t = false, conflicts_with = "provider")]
         collector_only: bool,
     },
+    #[command(about = "Show collector-only or provider plane status")]
     Status {
         #[arg(long, conflicts_with = "collector_only")]
         provider: Option<String>,
         #[arg(long, default_value_t = false, conflicts_with = "provider")]
         collector_only: bool,
     },
+    #[command(about = "Manage UI service lifecycle")]
     Ui {
         #[command(subcommand)]
         command: UiCommand,
     },
+    #[command(about = "Manage runtime control-plane lifecycle")]
     Runtime {
         #[command(subcommand)]
         command: RuntimeCommand,
     },
+    #[command(about = "Enable, disable, inspect, or execute provider shims")]
     Shim {
         #[command(subcommand)]
         command: ShimCommand,
     },
+    #[command(about = "Run a non-interactive provider prompt through harness API")]
     Run {
         #[arg(long)]
         provider: String,
@@ -115,25 +130,33 @@ enum Commands {
         #[arg(long)]
         env: Vec<String>,
     },
+    #[command(about = "Launch an interactive provider TUI session")]
     Tui {
         #[arg(long)]
         provider: String,
         #[arg(long)]
         start_dir: Option<String>,
     },
+    #[command(about = "List or fetch run-scoped harness jobs")]
     Jobs {
         #[command(subcommand)]
         command: JobsCommand,
     },
+    #[command(about = "Run readiness checks for runtime, paths, and contracts")]
     Doctor {
         #[arg(long, default_value_t = false)]
         strict: bool,
     },
+    #[command(about = "Explain Lux concepts and first-run quickstart tracks")]
+    Info,
+    #[command(about = "Print resolved config, runtime, install, and compose paths")]
     Paths,
+    #[command(about = "Check, apply, or rollback Lux versions")]
     Update {
         #[command(subcommand)]
         command: UpdateCommand,
     },
+    #[command(about = "Remove Lux install artifacts with optional config cleanup")]
     Uninstall {
         #[arg(long)]
         remove_config: bool,
@@ -146,6 +169,7 @@ enum Commands {
         #[arg(long)]
         force: bool,
     },
+    #[command(about = "Inspect run-scoped logs and summary stats")]
     Logs {
         #[command(subcommand)]
         command: LogsCommand,
@@ -154,7 +178,9 @@ enum Commands {
 
 #[derive(Subcommand, Debug)]
 enum UpdateCommand {
+    #[command(about = "Check for newer available Lux versions")]
     Check,
+    #[command(about = "Apply an update to a target or latest version")]
     Apply {
         #[arg(long, conflicts_with = "latest")]
         to: Option<String>,
@@ -165,6 +191,7 @@ enum UpdateCommand {
         #[arg(long)]
         dry_run: bool,
     },
+    #[command(about = "Rollback to a target or previous version")]
     Rollback {
         #[arg(long, conflicts_with = "previous")]
         to: Option<String>,
@@ -179,20 +206,26 @@ enum UpdateCommand {
 
 #[derive(Subcommand, Debug)]
 enum ConfigCommand {
+    #[command(about = "Create config file if missing")]
     Init,
+    #[command(about = "Open config in your editor")]
     Edit,
+    #[command(about = "Validate config contract and policy rules")]
     Validate,
+    #[command(about = "Apply config and write compose env/state directories")]
     Apply,
 }
 
 #[derive(Subcommand, Debug)]
 enum JobsCommand {
+    #[command(about = "List jobs in a selected run")]
     List {
         #[arg(long, conflicts_with = "latest")]
         run_id: Option<String>,
         #[arg(long)]
         latest: bool,
     },
+    #[command(about = "Fetch one job by id in a selected run")]
     Get {
         id: String,
         #[arg(long, conflicts_with = "latest")]
@@ -204,6 +237,7 @@ enum JobsCommand {
 
 #[derive(Subcommand, Debug)]
 enum UiCommand {
+    #[command(about = "Start UI service")]
     Up {
         #[arg(long)]
         wait: bool,
@@ -212,15 +246,21 @@ enum UiCommand {
         #[arg(long, value_parser = ["always", "never", "missing"]) ]
         pull: Option<String>,
     },
+    #[command(about = "Stop UI service")]
     Down,
+    #[command(about = "Show UI service status")]
     Status,
+    #[command(about = "Print local UI URL")]
     Url,
 }
 
 #[derive(Subcommand, Debug)]
 enum RuntimeCommand {
+    #[command(about = "Start runtime control-plane daemon")]
     Up,
+    #[command(about = "Stop runtime control-plane daemon")]
     Down,
+    #[command(about = "Show runtime control-plane status")]
     Status,
     #[command(hide = true)]
     Serve,
@@ -228,15 +268,13 @@ enum RuntimeCommand {
 
 #[derive(Subcommand, Debug)]
 enum ShimCommand {
-    Enable {
-        providers: Vec<String>,
-    },
-    Disable {
-        providers: Vec<String>,
-    },
-    Status {
-        providers: Vec<String>,
-    },
+    #[command(about = "Install/update shim binaries and PATH persistence")]
+    Enable { providers: Vec<String> },
+    #[command(about = "Remove Lux-managed shim binaries and PATH persistence")]
+    Disable { providers: Vec<String> },
+    #[command(about = "Show shim install/path readiness state")]
+    Status { providers: Vec<String> },
+    #[command(about = "Execute provider command through Lux shim path")]
     Exec {
         provider: String,
         #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
@@ -246,12 +284,14 @@ enum ShimCommand {
 
 #[derive(Subcommand, Debug)]
 enum LogsCommand {
+    #[command(about = "Show run-scoped log summary statistics")]
     Stats {
         #[arg(long, conflicts_with = "latest")]
         run_id: Option<String>,
         #[arg(long)]
         latest: bool,
     },
+    #[command(about = "Tail run-scoped log files")]
     Tail {
         #[arg(long, default_value_t = 50)]
         lines: usize,
@@ -659,7 +699,7 @@ struct JsonResult<T: Serialize> {
     error_details: Option<ProcessErrorDetails>,
 }
 
-#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 struct ProcessErrorDetails {
     error_code: String,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -858,6 +898,7 @@ fn main() -> Result<(), LuxError> {
             } => handle_tui(&ctx, provider, start_dir, &runner),
             Commands::Jobs { command } => handle_jobs(&ctx, command),
             Commands::Doctor { strict } => handle_doctor(&ctx, strict),
+            Commands::Info => handle_info(&ctx),
             Commands::Paths => handle_paths(&ctx),
             Commands::Update { command } => handle_update(&ctx, command),
             Commands::Uninstall {
@@ -1799,6 +1840,433 @@ struct SetupSecretPlan {
     action: String,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum SetupShimChoice {
+    EnableAll,
+    EnableSelected,
+    Skip,
+}
+
+#[derive(Debug, Clone)]
+struct SetupPostSetupChoices {
+    shim_choice: SetupShimChoice,
+    shim_providers: Vec<String>,
+    auto_start_services: bool,
+}
+
+impl Default for SetupPostSetupChoices {
+    fn default() -> Self {
+        Self {
+            shim_choice: SetupShimChoice::EnableAll,
+            shim_providers: Vec::new(),
+            auto_start_services: true,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum SetupPostAction {
+    ShimEnable { providers: Vec<String> },
+    StartupPreflightProviderInactive,
+    CollectorRefresh,
+    UiUp,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+struct SetupPostActionOutcome {
+    action: String,
+    status: String,
+    detail: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct JsonResponseEnvelope {
+    ok: bool,
+    #[allow(dead_code)]
+    result: Option<serde_json::Value>,
+    error: Option<String>,
+    error_details: Option<ProcessErrorDetails>,
+}
+
+trait SetupPostActionRunner {
+    fn shim_enable(&self, providers: &[String]) -> Result<(), LuxError>;
+    fn provider_plane_active(&self) -> Result<Option<String>, LuxError>;
+    fn collector_running(&self) -> Result<bool, LuxError>;
+    fn collector_stop(&self) -> Result<(), LuxError>;
+    fn collector_start(&self) -> Result<(), LuxError>;
+    fn ui_start(&self) -> Result<(), LuxError>;
+}
+
+fn plan_setup_post_actions(
+    apply: bool,
+    interactive: bool,
+    choices: &SetupPostSetupChoices,
+) -> Vec<SetupPostAction> {
+    if !apply || !interactive {
+        return Vec::new();
+    }
+    let mut actions = Vec::new();
+    match choices.shim_choice {
+        SetupShimChoice::EnableAll => {
+            actions.push(SetupPostAction::ShimEnable {
+                providers: Vec::new(),
+            });
+        }
+        SetupShimChoice::EnableSelected => {
+            if !choices.shim_providers.is_empty() {
+                actions.push(SetupPostAction::ShimEnable {
+                    providers: choices.shim_providers.clone(),
+                });
+            }
+        }
+        SetupShimChoice::Skip => {}
+    }
+    if choices.auto_start_services {
+        actions.push(SetupPostAction::StartupPreflightProviderInactive);
+        actions.push(SetupPostAction::CollectorRefresh);
+        actions.push(SetupPostAction::UiUp);
+    }
+    actions
+}
+
+fn setup_post_action_name(action: &SetupPostAction) -> String {
+    match action {
+        SetupPostAction::ShimEnable { .. } => "shim_enable".to_string(),
+        SetupPostAction::StartupPreflightProviderInactive => {
+            "startup_preflight_provider_inactive".to_string()
+        }
+        SetupPostAction::CollectorRefresh => "collector_refresh".to_string(),
+        SetupPostAction::UiUp => "ui_up".to_string(),
+    }
+}
+
+fn setup_post_action_outcome(
+    action: &SetupPostAction,
+    status: &str,
+    detail: impl Into<String>,
+) -> SetupPostActionOutcome {
+    SetupPostActionOutcome {
+        action: setup_post_action_name(action),
+        status: status.to_string(),
+        detail: detail.into(),
+    }
+}
+
+fn execute_setup_post_actions<R: SetupPostActionRunner>(
+    runner: &R,
+    actions: &[SetupPostAction],
+) -> Result<Vec<SetupPostActionOutcome>, (LuxError, Vec<SetupPostActionOutcome>)> {
+    let mut outcomes: Vec<SetupPostActionOutcome> = Vec::new();
+    for action in actions {
+        match action {
+            SetupPostAction::ShimEnable { providers } => {
+                if let Err(err) = runner.shim_enable(providers) {
+                    outcomes.push(setup_post_action_outcome(action, "failed", err.to_string()));
+                    return Err((err, outcomes));
+                }
+                let detail = if providers.is_empty() {
+                    "enabled shims for all configured providers".to_string()
+                } else {
+                    format!("enabled shims for providers: {}", providers.join(", "))
+                };
+                outcomes.push(setup_post_action_outcome(action, "ok", detail));
+            }
+            SetupPostAction::StartupPreflightProviderInactive => {
+                let active_provider = match runner.provider_plane_active() {
+                    Ok(value) => value,
+                    Err(err) => {
+                        outcomes.push(setup_post_action_outcome(action, "failed", err.to_string()));
+                        return Err((err, outcomes));
+                    }
+                };
+                if let Some(provider) = active_provider {
+                    let err = if provider == "unknown" {
+                        LuxError::Process(
+                            "provider plane is active; stop it with `lux down --provider <name>` and retry setup auto-start"
+                                .to_string(),
+                        )
+                    } else {
+                        LuxError::Process(format!(
+                            "provider plane is active for '{}'; stop it with `lux down --provider {}` and retry setup auto-start",
+                            provider, provider
+                        ))
+                    };
+                    outcomes.push(setup_post_action_outcome(action, "failed", err.to_string()));
+                    return Err((err, outcomes));
+                }
+                outcomes.push(setup_post_action_outcome(
+                    action,
+                    "ok",
+                    "no active provider plane detected",
+                ));
+            }
+            SetupPostAction::CollectorRefresh => {
+                let was_running = match runner.collector_running() {
+                    Ok(value) => value,
+                    Err(err) => {
+                        outcomes.push(setup_post_action_outcome(action, "failed", err.to_string()));
+                        return Err((err, outcomes));
+                    }
+                };
+                if was_running {
+                    if let Err(err) = runner.collector_stop() {
+                        outcomes.push(setup_post_action_outcome(action, "failed", err.to_string()));
+                        return Err((err, outcomes));
+                    }
+                }
+                if let Err(err) = runner.collector_start() {
+                    outcomes.push(setup_post_action_outcome(action, "failed", err.to_string()));
+                    return Err((err, outcomes));
+                }
+                let detail = if was_running {
+                    "collector restarted to apply updated config"
+                } else {
+                    "collector started"
+                };
+                outcomes.push(setup_post_action_outcome(action, "ok", detail));
+            }
+            SetupPostAction::UiUp => {
+                if let Err(err) = runner.ui_start() {
+                    outcomes.push(setup_post_action_outcome(action, "failed", err.to_string()));
+                    return Err((err, outcomes));
+                }
+                outcomes.push(setup_post_action_outcome(
+                    action,
+                    "ok",
+                    format!(
+                        "ui is running at {} (port {})",
+                        ui_local_url(),
+                        UI_LOCAL_PORT
+                    ),
+                ));
+            }
+        }
+    }
+    Ok(outcomes)
+}
+
+fn print_setup_post_action_outcomes(outcomes: &[SetupPostActionOutcome]) {
+    for outcome in outcomes {
+        let status_label = outcome.status.as_str();
+        let status = if status_label == "ok" {
+            style("ok").green()
+        } else if status_label == "failed" {
+            style("failed").red()
+        } else if status_label == "skipped" {
+            style("skipped").yellow()
+        } else {
+            style(status_label).dim()
+        };
+        println!(
+            "  - {} [{}] {}",
+            outcome.action,
+            status,
+            style(&outcome.detail).dim()
+        );
+    }
+}
+
+fn render_shell_command_for_display(parts: &[String]) -> String {
+    parts
+        .iter()
+        .map(|part| shell_single_quote(part))
+        .collect::<Vec<String>>()
+        .join(" ")
+}
+
+fn setup_delegated_command_args(
+    ctx: &Context,
+    command: &[String],
+    json_output: bool,
+) -> Vec<String> {
+    let mut args: Vec<String> = Vec::new();
+    if json_output {
+        args.push("--json".to_string());
+    }
+    args.push("--config".to_string());
+    args.push(ctx.config_path.to_string_lossy().to_string());
+    for compose_file in &ctx.compose_file_overrides {
+        args.push("--compose-file".to_string());
+        args.push(compose_file.to_string_lossy().to_string());
+    }
+    args.extend(command.iter().cloned());
+    args
+}
+
+fn setup_wrap_post_action_error(err: LuxError, outcomes: Vec<SetupPostActionOutcome>) -> LuxError {
+    let partial_outcome = json!({ "post_actions": outcomes });
+    match err {
+        LuxError::ProcessDetailed {
+            message,
+            mut details,
+        } => {
+            details.partial_outcome = Some(partial_outcome);
+            LuxError::ProcessDetailed { message, details }
+        }
+        other => LuxError::ProcessDetailed {
+            message: format!("setup post-actions failed: {}", other),
+            details: ProcessErrorDetails {
+                error_code: "setup_post_actions_failed".to_string(),
+                hint: Some(
+                    "Fix the failing post-setup action and retry the suggested command."
+                        .to_string(),
+                ),
+                command: None,
+                raw_stderr: None,
+                partial_outcome: Some(partial_outcome),
+            },
+        },
+    }
+}
+
+fn ui_local_url() -> String {
+    format!("http://{UI_LOCAL_HOST}:{UI_LOCAL_PORT}")
+}
+
+struct DelegatedSetupPostActionRunner<'a> {
+    ctx: &'a Context,
+    cfg: &'a Config,
+}
+
+impl<'a> DelegatedSetupPostActionRunner<'a> {
+    fn new(ctx: &'a Context, cfg: &'a Config) -> Self {
+        Self { ctx, cfg }
+    }
+
+    fn active_run_env(&self) -> Result<BTreeMap<String, String>, LuxError> {
+        let policy = resolve_config_policy_paths(self.cfg)?;
+        let state_root = policy.state_root;
+        let active_run = load_active_run_state(&state_root)?;
+        let active_workspace = active_run
+            .as_ref()
+            .map(|state| resolve_active_run_workspace_root(self.cfg, state))
+            .transpose()?;
+        let run_id = active_run.as_ref().map(|state| state.run_id.clone());
+        Ok(compose_env_for_run(
+            run_id.as_deref(),
+            active_workspace.as_deref(),
+        ))
+    }
+
+    fn run_json_command(&self, command: &[String]) -> Result<JsonResponseEnvelope, LuxError> {
+        let argv = setup_delegated_command_args(self.ctx, command, true);
+        let output = runtime_run_cli_subprocess(self.ctx, &argv)?;
+        let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
+        let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+        let manual_command = render_shell_command_for_display(&setup_delegated_command_args(
+            self.ctx, command, false,
+        ));
+        let envelope: JsonResponseEnvelope =
+            serde_json::from_str(&stdout).map_err(|err| LuxError::ProcessDetailed {
+                message: format!(
+                    "setup delegated command returned invalid JSON (`{manual_command}`): {err}"
+                ),
+                details: ProcessErrorDetails {
+                    error_code: "setup_delegated_invalid_json".to_string(),
+                    hint: Some(format!("Retry `{manual_command}` manually.")),
+                    command: Some(manual_command.clone()),
+                    raw_stderr: if !stderr.is_empty() {
+                        Some(stderr.clone())
+                    } else if !stdout.is_empty() {
+                        Some(stdout.clone())
+                    } else {
+                        None
+                    },
+                    partial_outcome: None,
+                },
+            })?;
+
+        if output.status_code != 0 || !envelope.ok {
+            let mut details = envelope.error_details.unwrap_or(ProcessErrorDetails {
+                error_code: "setup_delegated_command_failed".to_string(),
+                hint: None,
+                command: None,
+                raw_stderr: None,
+                partial_outcome: None,
+            });
+            if details.command.is_none() {
+                details.command = Some(manual_command.clone());
+            }
+            if details.hint.is_none() {
+                details.hint = Some(format!(
+                    "Retry `{manual_command}` after resolving the reported issue."
+                ));
+            }
+            if details.raw_stderr.is_none() {
+                if !stderr.is_empty() {
+                    details.raw_stderr = Some(stderr.clone());
+                } else if !stdout.is_empty() {
+                    details.raw_stderr = Some(stdout.clone());
+                }
+            }
+            let message = envelope
+                .error
+                .unwrap_or_else(|| format!("setup delegated command failed: {}", manual_command));
+            return Err(LuxError::ProcessDetailed { message, details });
+        }
+
+        Ok(envelope)
+    }
+}
+
+impl SetupPostActionRunner for DelegatedSetupPostActionRunner<'_> {
+    fn shim_enable(&self, providers: &[String]) -> Result<(), LuxError> {
+        let mut command = vec!["shim".to_string(), "enable".to_string()];
+        command.extend(providers.iter().cloned());
+        let _ = self.run_json_command(&command)?;
+        Ok(())
+    }
+
+    fn provider_plane_active(&self) -> Result<Option<String>, LuxError> {
+        let run_env = self.active_run_env()?;
+        let runner = RealDockerRunner;
+        if !provider_plane_is_running(self.ctx, &runner, self.cfg, false, &run_env)? {
+            return Ok(None);
+        }
+        let policy = resolve_config_policy_paths(self.cfg)?;
+        let state_root = policy.state_root;
+        Ok(load_active_provider_state(&state_root)?
+            .map(|state| state.provider)
+            .or_else(|| Some("unknown".to_string())))
+    }
+
+    fn collector_running(&self) -> Result<bool, LuxError> {
+        let run_env = self.active_run_env()?;
+        let runner = RealDockerRunner;
+        collector_is_running(self.ctx, &runner, self.cfg, false, &run_env)
+    }
+
+    fn collector_stop(&self) -> Result<(), LuxError> {
+        let command = vec!["down".to_string(), "--collector-only".to_string()];
+        let _ = self.run_json_command(&command)?;
+        Ok(())
+    }
+
+    fn collector_start(&self) -> Result<(), LuxError> {
+        let command = vec![
+            "up".to_string(),
+            "--collector-only".to_string(),
+            "--wait".to_string(),
+            "--pull".to_string(),
+            "missing".to_string(),
+        ];
+        let _ = self.run_json_command(&command)?;
+        Ok(())
+    }
+
+    fn ui_start(&self) -> Result<(), LuxError> {
+        let command = vec![
+            "ui".to_string(),
+            "up".to_string(),
+            "--wait".to_string(),
+            "--pull".to_string(),
+            "missing".to_string(),
+        ];
+        let _ = self.run_json_command(&command)?;
+        Ok(())
+    }
+}
+
 fn handle_setup(
     ctx: &Context,
     defaults: bool,
@@ -1938,7 +2406,7 @@ fn handle_setup(
 
     // Interactive setup (wizard loop).
     let theme = ColorfulTheme::default();
-    let total_steps = 4usize;
+    let total_steps = 6usize;
 
     if io::stdout().is_terminal() {
         // Best-effort clear so the wizard starts at the top of the visible terminal,
@@ -1948,21 +2416,31 @@ fn handle_setup(
     println!("{}", style("Lux Setup").bold().cyan());
     println!(
         "{}",
-        style("Welcome to Lux! The blackbox for your ai agents. ")
+        style(
+            "Welcome to Lux! The blackbox for your ai agents. 
+An easy, automatic way to store everything your agents have done."
+        )
     );
     println!(
         "{}",
-        style("Follow the prompts to help set a few configs, stored at: ").dim()
+        style(
+            "
+For when you want to:
+- find that old conversation you forgot about 
+- figure out what your agent has done while you weren't watching
+- or even point your current agent session to the logs to help it debug"
+        )
     );
-    println!();
-    println!(
-        "{}",
-        style(format!(
-            "Config: {}",
-            display_path_with_home(config_path, home_for_display.as_deref())
-        ))
-        .dim()
-    );
+
+    // println!();
+    // println!(
+    //     "{}",
+    //     style(format!(
+    //         "you can manually edit the config file at: {}",
+    //         display_path_with_home(config_path, home_for_display.as_deref())
+    //     ))
+    //     .dim()
+    // );
     // println!(
     //     "{}",
     //     style("Updates config.yaml in place (preserves comments/formatting).").dim()
@@ -1987,8 +2465,9 @@ fn handle_setup(
     let mut pending_secrets: Vec<PendingSecretWrite> = Vec::new();
     let mut missing_api_key_secrets: Vec<(String, String, PathBuf)> = Vec::new();
     let default_paths = computed_default_paths_for_current_os()?;
+    let mut setup_choices_state = SetupPostSetupChoices::default();
 
-    let (patched_yaml, cfg_after_yaml, should_write_config) = loop {
+    let (patched_yaml, cfg_after_yaml, should_write_config, setup_choices) = loop {
         warnings.clear();
         pending_secrets.clear();
         missing_api_key_secrets.clear();
@@ -1996,12 +2475,21 @@ fn handle_setup(
         print_step(1, total_steps, "Paths");
         println!(
             "{}",
-            style("Configure trusted/runtime storage and workspace mount points.").dim()
+            style(
+                "We need to decide:
+- what folder your logs will be stored in
+- what folders you want your agents to have access to
+"
+            )
+        );
+        println!(
+            "{}",
+            style("Don't change the default log directory unless you have a good reason to.")
         );
         println!(
             "{}",
             style(
-                "Path policy:
+                "Path policies for custom mounts:
 - trusted_root must be outside $HOME
 - log_root must be inside trusted_root
 - shims.bin_dir must be inside trusted_root
@@ -2010,14 +2498,14 @@ fn handle_setup(
             )
             .dim()
         );
-        println!(
-            "{}",
-            style(format!(
-                "Default trusted root for this host: {}",
-                default_paths.trusted_root
-            ))
-            .dim()
-        );
+        // println!(
+        //     "{}",
+        //     style(format!(
+        //         "Default trusted root for this host: {}",
+        //         default_paths.trusted_root
+        //     ))
+        //     .dim()
+        // );
         let previous_trusted_root = trusted_root_state.clone();
         trusted_root_state = Input::<String>::with_theme(&theme)
             .with_prompt("Select trusted root (outside $HOME)")
@@ -2103,14 +2591,7 @@ For safety and policy compliance, workspace must be under $HOME."
             .interact_text()?;
 
         print_step(2, total_steps, "Provider Auth");
-        println!(
-            "{}",
-            style(
-                "How Lux authenticates your agents depends on 
-if you're using an API key or a subscription-based plan"
-            )
-            .dim()
-        );
+        println!("{}", style("Do you use an API key or not?"));
         println!(
             "{}",
             style("select host_state if you don't use an API key").dim()
@@ -2146,7 +2627,8 @@ if you're using an API key or a subscription-based plan"
             provider_auth_state.insert(provider_name.clone(), chosen.clone());
 
             if provider_name == "claude" && chosen == "host_state" && env::consts::OS == "macos" {
-                warnings.push("provider 'claude': host_state mode on macOS can fail when auth depends on Keychain; switch to api_key if needed".to_string());
+                warnings.push("provider 'claude': host_state mode on macOS can fail when auth depends on Keychain; 
+may need to login the first time".to_string());
             }
 
             let should_mount_host_state =
@@ -2267,6 +2749,111 @@ if you're using an API key or a subscription-based plan"
             });
         }
 
+        print_step(4, total_steps, "Shims");
+        println!(
+            "{}",
+            style(
+                "Instead of typing the full Lux command to start an agent:
+lux tui --provider codex/claude
+continue using your normal codex/claude command 
+(routed through Lux behind the scenes)."
+            )
+        );
+        println!("{}", style("Disable any time with lux shims disable").dim());
+        let shim_items = [
+            "Enable shims for all configured providers (recommended)",
+            "Select providers",
+            "Skip for now",
+        ];
+        let shim_default_idx = match setup_choices_state.shim_choice {
+            SetupShimChoice::EnableAll => 0,
+            SetupShimChoice::EnableSelected => 1,
+            SetupShimChoice::Skip => 2,
+        };
+        let shim_choice_idx = Select::with_theme(&theme)
+            .with_prompt("Shim setup")
+            .items(&shim_items)
+            .default(shim_default_idx)
+            .interact()?;
+        match shim_choice_idx {
+            0 => {
+                setup_choices_state.shim_choice = SetupShimChoice::EnableAll;
+                setup_choices_state.shim_providers.clear();
+            }
+            1 => {
+                let provider_names: Vec<String> = base_cfg.providers.keys().cloned().collect();
+                if provider_names.is_empty() {
+                    println!(
+                        "{}",
+                        style("No providers are configured. Shim enable will fail with existing shim contract semantics.")
+                            .yellow()
+                    );
+                    setup_choices_state.shim_choice = SetupShimChoice::EnableAll;
+                    setup_choices_state.shim_providers.clear();
+                } else {
+                    let defaults: Vec<bool> = provider_names
+                        .iter()
+                        .map(|provider| setup_choices_state.shim_providers.contains(provider))
+                        .collect();
+                    let selected = MultiSelect::with_theme(&theme)
+                        .with_prompt("Select providers to shim-enable")
+                        .items(&provider_names)
+                        .defaults(&defaults)
+                        .interact()?;
+                    let selected_providers: Vec<String> = selected
+                        .into_iter()
+                        .map(|idx| provider_names[idx].clone())
+                        .collect();
+                    if selected_providers.is_empty() {
+                        setup_choices_state.shim_choice = SetupShimChoice::Skip;
+                        setup_choices_state.shim_providers.clear();
+                        warnings.push(
+                            "shim setup skipped because no providers were selected".to_string(),
+                        );
+                    } else {
+                        setup_choices_state.shim_choice = SetupShimChoice::EnableSelected;
+                        setup_choices_state.shim_providers = selected_providers;
+                    }
+                }
+            }
+            _ => {
+                setup_choices_state.shim_choice = SetupShimChoice::Skip;
+                setup_choices_state.shim_providers.clear();
+            }
+        }
+
+        print_step(5, total_steps, "Auto Startup");
+        println!(
+            "{}",
+            style("Do you want to start the background Lux processes here?")
+        );
+        println!(
+            "{}",
+            style("Refreshes collector with the new config and brings up the UI.").dim()
+        );
+        let startup_items = ["Auto-start now", "Do not auto-start now"];
+        let startup_default_idx = if setup_choices_state.auto_start_services {
+            0
+        } else {
+            1
+        };
+        let startup_choice_idx = Select::with_theme(&theme)
+            .with_prompt("Service startup")
+            .items(&startup_items)
+            .default(startup_default_idx)
+            .interact()?;
+        setup_choices_state.auto_start_services = startup_choice_idx == 0;
+        if !apply {
+            println!(
+                "{}",
+                style(
+                    "Startup actions are disabled because apply=no (`--no-apply` or `--dry-run`)."
+                )
+                .yellow()
+                .dim()
+            );
+        }
+
         // Desired config (in memory).
         let mut desired_cfg = base_cfg.clone();
         desired_cfg.paths.trusted_root = trusted_root_state.clone();
@@ -2334,7 +2921,7 @@ if you're using an API key or a subscription-based plan"
         let candidate_cfg = read_config_from_str(&candidate_yaml)?;
         let should_write_config = created_config || yaml_changed;
 
-        print_step(4, total_steps, "Review");
+        print_step(6, total_steps, "Review");
         println!(
             "{} {}",
             style("Config:").bold(),
@@ -2342,69 +2929,69 @@ if you're using an API key or a subscription-based plan"
         );
 
         println!("\n{}", style("Paths").bold());
-        if desired_cfg.paths.trusted_root == base_cfg.paths.trusted_root {
-            println!(
-                "  {} {}",
-                style("paths.trusted_root:").dim(),
-                style(display_path_with_home(
-                    Path::new(&desired_cfg.paths.trusted_root),
-                    home_for_display.as_deref()
-                ))
-                .dim()
-            );
-        } else {
-            println!(
-                "  {} {} {} {}",
-                style("paths.trusted_root:").dim(),
-                style(display_path_with_home(
-                    Path::new(&base_cfg.paths.trusted_root),
-                    home_for_display.as_deref()
-                ))
-                .dim(),
-                style("->").dim(),
-                style(display_path_with_home(
-                    Path::new(&desired_cfg.paths.trusted_root),
-                    home_for_display.as_deref()
-                ))
-                .green()
-            );
-        }
-        println!(
-            "  {} {}",
-            style("resolved trusted root:").dim(),
-            style(display_path_with_home(
-                &resolved_policy_paths.trusted_root,
-                home_for_display.as_deref()
-            ))
-            .dim()
-        );
-        if desired_cfg.paths.log_root == base_cfg.paths.log_root {
-            println!(
-                "  {} {}",
-                style("paths.log_root:").dim(),
-                style(display_path_with_home(
-                    Path::new(&desired_cfg.paths.log_root),
-                    home_for_display.as_deref()
-                ))
-                .dim()
-            );
-        } else {
-            println!(
-                "  {} {} {} {}",
-                style("paths.log_root:").dim(),
-                style(display_path_with_home(
-                    Path::new(&base_cfg.paths.log_root),
-                    home_for_display.as_deref()
-                ))
-                .dim(),
-                style("->").dim(),
-                style(display_path_with_home(
-                    Path::new(&desired_cfg.paths.log_root),
-                    home_for_display.as_deref()
-                ))
-                .green()
-            );
-        }
+        // if desired_cfg.paths.trusted_root == base_cfg.paths.trusted_root {
+        //     println!(
+        //         "  {} {}",
+        //         style("paths.trusted_root:").dim(),
+        //         style(display_path_with_home(
+        //             Path::new(&desired_cfg.paths.trusted_root),
+        //             home_for_display.as_deref()
+        //         ))
+        //         .dim()
+        //     );
+        // } else {
+        //     println!(
+        //         "  {} {} {} {}",
+        //         style("paths.trusted_root:").dim(),
+        //         style(display_path_with_home(
+        //             Path::new(&base_cfg.paths.trusted_root),
+        //             home_for_display.as_deref()
+        //         ))
+        //         .dim(),
+        //         style("->").dim(),
+        //         style(display_path_with_home(
+        //             Path::new(&desired_cfg.paths.trusted_root),
+        //             home_for_display.as_deref()
+        //         ))
+        //         .green()
+        //     );
+        // }
+        // println!(
+        //     "  {} {}",
+        //     style("resolved trusted root:").dim(),
+        //     style(display_path_with_home(
+        //         &resolved_policy_paths.trusted_root,
+        //         home_for_display.as_deref()
+        //     ))
+        //     .dim()
+        // );
+        // if desired_cfg.paths.log_root == base_cfg.paths.log_root {
+        //     println!(
+        //         "  {} {}",
+        //         style("paths.log_root:").dim(),
+        //         style(display_path_with_home(
+        //             Path::new(&desired_cfg.paths.log_root),
+        //             home_for_display.as_deref()
+        //         ))
+        //         .dim()
+        //     );
+        // } else {
+        //     println!(
+        //         "  {} {} {} {}",
+        //         style("paths.log_root:").dim(),
+        //         style(display_path_with_home(
+        //             Path::new(&base_cfg.paths.log_root),
+        //             home_for_display.as_deref()
+        //         ))
+        //         .dim(),
+        //         style("->").dim(),
+        //         style(display_path_with_home(
+        //             Path::new(&desired_cfg.paths.log_root),
+        //             home_for_display.as_deref()
+        //         ))
+        //         .green()
+        //     );
+        // }
         println!(
             "  {} {}",
             style("resolved log root:").dim(),
@@ -2414,33 +3001,33 @@ if you're using an API key or a subscription-based plan"
             ))
             .dim()
         );
-        if desired_cfg.paths.workspace_root == base_cfg.paths.workspace_root {
-            println!(
-                "  {} {}",
-                style("paths.workspace_root:").dim(),
-                style(display_path_with_home(
-                    Path::new(&desired_cfg.paths.workspace_root),
-                    home_for_display.as_deref()
-                ))
-                .dim()
-            );
-        } else {
-            println!(
-                "  {} {} {} {}",
-                style("paths.workspace_root:").dim(),
-                style(display_path_with_home(
-                    Path::new(&base_cfg.paths.workspace_root),
-                    home_for_display.as_deref()
-                ))
-                .dim(),
-                style("->").dim(),
-                style(display_path_with_home(
-                    Path::new(&desired_cfg.paths.workspace_root),
-                    home_for_display.as_deref()
-                ))
-                .green()
-            );
-        }
+        // if desired_cfg.paths.workspace_root == base_cfg.paths.workspace_root {
+        //     println!(
+        //         "  {} {}",
+        //         style("paths.workspace_root:").dim(),
+        //         style(display_path_with_home(
+        //             Path::new(&desired_cfg.paths.workspace_root),
+        //             home_for_display.as_deref()
+        //         ))
+        //         .dim()
+        //     );
+        // } else {
+        //     println!(
+        //         "  {} {} {} {}",
+        //         style("paths.workspace_root:").dim(),
+        //         style(display_path_with_home(
+        //             Path::new(&base_cfg.paths.workspace_root),
+        //             home_for_display.as_deref()
+        //         ))
+        //         .dim(),
+        //         style("->").dim(),
+        //         style(display_path_with_home(
+        //             Path::new(&desired_cfg.paths.workspace_root),
+        //             home_for_display.as_deref()
+        //         ))
+        //         .green()
+        //     );
+        // }
         println!(
             "  {} {}",
             style("resolved workspace root:").dim(),
@@ -2450,42 +3037,42 @@ if you're using an API key or a subscription-based plan"
             ))
             .dim()
         );
-        if desired_cfg.shims.bin_dir == base_cfg.shims.bin_dir {
-            println!(
-                "  {} {}",
-                style("shims.bin_dir:").dim(),
-                style(display_path_with_home(
-                    Path::new(&desired_cfg.shims.bin_dir),
-                    home_for_display.as_deref()
-                ))
-                .dim()
-            );
-        } else {
-            println!(
-                "  {} {} {} {}",
-                style("shims.bin_dir:").dim(),
-                style(display_path_with_home(
-                    Path::new(&base_cfg.shims.bin_dir),
-                    home_for_display.as_deref()
-                ))
-                .dim(),
-                style("->").dim(),
-                style(display_path_with_home(
-                    Path::new(&desired_cfg.shims.bin_dir),
-                    home_for_display.as_deref()
-                ))
-                .green()
-            );
-        }
-        println!(
-            "  {} {}",
-            style("resolved shims bin dir:").dim(),
-            style(display_path_with_home(
-                &resolved_policy_paths.shims_bin_dir,
-                home_for_display.as_deref()
-            ))
-            .dim()
-        );
+        // if desired_cfg.shims.bin_dir == base_cfg.shims.bin_dir {
+        //     println!(
+        //         "  {} {}",
+        //         style("shims.bin_dir:").dim(),
+        //         style(display_path_with_home(
+        //             Path::new(&desired_cfg.shims.bin_dir),
+        //             home_for_display.as_deref()
+        //         ))
+        //         .dim()
+        //     );
+        // } else {
+        //     println!(
+        //         "  {} {} {} {}",
+        //         style("shims.bin_dir:").dim(),
+        //         style(display_path_with_home(
+        //             Path::new(&base_cfg.shims.bin_dir),
+        //             home_for_display.as_deref()
+        //         ))
+        //         .dim(),
+        //         style("->").dim(),
+        //         style(display_path_with_home(
+        //             Path::new(&desired_cfg.shims.bin_dir),
+        //             home_for_display.as_deref()
+        //         ))
+        //         .green()
+        //     );
+        // }
+        // println!(
+        //     "  {} {}",
+        //     style("resolved shims bin dir:").dim(),
+        //     style(display_path_with_home(
+        //         &resolved_policy_paths.shims_bin_dir,
+        //         home_for_display.as_deref()
+        //     ))
+        //     .dim()
+        // );
 
         println!("\n{}", style("Provider Auth").bold());
         for (provider_name, provider) in &desired_cfg.providers {
@@ -2545,6 +3132,63 @@ if you're using an API key or a subscription-based plan"
                     .dim(),
                 );
             }
+        }
+
+        println!("\n{}", style("Shims").bold());
+        match setup_choices_state.shim_choice {
+            SetupShimChoice::EnableAll => {
+                println!(
+                    "  {} {}",
+                    style("action:").dim(),
+                    style("enable all configured providers").green()
+                );
+            }
+            SetupShimChoice::EnableSelected => {
+                if setup_choices_state.shim_providers.is_empty() {
+                    println!(
+                        "  {} {}",
+                        style("action:").dim(),
+                        style("skip (no providers selected)").yellow()
+                    );
+                } else {
+                    println!(
+                        "  {} {}",
+                        style("action:").dim(),
+                        style("enable selected providers").green()
+                    );
+                    println!(
+                        "  {} {}",
+                        style("providers:").dim(),
+                        setup_choices_state.shim_providers.join(", ")
+                    );
+                }
+            }
+            SetupShimChoice::Skip => {
+                println!("  {} {}", style("action:").dim(), style("skip").yellow());
+            }
+        }
+
+        println!("\n{}", style("Startup").bold());
+        if setup_choices_state.auto_start_services {
+            if apply {
+                println!(
+                    "  {} {}",
+                    style("action:").dim(),
+                    style("auto-start collector refresh + ui").green()
+                );
+            } else {
+                println!(
+                    "  {} {}",
+                    style("action:").dim(),
+                    style("selected, but disabled because apply=no").yellow()
+                );
+            }
+        } else {
+            println!(
+                "  {} {}",
+                style("action:").dim(),
+                style("do not auto-start").dim()
+            );
         }
 
         println!("\n{}", style("Apply").bold());
@@ -2622,7 +3266,12 @@ if you're using an API key or a subscription-based plan"
         }
 
         if proceed {
-            break (candidate_yaml, candidate_cfg, should_write_config);
+            break (
+                candidate_yaml,
+                candidate_cfg,
+                should_write_config,
+                setup_choices_state.clone(),
+            );
         }
     };
 
@@ -2664,10 +3313,28 @@ if you're using an API key or a subscription-based plan"
         }
     }
 
+    let mut post_action_outcomes: Vec<SetupPostActionOutcome> = Vec::new();
     if apply {
         println!();
         println!("{}", style("Applying config...").cyan().bold());
         let _ = apply_config(ctx, &cfg_after_yaml)?;
+
+        let planned_post_actions = plan_setup_post_actions(apply, true, &setup_choices);
+        if !planned_post_actions.is_empty() {
+            println!();
+            println!("{}", style("Running post-setup actions...").cyan().bold());
+            let runner = DelegatedSetupPostActionRunner::new(ctx, &cfg_after_yaml);
+            match execute_setup_post_actions(&runner, &planned_post_actions) {
+                Ok(outcomes) => {
+                    print_setup_post_action_outcomes(&outcomes);
+                    post_action_outcomes = outcomes;
+                }
+                Err((err, outcomes)) => {
+                    print_setup_post_action_outcomes(&outcomes);
+                    return Err(setup_wrap_post_action_error(err, outcomes));
+                }
+            }
+        }
     }
     if let Ok(doctor_checks) = collect_doctor_checks(ctx, &cfg_after_yaml) {
         let failed: Vec<DoctorCheck> = doctor_checks
@@ -2683,16 +3350,45 @@ if you're using an API key or a subscription-based plan"
             }
         }
     }
+    let shim_enabled_during_setup = post_action_outcomes
+        .iter()
+        .any(|row| row.action == "shim_enable" && row.status == "ok");
+    let services_auto_started = post_action_outcomes
+        .iter()
+        .any(|row| row.action == "collector_refresh" && row.status == "ok")
+        && post_action_outcomes
+            .iter()
+            .any(|row| row.action == "ui_up" && row.status == "ok");
+
     println!();
     println!("{}", style("That's it!"));
-    println!(
-        "{}",
-        style("Now go spin up Lux and start keeping track of your agents.").dim()
-    );
-    println!(
-        "{}",
-        style("Install shims once, then keep using your provider CLIs as usual.").dim()
-    );
+    if services_auto_started {
+        println!(
+            "{}",
+            style("Collector and UI are already running with your updated config.").dim()
+        );
+        println!(
+            "{} {}",
+            style("UI:").dim(),
+            style(format!("{} (port {})", ui_local_url(), UI_LOCAL_PORT)).bold()
+        );
+    } else {
+        println!(
+            "{}",
+            style("Now go spin up Lux and start keeping track of your agents.").dim()
+        );
+    }
+    if shim_enabled_during_setup {
+        println!(
+            "{}",
+            style("Shims are enabled; keep using your provider CLIs as usual.").dim()
+        );
+    } else {
+        println!(
+            "{}",
+            style("Install shims once, then keep using your provider CLIs as usual.").dim()
+        );
+    }
 
     println!();
     println!("{}", style("Next steps").bold().cyan());
@@ -2700,9 +3396,13 @@ if you're using an API key or a subscription-based plan"
     if !apply {
         println!("  lux config apply");
     }
-    println!("  lux runtime up");
-    println!("  lux ui up --wait");
-    println!("  lux shim enable");
+    if !services_auto_started {
+        println!("  lux up --collector-only --wait");
+        println!("  lux ui up --wait");
+    }
+    if !shim_enabled_during_setup {
+        println!("  lux shim enable");
+    }
     if cfg_after_yaml.providers.contains_key("codex") {
         println!("  codex");
     } else if let Some(example) = cfg_after_yaml.providers.keys().next() {
@@ -2726,6 +3426,36 @@ if you're using an API key or a subscription-based plan"
             println!("  Re-run: lux doctor --strict");
         }
     }
+
+    println!();
+    println!("{}", style("Helpful hints").bold().cyan());
+    println!(
+        "{} {}",
+        style("- ever stuck?").bold().yellow(),
+        style("run ```lux help``` for all CLI commands.")
+    );
+    println!(
+        "{} {}",
+        style("- want more info?").bold().yellow(),
+        style("run ```lux info``` for a deeper dive on the program.")
+    );
+    println!(
+        "{} {}",
+        style("- if shims enabled").bold().yellow(),
+        style("run ```lux shim disable``` to run claude/codex normally.")
+    );
+    println!("{}", style("- Docker Desktop might ask for permissions for protected directories (this is normal)."));
+    println!(
+        "{} {}",
+        style("- The docker containers are always directly in"),
+        style("view in Docker Desktop.")
+    );
+    println!(
+        "{}",
+        style("- the first agent startup session will take a few minutes.")
+            .bold()
+            .yellow()
+    );
 
     Ok(())
 }
@@ -4776,7 +5506,7 @@ fn handle_ui<R: DockerRunner>(
             Ok(())
         }
         UiCommand::Url => {
-            let payload = json!({"url":"http://127.0.0.1:8090"});
+            let payload = json!({"url": ui_local_url()});
             output(ctx, payload)
         }
     }
@@ -7702,6 +8432,259 @@ fn handle_doctor(ctx: &Context, strict: bool) -> Result<(), LuxError> {
     ))
 }
 
+// #[derive(Debug, Serialize)]
+// struct InfoConcept {
+//     term: &'static str,
+//     meaning: &'static str,
+// }
+
+// #[derive(Debug, Serialize)]
+// struct InfoQuickstartStep {
+//     step: usize,
+//     command: &'static str,
+//     note: &'static str,
+// }
+
+// #[derive(Debug, Serialize)]
+// struct InfoQuickstartTrack {
+//     id: &'static str,
+//     title: &'static str,
+//     provider_agnostic: bool,
+//     steps: Vec<InfoQuickstartStep>,
+// }
+
+// #[derive(Debug, Serialize)]
+// struct InfoNextCommand {
+//     goal: &'static str,
+//     command: &'static str,
+// }
+
+// #[derive(Debug, Serialize)]
+// struct InfoDocLink {
+//     path: &'static str,
+//     purpose: &'static str,
+// }
+
+// #[derive(Debug, Serialize)]
+// struct InfoResult {
+//     overview: &'static str,
+//     concepts: Vec<InfoConcept>,
+//     quickstart: Vec<InfoQuickstartTrack>,
+//     next: Vec<InfoNextCommand>,
+//     docs: Vec<InfoDocLink>,
+// }
+
+// fn build_info_result() -> InfoResult {
+//     InfoResult {
+//         overview: "Lux runs third-party agents in provider-scoped containers, captures system-level activity in a collector run, and gives you attributable evidence in logs + UI.",
+//         concepts: vec![
+//             InfoConcept {
+//                 term: "runtime control plane",
+//                 meaning: "The local Lux service that brokers lifecycle requests and state for CLI commands.",
+//             },
+//             InfoConcept {
+//                 term: "collector-only (--collector-only)",
+//                 meaning: "Starts only the collector service and creates the active run that stores logs.",
+//             },
+//             InfoConcept {
+//                 term: "provider plane",
+//                 meaning: "The provider execution stack (`agent` + `harness`) for one selected provider.",
+//             },
+//             InfoConcept {
+//                 term: "ui service",
+//                 meaning: "The local web/API service used to inspect run logs and timeline evidence.",
+//             },
+//             InfoConcept {
+//                 term: "shims",
+//                 meaning: "Optional PATH wrappers that let running a provider CLI (for example `codex`) enter Lux-managed execution.",
+//             },
+//         ],
+//         quickstart: vec![
+//             InfoQuickstartTrack {
+//                 id: "manual_tui",
+//                 title: "Quickstart track A: manual provider plane + `lux tui`",
+//                 provider_agnostic: true,
+//                 steps: vec![
+//                     InfoQuickstartStep {
+//                         step: 1,
+//                         command: "lux setup",
+//                         note: "Choose paths/auth/secrets. Shim and startup options are optional.",
+//                     },
+//                     InfoQuickstartStep {
+//                         step: 2,
+//                         command: "lux up --collector-only --wait",
+//                         note: "Starts collector and creates active run metadata.",
+//                     },
+//                     InfoQuickstartStep {
+//                         step: 3,
+//                         command: "lux ui up --wait",
+//                         note: "Starts the UI service for evidence review.",
+//                     },
+//                     InfoQuickstartStep {
+//                         step: 4,
+//                         command: "lux up --provider <provider> --wait",
+//                         note: "Starts provider plane (`agent` + `harness`) for one provider.",
+//                     },
+//                     InfoQuickstartStep {
+//                         step: 5,
+//                         command: "lux tui --provider <provider>",
+//                         note: "Run from inside the active workspace (or pass `--start-dir`).",
+//                     },
+//                 ],
+//             },
+//             InfoQuickstartTrack {
+//                 id: "shim_enabled",
+//                 title: "Quickstart track B: shim-enabled startup",
+//                 provider_agnostic: true,
+//                 steps: vec![
+//                     InfoQuickstartStep {
+//                         step: 1,
+//                         command: "lux setup",
+//                         note: "Choose paths/auth/secrets. Shim and startup options are optional.",
+//                     },
+//                     InfoQuickstartStep {
+//                         step: 2,
+//                         command: "lux shim enable",
+//                         note: "Or target one provider: `lux shim enable <provider>`.",
+//                     },
+//                     InfoQuickstartStep {
+//                         step: 3,
+//                         command: "lux up --collector-only --wait",
+//                         note: "Starts collector and creates active run metadata.",
+//                     },
+//                     InfoQuickstartStep {
+//                         step: 4,
+//                         command: "lux ui up --wait",
+//                         note: "Starts the UI service for evidence review.",
+//                     },
+//                     InfoQuickstartStep {
+//                         step: 5,
+//                         command: "<provider>",
+//                         note: "Run from inside the active workspace; shim ensures provider plane startup and enters provider TUI.",
+//                     },
+//                 ],
+//             },
+//         ],
+//         next: vec![
+//             InfoNextCommand {
+//                 goal: "Check collector status",
+//                 command: "lux status --collector-only",
+//             },
+//             InfoNextCommand {
+//                 goal: "Check provider status",
+//                 command: "lux status --provider <provider>",
+//             },
+//             InfoNextCommand {
+//                 goal: "Inspect run summary stats",
+//                 command: "lux logs stats --latest",
+//             },
+//             InfoNextCommand {
+//                 goal: "Tail run logs",
+//                 command: "lux logs tail --latest",
+//             },
+//         ],
+//         docs: vec![
+//             InfoDocLink {
+//                 path: "docs/contracts/cli.md",
+//                 purpose: "CLI command behavior and lifecycle contract.",
+//             },
+//             InfoDocLink {
+//                 path: "docs/contracts/install.md",
+//                 purpose: "Install and first-run setup flow.",
+//             },
+//             InfoDocLink {
+//                 path: "docs/contracts/config.md",
+//                 purpose: "Config fields, defaults, and path policy.",
+//             },
+//         ],
+//     }
+// }
+
+// fn print_info_text(info: &InfoResult) {
+//     println!("What Lux Is");
+//     println!("  {}", info.overview);
+
+//     println!();
+//     println!("Core Concepts");
+//     for concept in &info.concepts {
+//         println!("  - {}: {}", concept.term, concept.meaning);
+//     }
+
+//     for track in &info.quickstart {
+//         println!();
+//         println!("{}", track.title);
+//         for step in &track.steps {
+//             println!("  {}. {}", step.step, step.command);
+//             if !step.note.is_empty() {
+//                 println!("     {}", step.note);
+//             }
+//         }
+//         println!("  Follow-up: `lux logs stats --latest` or `lux logs tail --latest`");
+//     }
+
+//     println!();
+//     println!("Next Commands");
+//     for next in &info.next {
+//         println!("  - {}: {}", next.goal, next.command);
+//     }
+
+//     println!();
+//     println!("Docs");
+//     for doc in &info.docs {
+//         println!("  - {}: {}", doc.path, doc.purpose);
+//     }
+// }
+
+fn handle_info(ctx: &Context) -> Result<(), LuxError> {
+    // let info = build_info_result();
+    // if ctx.json {
+    //     return output(ctx, serde_json::to_value(&info)?);
+    // }
+    // print_info_text(&info);
+    let _ = ctx;
+    println!();
+    println!("{}", style("What Lux Is:").bold().cyan());
+    println!("  Lux runs any agent in an isolated docker container to attach");
+    println!("  OS-level auditing programs to logs the processes they emit.");
+    println!("  It's composed of four containers: a collector, a UI, an");
+    println!("  agent container, and a harness container (to capture");
+    println!("  command I/O artifacts and write attribution markers).");
+    println!("  This produces attributable evidence in logs + UI.");
+
+    println!();
+    println!("{}", style("Quickstart:").bold().cyan());
+    println!("  {}", style("lux up --collector-only --wait").bold());
+    println!("  {}", style("lux ui up --wait").bold());
+    println!("  {}", style("lux up --provider <provider> --wait").bold());
+    println!("  {}", style("lux tui --provider <provider>").bold());
+
+    println!();
+    println!("{}", style("Core Concepts:").bold().cyan());
+    println!(
+        "  - runtime control plane: one local daemon to broker lifecycle requests (up, down, status)"
+    );
+    println!(
+        "  - collector-only: Starts only the collector container and creates the active run that stores logs."
+    );
+    println!(
+        "  - provider plane: The provider execution stack (`agent` + `harness`) for one selected provider."
+    );
+    println!(
+        "  - shims: Optional PATH wrappers that let running a provider CLI (for example `codex`) enter Lux-managed execution."
+    );
+
+    println!();
+    println!("{}", style("Logs:").bold().cyan());
+    println!(
+        "  - Can either view the logs directly in the folders or in the UI (http://localhost:8090)"
+    );
+    println!(
+        "  - With Lux still in beta, the filtered logs are still very unrefined. The current primary usecase is to point an agent to to summarize."
+    );
+    println!();
+    Ok(())
+}
+
 fn handle_paths(ctx: &Context) -> Result<(), LuxError> {
     let (paths, config_exists) = resolve_runtime_paths(ctx)?;
     let env_exists = paths.env_file.exists();
@@ -8380,6 +9363,90 @@ mod tests {
         }
     }
 
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    enum SetupRunnerFailurePoint {
+        ShimEnable,
+        ProviderPlaneActive,
+        CollectorRunning,
+        CollectorStop,
+        CollectorStart,
+        UiStart,
+    }
+
+    #[derive(Debug, Default)]
+    struct MockSetupPostActionRunner {
+        calls: RefCell<Vec<String>>,
+        fail_at: Option<SetupRunnerFailurePoint>,
+        provider_active: Option<String>,
+        collector_running: bool,
+    }
+
+    impl MockSetupPostActionRunner {
+        fn with_failure(mut self, point: SetupRunnerFailurePoint) -> Self {
+            self.fail_at = Some(point);
+            self
+        }
+
+        fn with_provider_active(mut self, provider: &str) -> Self {
+            self.provider_active = Some(provider.to_string());
+            self
+        }
+
+        fn with_collector_running(mut self, running: bool) -> Self {
+            self.collector_running = running;
+            self
+        }
+
+        fn maybe_fail(&self, point: SetupRunnerFailurePoint) -> Result<(), LuxError> {
+            if self.fail_at == Some(point) {
+                return Err(LuxError::Process(format!("mock failure at {:?}", point)));
+            }
+            Ok(())
+        }
+
+        fn calls(&self) -> Vec<String> {
+            self.calls.borrow().clone()
+        }
+
+        fn record_call(&self, name: &str) {
+            self.calls.borrow_mut().push(name.to_string());
+        }
+    }
+
+    impl SetupPostActionRunner for MockSetupPostActionRunner {
+        fn shim_enable(&self, _providers: &[String]) -> Result<(), LuxError> {
+            self.record_call("shim_enable");
+            self.maybe_fail(SetupRunnerFailurePoint::ShimEnable)
+        }
+
+        fn provider_plane_active(&self) -> Result<Option<String>, LuxError> {
+            self.record_call("provider_plane_active");
+            self.maybe_fail(SetupRunnerFailurePoint::ProviderPlaneActive)?;
+            Ok(self.provider_active.clone())
+        }
+
+        fn collector_running(&self) -> Result<bool, LuxError> {
+            self.record_call("collector_running");
+            self.maybe_fail(SetupRunnerFailurePoint::CollectorRunning)?;
+            Ok(self.collector_running)
+        }
+
+        fn collector_stop(&self) -> Result<(), LuxError> {
+            self.record_call("collector_stop");
+            self.maybe_fail(SetupRunnerFailurePoint::CollectorStop)
+        }
+
+        fn collector_start(&self) -> Result<(), LuxError> {
+            self.record_call("collector_start");
+            self.maybe_fail(SetupRunnerFailurePoint::CollectorStart)
+        }
+
+        fn ui_start(&self) -> Result<(), LuxError> {
+            self.record_call("ui_start");
+            self.maybe_fail(SetupRunnerFailurePoint::UiStart)
+        }
+    }
+
     fn write_minimal_config(path: &Path) {
         let base = path.parent().unwrap_or_else(|| Path::new("."));
         let home = required_home_dir().expect("home");
@@ -8423,6 +9490,117 @@ paths:
 "#;
         let result: Result<Config, _> = serde_yaml::from_str(yaml);
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn setup_post_actions_plan_respects_apply_and_interactive_flags() {
+        let choices = SetupPostSetupChoices::default();
+        assert!(plan_setup_post_actions(true, false, &choices).is_empty());
+        assert!(plan_setup_post_actions(false, true, &choices).is_empty());
+        assert!(plan_setup_post_actions(false, false, &choices).is_empty());
+    }
+
+    #[test]
+    fn setup_post_actions_plan_orders_shim_then_startup_actions() {
+        let mut choices = SetupPostSetupChoices::default();
+        choices.shim_choice = SetupShimChoice::EnableSelected;
+        choices.shim_providers = vec!["codex".to_string()];
+        choices.auto_start_services = true;
+
+        let actions = plan_setup_post_actions(true, true, &choices);
+        assert_eq!(
+            actions,
+            vec![
+                SetupPostAction::ShimEnable {
+                    providers: vec!["codex".to_string()],
+                },
+                SetupPostAction::StartupPreflightProviderInactive,
+                SetupPostAction::CollectorRefresh,
+                SetupPostAction::UiUp,
+            ]
+        );
+    }
+
+    #[test]
+    fn setup_post_actions_plan_skips_empty_selected_provider_list() {
+        let mut choices = SetupPostSetupChoices::default();
+        choices.shim_choice = SetupShimChoice::EnableSelected;
+        choices.shim_providers = Vec::new();
+        choices.auto_start_services = false;
+
+        let actions = plan_setup_post_actions(true, true, &choices);
+        assert!(actions.is_empty());
+    }
+
+    #[test]
+    fn setup_post_actions_stop_immediately_when_shim_enable_fails() {
+        let runner =
+            MockSetupPostActionRunner::default().with_failure(SetupRunnerFailurePoint::ShimEnable);
+        let actions = vec![
+            SetupPostAction::ShimEnable {
+                providers: vec!["codex".to_string()],
+            },
+            SetupPostAction::UiUp,
+        ];
+
+        let err = execute_setup_post_actions(&runner, &actions)
+            .expect_err("shim failure should abort subsequent actions");
+        let outcomes = err.1;
+        assert_eq!(outcomes.len(), 1);
+        assert_eq!(outcomes[0].action, "shim_enable");
+        assert_eq!(outcomes[0].status, "failed");
+        assert_eq!(runner.calls(), vec!["shim_enable".to_string()]);
+    }
+
+    #[test]
+    fn setup_post_actions_preflight_blocks_when_provider_plane_active() {
+        let runner = MockSetupPostActionRunner::default().with_provider_active("codex");
+        let actions = vec![
+            SetupPostAction::StartupPreflightProviderInactive,
+            SetupPostAction::CollectorRefresh,
+            SetupPostAction::UiUp,
+        ];
+
+        let err = execute_setup_post_actions(&runner, &actions)
+            .expect_err("active provider plane should block collector refresh");
+        let outcomes = err.1;
+        assert_eq!(outcomes.len(), 1);
+        assert_eq!(outcomes[0].action, "startup_preflight_provider_inactive");
+        assert_eq!(outcomes[0].status, "failed");
+        assert_eq!(runner.calls(), vec!["provider_plane_active".to_string()]);
+    }
+
+    #[test]
+    fn setup_post_actions_collector_refresh_restarts_when_already_running() {
+        let runner = MockSetupPostActionRunner::default().with_collector_running(true);
+        let actions = vec![SetupPostAction::CollectorRefresh];
+
+        let outcomes = execute_setup_post_actions(&runner, &actions)
+            .expect("collector refresh should succeed");
+        assert_eq!(outcomes.len(), 1);
+        assert_eq!(outcomes[0].action, "collector_refresh");
+        assert_eq!(outcomes[0].status, "ok");
+        assert_eq!(
+            runner.calls(),
+            vec![
+                "collector_running".to_string(),
+                "collector_stop".to_string(),
+                "collector_start".to_string(),
+            ]
+        );
+    }
+
+    #[test]
+    fn setup_post_actions_ui_up_reports_local_url_and_port() {
+        let runner = MockSetupPostActionRunner::default();
+        let actions = vec![SetupPostAction::UiUp];
+
+        let outcomes = execute_setup_post_actions(&runner, &actions).expect("ui up should succeed");
+        assert_eq!(outcomes.len(), 1);
+        assert_eq!(outcomes[0].action, "ui_up");
+        assert_eq!(outcomes[0].status, "ok");
+        assert!(outcomes[0].detail.contains("http://127.0.0.1:8090"));
+        assert!(outcomes[0].detail.contains("port 8090"));
     }
 
     #[test]

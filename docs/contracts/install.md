@@ -126,22 +126,41 @@ mkdir -p ~/.config/lux
 
 ## Configure + Run
 
-1) Run the setup wizard (recommended):
+1) Read the onboarding overview (recommended for first run):
+
+```bash
+lux info
+```
+
+2) Run the setup wizard:
 
 ```bash
 lux setup
 ```
 
 This updates `~/.config/lux/config.yaml` in place and can optionally create
-provider secrets files (API-key mode).
+provider secrets files (API-key mode). In interactive mode, setup also offers:
+- optional shim enablement
+- optional safer auto-start (collector refresh + UI up; no provider auto-start)
 
-2) Start stack:
+3) Start manually using one of these provider-agnostic tracks.
+
+Track A (manual provider plane + `lux tui`):
 
 ```bash
-lux runtime up
+lux up --collector-only --wait
 lux ui up --wait
+lux up --provider <provider> --wait
+lux tui --provider <provider>
+```
+
+Track B (shims enabled):
+
+```bash
 lux shim enable
-codex
+lux up --collector-only --wait
+lux ui up --wait
+<provider>
 ```
 
 ### Manual config (no wizard)
@@ -150,14 +169,14 @@ codex
 $EDITOR ~/.config/lux/config.yaml
 lux config apply
 lux up --collector-only --wait
-lux up --provider codex --wait
-lux tui --provider codex
+lux up --provider <provider> --wait
+lux tui --provider <provider>
 ```
 
-3) Run a job (optional):
+4) Run a job (optional):
 
 ```bash
-lux run --provider codex "hello"
+lux run --provider <provider> "hello"
 ```
 
 ## Updating

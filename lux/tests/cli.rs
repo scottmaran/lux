@@ -568,6 +568,62 @@ fn paths_reports_resolved_values() {
 }
 
 #[test]
+fn info_text_includes_core_concepts_and_quickstart_tracks() {
+    let output = bin()
+        .arg("info")
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    let rendered = String::from_utf8_lossy(&output);
+    assert!(rendered.contains("What Lux Is:"));
+    assert!(rendered.contains("Quickstart:"));
+    assert!(rendered.contains("Core Concepts:"));
+    assert!(rendered.contains("Logs:"));
+    assert!(rendered.contains("runtime control plane"));
+    assert!(rendered.contains("collector-only: Starts only the collector container"));
+    assert!(rendered.contains("provider plane"));
+    assert!(rendered.contains("lux up --collector-only --wait"));
+    assert!(rendered.contains("lux ui up --wait"));
+    assert!(rendered.contains("lux up --provider <provider> --wait"));
+    assert!(rendered.contains("lux tui --provider <provider>"));
+    assert!(rendered.contains("http://localhost:8090"));
+}
+
+#[test]
+fn info_with_json_flag_outputs_info_text() {
+    let output = bin()
+        .arg("--json")
+        .arg("info")
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    let rendered = String::from_utf8_lossy(&output);
+    assert!(rendered.contains("What Lux Is:"));
+    assert!(rendered.contains("Quickstart:"));
+    assert!(rendered.contains("Core Concepts:"));
+    assert!(rendered.contains("Logs:"));
+}
+
+#[test]
+fn help_lists_info_without_rewriting_existing_descriptions() {
+    let output = bin()
+        .arg("--help")
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    let rendered = String::from_utf8_lossy(&output);
+    assert!(rendered.contains(" info "));
+    assert!(rendered.contains("Start collector-only or provider plane services"));
+    assert!(rendered.contains("Manage runtime control-plane lifecycle"));
+}
+
+#[test]
 fn setup_defaults_creates_secrets_from_env_when_missing() {
     let dir = tempdir().unwrap();
     let home = dir.path().join("home");
@@ -679,6 +735,37 @@ fn setup_dry_run_writes_nothing() {
 
     assert!(!config_path.exists());
     assert!(!secrets_path.exists());
+}
+
+#[test]
+fn setup_defaults_does_not_autostart_services() {
+    let dir = tempdir().unwrap();
+    let home = dir.path().join("home");
+    let config_dir = dir.path().join("config");
+    let trusted_root = dir.path().join("trusted");
+    fs::create_dir_all(&home).unwrap();
+    fs::create_dir_all(&config_dir).unwrap();
+    let _config_path = write_default_template_config(&config_dir, &trusted_root);
+
+    // `--defaults` should not attempt collector/UI startup; this must succeed even without docker in PATH.
+    let output = bin()
+        .env("HOME", &home)
+        .env("PATH", "")
+        .env("LUX_CONFIG_DIR", &config_dir)
+        .env("OPENAI_API_KEY", "defaults-no-autostart-key")
+        .arg("--json")
+        .arg("setup")
+        .arg("--defaults")
+        .arg("--yes")
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+
+    let value = parse_json(&output);
+    assert!(value["ok"].as_bool().unwrap());
+    assert!(value["result"]["apply"].as_bool().unwrap());
 }
 
 #[test]
