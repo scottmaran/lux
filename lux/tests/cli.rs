@@ -568,6 +568,108 @@ fn paths_reports_resolved_values() {
 }
 
 #[test]
+fn info_text_includes_core_concepts_and_quickstart_tracks() {
+    let output = bin()
+        .arg("info")
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    let rendered = String::from_utf8_lossy(&output);
+    assert!(rendered.contains("What Lux Is"));
+    assert!(rendered.contains("Core Concepts"));
+    assert!(rendered.contains("runtime control plane"));
+    assert!(rendered.contains("collector-only (--collector-only)"));
+    assert!(rendered.contains("provider plane"));
+    assert!(rendered.contains("Quickstart track A: manual provider plane + `lux tui`"));
+    assert!(rendered.contains("lux up --provider <provider> --wait"));
+    assert!(rendered.contains("lux tui --provider <provider>"));
+    assert!(rendered.contains("Quickstart track B: shim-enabled startup"));
+    assert!(rendered.contains("lux shim enable"));
+    assert!(rendered.contains("<provider>"));
+}
+
+#[test]
+fn info_json_has_expected_shape_and_tracks() {
+    let output = bin()
+        .arg("--json")
+        .arg("info")
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    let value = parse_json(&output);
+    assert!(value["ok"].as_bool().unwrap());
+    assert!(value["result"]["overview"].as_str().is_some());
+
+    let concepts = value["result"]["concepts"]
+        .as_array()
+        .expect("concepts array");
+    assert!(concepts
+        .iter()
+        .any(|entry| entry["term"].as_str() == Some("runtime control plane")));
+    assert!(concepts
+        .iter()
+        .any(|entry| entry["term"].as_str() == Some("collector-only (--collector-only)")));
+    assert!(concepts
+        .iter()
+        .any(|entry| entry["term"].as_str() == Some("provider plane")));
+
+    let quickstart = value["result"]["quickstart"]
+        .as_array()
+        .expect("quickstart array");
+    let manual_track = quickstart
+        .iter()
+        .find(|track| track["id"].as_str() == Some("manual_tui"))
+        .expect("manual quickstart track");
+    assert_eq!(manual_track["provider_agnostic"], Value::Bool(true));
+    let manual_commands: Vec<&str> = manual_track["steps"]
+        .as_array()
+        .expect("manual track steps")
+        .iter()
+        .filter_map(|step| step["command"].as_str())
+        .collect();
+    assert!(manual_commands.contains(&"lux up --provider <provider> --wait"));
+    assert!(manual_commands.contains(&"lux tui --provider <provider>"));
+
+    let shim_track = quickstart
+        .iter()
+        .find(|track| track["id"].as_str() == Some("shim_enabled"))
+        .expect("shim quickstart track");
+    assert_eq!(shim_track["provider_agnostic"], Value::Bool(true));
+    let shim_commands: Vec<&str> = shim_track["steps"]
+        .as_array()
+        .expect("shim track steps")
+        .iter()
+        .filter_map(|step| step["command"].as_str())
+        .collect();
+    assert!(shim_commands.contains(&"lux shim enable"));
+    assert!(shim_commands.contains(&"<provider>"));
+
+    let docs = value["result"]["docs"].as_array().expect("docs array");
+    assert!(docs
+        .iter()
+        .any(|doc| doc["path"].as_str() == Some("docs/contracts/cli.md")));
+}
+
+#[test]
+fn help_lists_info_without_rewriting_existing_descriptions() {
+    let output = bin()
+        .arg("--help")
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    let rendered = String::from_utf8_lossy(&output);
+    assert!(rendered.contains(" info "));
+    assert!(rendered.contains("Start collector-only or provider plane services"));
+    assert!(rendered.contains("Manage runtime control-plane lifecycle"));
+}
+
+#[test]
 fn setup_defaults_creates_secrets_from_env_when_missing() {
     let dir = tempdir().unwrap();
     let home = dir.path().join("home");

@@ -13,21 +13,50 @@ provider execution.
 
 ## Quick Start
 
+Plain-language onboarding entrypoint:
+
 ```bash
-lux setup
-codex
+lux info
 ```
 
-Equivalent explicit flow:
+Shim-enabled first run (provider-agnostic):
 
 ```bash
+lux setup
+lux shim enable
 lux up --collector-only --wait
 lux ui up --wait
-lux shim enable
-codex
+<provider>
+```
+
+Manual provider-plane + `lux tui` first run:
+
+```bash
+lux setup
+lux up --collector-only --wait
+lux ui up --wait
+lux up --provider <provider> --wait
+lux tui --provider <provider>
 ```
 
 ## Core Commands
+
+### `info`
+
+Read-only onboarding command that explains:
+- what Lux does at a high level
+- key technical concepts used across CLI help (`runtime`, `collector-only`,
+  `provider plane`, `ui`, `shims`)
+- two concise provider-agnostic quickstart tracks:
+  - manual provider plane + `lux tui`
+  - shim-enabled startup
+
+`--json` result shape:
+- `overview`
+- `concepts[]` (`term`, `meaning`)
+- `quickstart[]` (`id`, `title`, `provider_agnostic`, `steps[]`)
+- `next[]` (`goal`, `command`)
+- `docs[]` (`path`, `purpose`)
 
 ### `setup`
 

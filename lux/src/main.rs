@@ -145,6 +145,8 @@ enum Commands {
         #[arg(long, default_value_t = false)]
         strict: bool,
     },
+    #[command(about = "Explain Lux concepts and first-run quickstart tracks")]
+    Info,
     #[command(about = "Print resolved config, runtime, install, and compose paths")]
     Paths,
     #[command(about = "Check, apply, or rollback Lux versions")]
@@ -894,6 +896,7 @@ fn main() -> Result<(), LuxError> {
             } => handle_tui(&ctx, provider, start_dir, &runner),
             Commands::Jobs { command } => handle_jobs(&ctx, command),
             Commands::Doctor { strict } => handle_doctor(&ctx, strict),
+            Commands::Info => handle_info(&ctx),
             Commands::Paths => handle_paths(&ctx),
             Commands::Update { command } => handle_update(&ctx, command),
             Commands::Uninstall {
@@ -8408,6 +8411,218 @@ fn handle_doctor(ctx: &Context, strict: bool) -> Result<(), LuxError> {
             .map(|check| check.message.clone())
             .unwrap_or_else(|| "one or more readiness checks failed".to_string()),
     ))
+}
+
+#[derive(Debug, Serialize)]
+struct InfoConcept {
+    term: &'static str,
+    meaning: &'static str,
+}
+
+#[derive(Debug, Serialize)]
+struct InfoQuickstartStep {
+    step: usize,
+    command: &'static str,
+    note: &'static str,
+}
+
+#[derive(Debug, Serialize)]
+struct InfoQuickstartTrack {
+    id: &'static str,
+    title: &'static str,
+    provider_agnostic: bool,
+    steps: Vec<InfoQuickstartStep>,
+}
+
+#[derive(Debug, Serialize)]
+struct InfoNextCommand {
+    goal: &'static str,
+    command: &'static str,
+}
+
+#[derive(Debug, Serialize)]
+struct InfoDocLink {
+    path: &'static str,
+    purpose: &'static str,
+}
+
+#[derive(Debug, Serialize)]
+struct InfoResult {
+    overview: &'static str,
+    concepts: Vec<InfoConcept>,
+    quickstart: Vec<InfoQuickstartTrack>,
+    next: Vec<InfoNextCommand>,
+    docs: Vec<InfoDocLink>,
+}
+
+fn build_info_result() -> InfoResult {
+    InfoResult {
+        overview: "Lux runs third-party agents in provider-scoped containers, captures system-level activity in a collector run, and gives you attributable evidence in logs + UI.",
+        concepts: vec![
+            InfoConcept {
+                term: "runtime control plane",
+                meaning: "The local Lux service that brokers lifecycle requests and state for CLI commands.",
+            },
+            InfoConcept {
+                term: "collector-only (--collector-only)",
+                meaning: "Starts only the collector service and creates the active run that stores logs.",
+            },
+            InfoConcept {
+                term: "provider plane",
+                meaning: "The provider execution stack (`agent` + `harness`) for one selected provider.",
+            },
+            InfoConcept {
+                term: "ui service",
+                meaning: "The local web/API service used to inspect run logs and timeline evidence.",
+            },
+            InfoConcept {
+                term: "shims",
+                meaning: "Optional PATH wrappers that let running a provider CLI (for example `codex`) enter Lux-managed execution.",
+            },
+        ],
+        quickstart: vec![
+            InfoQuickstartTrack {
+                id: "manual_tui",
+                title: "Quickstart track A: manual provider plane + `lux tui`",
+                provider_agnostic: true,
+                steps: vec![
+                    InfoQuickstartStep {
+                        step: 1,
+                        command: "lux setup",
+                        note: "Choose paths/auth/secrets. Shim and startup options are optional.",
+                    },
+                    InfoQuickstartStep {
+                        step: 2,
+                        command: "lux up --collector-only --wait",
+                        note: "Starts collector and creates active run metadata.",
+                    },
+                    InfoQuickstartStep {
+                        step: 3,
+                        command: "lux ui up --wait",
+                        note: "Starts the UI service for evidence review.",
+                    },
+                    InfoQuickstartStep {
+                        step: 4,
+                        command: "lux up --provider <provider> --wait",
+                        note: "Starts provider plane (`agent` + `harness`) for one provider.",
+                    },
+                    InfoQuickstartStep {
+                        step: 5,
+                        command: "lux tui --provider <provider>",
+                        note: "Run from inside the active workspace (or pass `--start-dir`).",
+                    },
+                ],
+            },
+            InfoQuickstartTrack {
+                id: "shim_enabled",
+                title: "Quickstart track B: shim-enabled startup",
+                provider_agnostic: true,
+                steps: vec![
+                    InfoQuickstartStep {
+                        step: 1,
+                        command: "lux setup",
+                        note: "Choose paths/auth/secrets. Shim and startup options are optional.",
+                    },
+                    InfoQuickstartStep {
+                        step: 2,
+                        command: "lux shim enable",
+                        note: "Or target one provider: `lux shim enable <provider>`.",
+                    },
+                    InfoQuickstartStep {
+                        step: 3,
+                        command: "lux up --collector-only --wait",
+                        note: "Starts collector and creates active run metadata.",
+                    },
+                    InfoQuickstartStep {
+                        step: 4,
+                        command: "lux ui up --wait",
+                        note: "Starts the UI service for evidence review.",
+                    },
+                    InfoQuickstartStep {
+                        step: 5,
+                        command: "<provider>",
+                        note: "Run from inside the active workspace; shim ensures provider plane startup and enters provider TUI.",
+                    },
+                ],
+            },
+        ],
+        next: vec![
+            InfoNextCommand {
+                goal: "Check collector status",
+                command: "lux status --collector-only",
+            },
+            InfoNextCommand {
+                goal: "Check provider status",
+                command: "lux status --provider <provider>",
+            },
+            InfoNextCommand {
+                goal: "Inspect run summary stats",
+                command: "lux logs stats --latest",
+            },
+            InfoNextCommand {
+                goal: "Tail run logs",
+                command: "lux logs tail --latest",
+            },
+        ],
+        docs: vec![
+            InfoDocLink {
+                path: "docs/contracts/cli.md",
+                purpose: "CLI command behavior and lifecycle contract.",
+            },
+            InfoDocLink {
+                path: "docs/contracts/install.md",
+                purpose: "Install and first-run setup flow.",
+            },
+            InfoDocLink {
+                path: "docs/contracts/config.md",
+                purpose: "Config fields, defaults, and path policy.",
+            },
+        ],
+    }
+}
+
+fn print_info_text(info: &InfoResult) {
+    println!("What Lux Is");
+    println!("  {}", info.overview);
+
+    println!();
+    println!("Core Concepts");
+    for concept in &info.concepts {
+        println!("  - {}: {}", concept.term, concept.meaning);
+    }
+
+    for track in &info.quickstart {
+        println!();
+        println!("{}", track.title);
+        for step in &track.steps {
+            println!("  {}. {}", step.step, step.command);
+            if !step.note.is_empty() {
+                println!("     {}", step.note);
+            }
+        }
+        println!("  Follow-up: `lux logs stats --latest` or `lux logs tail --latest`");
+    }
+
+    println!();
+    println!("Next Commands");
+    for next in &info.next {
+        println!("  - {}: {}", next.goal, next.command);
+    }
+
+    println!();
+    println!("Docs");
+    for doc in &info.docs {
+        println!("  - {}: {}", doc.path, doc.purpose);
+    }
+}
+
+fn handle_info(ctx: &Context) -> Result<(), LuxError> {
+    let info = build_info_result();
+    if ctx.json {
+        return output(ctx, serde_json::to_value(&info)?);
+    }
+    print_info_text(&info);
+    Ok(())
 }
 
 fn handle_paths(ctx: &Context) -> Result<(), LuxError> {

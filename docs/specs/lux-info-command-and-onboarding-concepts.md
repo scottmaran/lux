@@ -1,6 +1,6 @@
 # Spec: `lux info` Command For Concepts And First-Run Onboarding
 
-Status: draft
+Status: implemented
 Owner: codex
 Created: 2026-02-22
 Last updated: 2026-02-22

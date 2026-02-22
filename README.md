@@ -19,6 +19,7 @@ curl -fsSL "https://raw.githubusercontent.com/scottmaran/lux/${VERSION}/install_
 `lux setup` can optionally enable shims and optionally start collector + UI right away. If shims are enabled, just run `codex` or `claude` like you normally would and sessions will be logged to the directory chosen in setup.
 
 If `lux` is "command not found" after install, ensure `~/.local/bin` is in your `PATH`.
+For plain-language concepts and first-run command tracks, run `lux info`.
 
 To view more info about user configs, see `docs/contracts/config.md`.
 To view more info about the cli, see `docs/contracts/cli.md`.
