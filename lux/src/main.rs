@@ -32,15 +32,11 @@ const RUNTIME_BYPASS_ENV: &str = "LUX_RUNTIME_BYPASS";
 const UNIX_SOCKET_PATH_LIMIT_BYTES: usize = 100;
 
 #[derive(Parser, Debug)]
-#[command(name = "lux", version, about = "
-Welcome to the Lux CLI! The simplest way to get started is:
-    lux runtime up
-    lux up --collector-only --wait
-    lux ui up --wait
-    lux up --provider {agent}
-    lux tui --provider {agent}
-And your logs are stored in {root_log_dir}
-")]
+#[command(
+    name = "lux",
+    version,
+    about = "Agent observability CLI for setup, lifecycle control, and log review"
+)]
 struct Cli {
     #[arg(long, global = true)]
     config: Option<PathBuf>,
@@ -58,13 +54,12 @@ struct Cli {
 
 #[derive(Subcommand, Debug)]
 enum Commands {
+    #[command(about = "Initialize, edit, validate, or apply configuration")]
     Config {
         #[command(subcommand)]
         command: ConfigCommand,
     },
-    #[command(
-        about = "Interactive setup wizard"
-    )]
+    #[command(about = "Interactive setup wizard for paths, auth, secrets, shims, and startup")]
     Setup {
         #[arg(long, default_value_t = false)]
         defaults: bool,
@@ -75,6 +70,7 @@ enum Commands {
         #[arg(long, default_value_t = false)]
         dry_run: bool,
     },
+    #[command(about = "Start collector-only or provider plane services")]
     Up {
         #[arg(long, conflicts_with = "collector_only")]
         provider: Option<String>,
@@ -89,31 +85,36 @@ enum Commands {
         #[arg(long)]
         timeout_sec: Option<u64>,
     },
+    #[command(about = "Stop collector-only or provider plane services")]
     Down {
         #[arg(long, conflicts_with = "collector_only")]
         provider: Option<String>,
         #[arg(long, default_value_t = false, conflicts_with = "provider")]
         collector_only: bool,
     },
+    #[command(about = "Show collector-only or provider plane status")]
     Status {
         #[arg(long, conflicts_with = "collector_only")]
         provider: Option<String>,
         #[arg(long, default_value_t = false, conflicts_with = "provider")]
         collector_only: bool,
     },
+    #[command(about = "Manage UI service lifecycle")]
     Ui {
         #[command(subcommand)]
         command: UiCommand,
     },
+    #[command(about = "Manage runtime control-plane lifecycle")]
     Runtime {
         #[command(subcommand)]
         command: RuntimeCommand,
     },
-    #[command(about = "Enable/disable/status provider shims")]
+    #[command(about = "Enable, disable, inspect, or execute provider shims")]
     Shim {
         #[command(subcommand)]
         command: ShimCommand,
     },
+    #[command(about = "Run a non-interactive provider prompt through harness API")]
     Run {
         #[arg(long)]
         provider: String,
@@ -127,25 +128,31 @@ enum Commands {
         #[arg(long)]
         env: Vec<String>,
     },
+    #[command(about = "Launch an interactive provider TUI session")]
     Tui {
         #[arg(long)]
         provider: String,
         #[arg(long)]
         start_dir: Option<String>,
     },
+    #[command(about = "List or fetch run-scoped harness jobs")]
     Jobs {
         #[command(subcommand)]
         command: JobsCommand,
     },
+    #[command(about = "Run readiness checks for runtime, paths, and contracts")]
     Doctor {
         #[arg(long, default_value_t = false)]
         strict: bool,
     },
+    #[command(about = "Print resolved config, runtime, install, and compose paths")]
     Paths,
+    #[command(about = "Check, apply, or rollback Lux versions")]
     Update {
         #[command(subcommand)]
         command: UpdateCommand,
     },
+    #[command(about = "Remove Lux install artifacts with optional config cleanup")]
     Uninstall {
         #[arg(long)]
         remove_config: bool,
@@ -158,6 +165,7 @@ enum Commands {
         #[arg(long)]
         force: bool,
     },
+    #[command(about = "Inspect run-scoped logs and summary stats")]
     Logs {
         #[command(subcommand)]
         command: LogsCommand,
@@ -166,7 +174,9 @@ enum Commands {
 
 #[derive(Subcommand, Debug)]
 enum UpdateCommand {
+    #[command(about = "Check for newer available Lux versions")]
     Check,
+    #[command(about = "Apply an update to a target or latest version")]
     Apply {
         #[arg(long, conflicts_with = "latest")]
         to: Option<String>,
@@ -177,6 +187,7 @@ enum UpdateCommand {
         #[arg(long)]
         dry_run: bool,
     },
+    #[command(about = "Rollback to a target or previous version")]
     Rollback {
         #[arg(long, conflicts_with = "previous")]
         to: Option<String>,
@@ -191,20 +202,26 @@ enum UpdateCommand {
 
 #[derive(Subcommand, Debug)]
 enum ConfigCommand {
+    #[command(about = "Create config file if missing")]
     Init,
+    #[command(about = "Open config in your editor")]
     Edit,
+    #[command(about = "Validate config contract and policy rules")]
     Validate,
+    #[command(about = "Apply config and write compose env/state directories")]
     Apply,
 }
 
 #[derive(Subcommand, Debug)]
 enum JobsCommand {
+    #[command(about = "List jobs in a selected run")]
     List {
         #[arg(long, conflicts_with = "latest")]
         run_id: Option<String>,
         #[arg(long)]
         latest: bool,
     },
+    #[command(about = "Fetch one job by id in a selected run")]
     Get {
         id: String,
         #[arg(long, conflicts_with = "latest")]
@@ -216,6 +233,7 @@ enum JobsCommand {
 
 #[derive(Subcommand, Debug)]
 enum UiCommand {
+    #[command(about = "Start UI service")]
     Up {
         #[arg(long)]
         wait: bool,
@@ -224,15 +242,21 @@ enum UiCommand {
         #[arg(long, value_parser = ["always", "never", "missing"]) ]
         pull: Option<String>,
     },
+    #[command(about = "Stop UI service")]
     Down,
+    #[command(about = "Show UI service status")]
     Status,
+    #[command(about = "Print local UI URL")]
     Url,
 }
 
 #[derive(Subcommand, Debug)]
 enum RuntimeCommand {
+    #[command(about = "Start runtime control-plane daemon")]
     Up,
+    #[command(about = "Stop runtime control-plane daemon")]
     Down,
+    #[command(about = "Show runtime control-plane status")]
     Status,
     #[command(hide = true)]
     Serve,
@@ -240,15 +264,13 @@ enum RuntimeCommand {
 
 #[derive(Subcommand, Debug)]
 enum ShimCommand {
-    Enable {
-        providers: Vec<String>,
-    },
-    Disable {
-        providers: Vec<String>,
-    },
-    Status {
-        providers: Vec<String>,
-    },
+    #[command(about = "Install/update shim binaries and PATH persistence")]
+    Enable { providers: Vec<String> },
+    #[command(about = "Remove Lux-managed shim binaries and PATH persistence")]
+    Disable { providers: Vec<String> },
+    #[command(about = "Show shim install/path readiness state")]
+    Status { providers: Vec<String> },
+    #[command(about = "Execute provider command through Lux shim path")]
     Exec {
         provider: String,
         #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
@@ -258,12 +280,14 @@ enum ShimCommand {
 
 #[derive(Subcommand, Debug)]
 enum LogsCommand {
+    #[command(about = "Show run-scoped log summary statistics")]
     Stats {
         #[arg(long, conflicts_with = "latest")]
         run_id: Option<String>,
         #[arg(long)]
         latest: bool,
     },
+    #[command(about = "Tail run-scoped log files")]
     Tail {
         #[arg(long, default_value_t = 50)]
         lines: usize,
@@ -2718,10 +2742,7 @@ continue using your normal codex/claude command
 (routed through Lux behind the scenes)."
             )
         );
-            println!(
-                "{}",
-                style("Disable any time with lux shims disable").dim()
-            );
+        println!("{}", style("Disable any time with lux shims disable").dim());
         let shim_items = [
             "Enable shims for all configured providers (recommended)",
             "Select providers",
@@ -2787,15 +2808,11 @@ continue using your normal codex/claude command
         print_step(5, total_steps, "Auto Startup");
         println!(
             "{}",
-            style(
-                "Do you want to start the background Lux processes here?"
-            )
+            style("Do you want to start the background Lux processes here?")
         );
         println!(
             "{}",
-            style(
-                "Refreshes collector with the new config and brings up the UI."
-            ).dim()
+            style("Refreshes collector with the new config and brings up the UI.").dim()
         );
         let startup_items = ["Auto-start now", "Do not auto-start now"];
         let startup_default_idx = if setup_choices_state.auto_start_services {
@@ -3390,12 +3407,33 @@ continue using your normal codex/claude command
 
     println!();
     println!("{}", style("Helpful hints").bold().cyan());
-    println!("{} {}", style("- ever stuck?").bold().yellow(), style("run ```lux help``` for all CLI commands."));
-    println!("{} {}", style("- want more info?").bold().yellow(), style("run ```lux info``` for a deeper dive on the program."));
-    println!("{} {}", style("- if shims enabled").bold().yellow(), style("run ```lux shim disable``` to run claude/codex normally."));
+    println!(
+        "{} {}",
+        style("- ever stuck?").bold().yellow(),
+        style("run ```lux help``` for all CLI commands.")
+    );
+    println!(
+        "{} {}",
+        style("- want more info?").bold().yellow(),
+        style("run ```lux info``` for a deeper dive on the program.")
+    );
+    println!(
+        "{} {}",
+        style("- if shims enabled").bold().yellow(),
+        style("run ```lux shim disable``` to run claude/codex normally.")
+    );
     println!("{}", style("- Docker Desktop might ask for permissions for protected directories (this is normal)."));
-    println!("{} {}", style("- The docker containers are always directly in"), style("view in Docker Desktop."));
-    println!("{}", style("- the first agent startup session will take a few minutes.").bold().yellow());
+    println!(
+        "{} {}",
+        style("- The docker containers are always directly in"),
+        style("view in Docker Desktop.")
+    );
+    println!(
+        "{}",
+        style("- the first agent startup session will take a few minutes.")
+            .bold()
+            .yellow()
+    );
 
     Ok(())
 }
