@@ -32,7 +32,15 @@ const RUNTIME_BYPASS_ENV: &str = "LUX_RUNTIME_BYPASS";
 const UNIX_SOCKET_PATH_LIMIT_BYTES: usize = 100;
 
 #[derive(Parser, Debug)]
-#[command(name = "lux", version, about = "Lux CLI")]
+#[command(name = "lux", version, about = "
+Welcome to the Lux CLI! The simplest way to get started is:
+    lux runtime up
+    lux up --collector-only --wait
+    lux ui up --wait
+    lux up --provider {agent}
+    lux tui --provider {agent}
+And your logs are stored in {root_log_dir}
+")]
 struct Cli {
     #[arg(long, global = true)]
     config: Option<PathBuf>,
@@ -55,7 +63,7 @@ enum Commands {
         command: ConfigCommand,
     },
     #[command(
-        about = "Interactive setup wizard for paths, auth, secrets, optional shims, and optional safer auto-start"
+        about = "Interactive setup wizard"
     )]
     Setup {
         #[arg(long, default_value_t = false)]
@@ -101,7 +109,7 @@ enum Commands {
         #[command(subcommand)]
         command: RuntimeCommand,
     },
-    #[command(about = "Enable/disable/status provider shims and PATH persistence")]
+    #[command(about = "Enable/disable/status provider shims")]
     Shim {
         #[command(subcommand)]
         command: ShimCommand,
