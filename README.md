@@ -1,8 +1,12 @@
 # Lux
 
-Use claude code but worried about it making breaking changes to your computer? Come back to your laptop after a long agent run wondering what's changed?
+Welcome to Lux! The blackbox for your ai agents. 
+An easy, automatic way to store everything your agents have done.
 
-If only there were something watching everything your agents did so you didn't miss anything important.
+For when you want to:
+- find that old conversation you forgot about 
+- figure out what your agent has done while you weren't watching
+- provide your current agent session a comprehensive ledger of state changes
 
 ## About
 
@@ -10,19 +14,11 @@ Lux is an OS‑level observation system for third‑party agents: it runs the ag
 
 ## Install (beta)
 ```
-Run the versioned installer, + the interactive setup wizard:
+Run the versioned installer & setup wizard:
 ```bash
 VERSION=vX.Y.Z
 curl -fsSL "https://raw.githubusercontent.com/scottmaran/lux/${VERSION}/install_lux.sh" | bash -s -- --version "${VERSION}" --setup
 ```
-
-`lux setup` can optionally enable shims and optionally start collector + UI right away. If shims are enabled, just run `codex` or `claude` like you normally would and sessions will be logged to the directory chosen in setup.
-
-If `lux` is "command not found" after install, ensure `~/.local/bin` is in your `PATH`.
-For plain-language concepts and first-run command tracks, run `lux info`.
-
-To view more info about user configs, see `docs/contracts/config.md`.
-To view more info about the cli, see `docs/contracts/cli.md`.
 
 ## Run-scoped logs
 Each `lux up` creates a new run directory under `paths.log_root`, for example:
@@ -43,6 +39,14 @@ active, use `--run-id <id>` or `--latest`.
 ## Lux CLI (beta)
 The recommended way to run the stack is via the `lux` CLI, which pulls the
 versioned Docker images from GHCR and manages config + compose wiring.
+
+`lux setup` can optionally enable shims and optionally start collector + UI right away. If shims are enabled, just run `codex` or `claude` like you normally would and sessions will be logged to the directory chosen in setup.
+
+If `lux` is "command not found" after install, ensure `~/.local/bin` is in your `PATH`.
+For plain-language concepts and first-run command tracks, run `lux info`.
+
+To view more info about user configs, see `docs/contracts/config.md`.
+To view more info about the cli, see `docs/contracts/cli.md`.
 
 Temporary support note (February 2026): 
 - Linux host runtime support is temporarily not guaranteed while bind-mount permission compatibility work is in progress. The currently recommended host is macOS with Docker Desktop.
