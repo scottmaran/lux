@@ -2369,23 +2369,17 @@ fn handle_setup(
         "{}",
         style(
             "Welcome to Lux! The blackbox for your ai agents. 
-For when something goes wrong, and you don't know what your agent did."
+An easy, automatic way to store everything your agents have done."
         )
     );
     println!(
         "{}",
         style(
             "
-Without you touching your workflow, Lux automatically records
-everything your agent does in each session. 
-
 For when you want to:
 - find that old conversation you forgot about 
 - figure out what your agent has done while you weren't watching
-- or even point your current agent session to the logs to help it debug
-
-But before we start, we just have to answer six questions:
-"
+- or even point your current agent session to the logs to help it debug"
         )
     );
 
@@ -2441,7 +2435,7 @@ But before we start, we just have to answer six questions:
         );
         println!(
             "{}",
-            style("Don't change the default log directory unless you have a good reason to")
+            style("Don't change the default log directory unless you have a good reason to.")
         );
         println!(
             "{}",
@@ -2455,14 +2449,14 @@ But before we start, we just have to answer six questions:
             )
             .dim()
         );
-        println!(
-            "{}",
-            style(format!(
-                "Default trusted root for this host: {}",
-                default_paths.trusted_root
-            ))
-            .dim()
-        );
+        // println!(
+        //     "{}",
+        //     style(format!(
+        //         "Default trusted root for this host: {}",
+        //         default_paths.trusted_root
+        //     ))
+        //     .dim()
+        // );
         let previous_trusted_root = trusted_root_state.clone();
         trusted_root_state = Input::<String>::with_theme(&theme)
             .with_prompt("Select trusted root (outside $HOME)")
@@ -2584,7 +2578,8 @@ For safety and policy compliance, workspace must be under $HOME."
             provider_auth_state.insert(provider_name.clone(), chosen.clone());
 
             if provider_name == "claude" && chosen == "host_state" && env::consts::OS == "macos" {
-                warnings.push("provider 'claude': host_state mode on macOS can fail when auth depends on Keychain; switch to api_key if needed".to_string());
+                warnings.push("provider 'claude': host_state mode on macOS can fail when auth depends on Keychain; 
+may need to login the first time".to_string());
             }
 
             let should_mount_host_state =
@@ -2709,10 +2704,16 @@ For safety and policy compliance, workspace must be under $HOME."
         println!(
             "{}",
             style(
-                "Install shims now to keep using provider CLIs (`codex`, `claude`, etc.) while routing through Lux."
+                "Instead of typing the full Lux command to start an agent:
+lux tui --provider codex/claude
+continue using your normal codex/claude command 
+(routed through Lux behind the scenes)."
             )
-            .dim()
         );
+            println!(
+                "{}",
+                style("Disable any time with lux shims disable").dim()
+            );
         let shim_items = [
             "Enable shims for all configured providers (recommended)",
             "Select providers",
@@ -2775,15 +2776,20 @@ For safety and policy compliance, workspace must be under $HOME."
             }
         }
 
-        print_step(5, total_steps, "Startup");
+        print_step(5, total_steps, "Auto Startup");
         println!(
             "{}",
             style(
-                "Optional safer auto-start refreshes collector with the new config and brings up the UI."
+                "Do you want to start the background Lux processes here?"
             )
-            .dim()
         );
-        let startup_items = ["Auto-start now (safer mode)", "Do not auto-start now"];
+        println!(
+            "{}",
+            style(
+                "Refreshes collector with the new config and brings up the UI."
+            ).dim()
+        );
+        let startup_items = ["Auto-start now", "Do not auto-start now"];
         let startup_default_idx = if setup_choices_state.auto_start_services {
             0
         } else {
@@ -2881,69 +2887,69 @@ For safety and policy compliance, workspace must be under $HOME."
         );
 
         println!("\n{}", style("Paths").bold());
-        if desired_cfg.paths.trusted_root == base_cfg.paths.trusted_root {
-            println!(
-                "  {} {}",
-                style("paths.trusted_root:").dim(),
-                style(display_path_with_home(
-                    Path::new(&desired_cfg.paths.trusted_root),
-                    home_for_display.as_deref()
-                ))
-                .dim()
-            );
-        } else {
-            println!(
-                "  {} {} {} {}",
-                style("paths.trusted_root:").dim(),
-                style(display_path_with_home(
-                    Path::new(&base_cfg.paths.trusted_root),
-                    home_for_display.as_deref()
-                ))
-                .dim(),
-                style("->").dim(),
-                style(display_path_with_home(
-                    Path::new(&desired_cfg.paths.trusted_root),
-                    home_for_display.as_deref()
-                ))
-                .green()
-            );
-        }
-        println!(
-            "  {} {}",
-            style("resolved trusted root:").dim(),
-            style(display_path_with_home(
-                &resolved_policy_paths.trusted_root,
-                home_for_display.as_deref()
-            ))
-            .dim()
-        );
-        if desired_cfg.paths.log_root == base_cfg.paths.log_root {
-            println!(
-                "  {} {}",
-                style("paths.log_root:").dim(),
-                style(display_path_with_home(
-                    Path::new(&desired_cfg.paths.log_root),
-                    home_for_display.as_deref()
-                ))
-                .dim()
-            );
-        } else {
-            println!(
-                "  {} {} {} {}",
-                style("paths.log_root:").dim(),
-                style(display_path_with_home(
-                    Path::new(&base_cfg.paths.log_root),
-                    home_for_display.as_deref()
-                ))
-                .dim(),
-                style("->").dim(),
-                style(display_path_with_home(
-                    Path::new(&desired_cfg.paths.log_root),
-                    home_for_display.as_deref()
-                ))
-                .green()
-            );
-        }
+        // if desired_cfg.paths.trusted_root == base_cfg.paths.trusted_root {
+        //     println!(
+        //         "  {} {}",
+        //         style("paths.trusted_root:").dim(),
+        //         style(display_path_with_home(
+        //             Path::new(&desired_cfg.paths.trusted_root),
+        //             home_for_display.as_deref()
+        //         ))
+        //         .dim()
+        //     );
+        // } else {
+        //     println!(
+        //         "  {} {} {} {}",
+        //         style("paths.trusted_root:").dim(),
+        //         style(display_path_with_home(
+        //             Path::new(&base_cfg.paths.trusted_root),
+        //             home_for_display.as_deref()
+        //         ))
+        //         .dim(),
+        //         style("->").dim(),
+        //         style(display_path_with_home(
+        //             Path::new(&desired_cfg.paths.trusted_root),
+        //             home_for_display.as_deref()
+        //         ))
+        //         .green()
+        //     );
+        // }
+        // println!(
+        //     "  {} {}",
+        //     style("resolved trusted root:").dim(),
+        //     style(display_path_with_home(
+        //         &resolved_policy_paths.trusted_root,
+        //         home_for_display.as_deref()
+        //     ))
+        //     .dim()
+        // );
+        // if desired_cfg.paths.log_root == base_cfg.paths.log_root {
+        //     println!(
+        //         "  {} {}",
+        //         style("paths.log_root:").dim(),
+        //         style(display_path_with_home(
+        //             Path::new(&desired_cfg.paths.log_root),
+        //             home_for_display.as_deref()
+        //         ))
+        //         .dim()
+        //     );
+        // } else {
+        //     println!(
+        //         "  {} {} {} {}",
+        //         style("paths.log_root:").dim(),
+        //         style(display_path_with_home(
+        //             Path::new(&base_cfg.paths.log_root),
+        //             home_for_display.as_deref()
+        //         ))
+        //         .dim(),
+        //         style("->").dim(),
+        //         style(display_path_with_home(
+        //             Path::new(&desired_cfg.paths.log_root),
+        //             home_for_display.as_deref()
+        //         ))
+        //         .green()
+        //     );
+        // }
         println!(
             "  {} {}",
             style("resolved log root:").dim(),
@@ -2953,33 +2959,33 @@ For safety and policy compliance, workspace must be under $HOME."
             ))
             .dim()
         );
-        if desired_cfg.paths.workspace_root == base_cfg.paths.workspace_root {
-            println!(
-                "  {} {}",
-                style("paths.workspace_root:").dim(),
-                style(display_path_with_home(
-                    Path::new(&desired_cfg.paths.workspace_root),
-                    home_for_display.as_deref()
-                ))
-                .dim()
-            );
-        } else {
-            println!(
-                "  {} {} {} {}",
-                style("paths.workspace_root:").dim(),
-                style(display_path_with_home(
-                    Path::new(&base_cfg.paths.workspace_root),
-                    home_for_display.as_deref()
-                ))
-                .dim(),
-                style("->").dim(),
-                style(display_path_with_home(
-                    Path::new(&desired_cfg.paths.workspace_root),
-                    home_for_display.as_deref()
-                ))
-                .green()
-            );
-        }
+        // if desired_cfg.paths.workspace_root == base_cfg.paths.workspace_root {
+        //     println!(
+        //         "  {} {}",
+        //         style("paths.workspace_root:").dim(),
+        //         style(display_path_with_home(
+        //             Path::new(&desired_cfg.paths.workspace_root),
+        //             home_for_display.as_deref()
+        //         ))
+        //         .dim()
+        //     );
+        // } else {
+        //     println!(
+        //         "  {} {} {} {}",
+        //         style("paths.workspace_root:").dim(),
+        //         style(display_path_with_home(
+        //             Path::new(&base_cfg.paths.workspace_root),
+        //             home_for_display.as_deref()
+        //         ))
+        //         .dim(),
+        //         style("->").dim(),
+        //         style(display_path_with_home(
+        //             Path::new(&desired_cfg.paths.workspace_root),
+        //             home_for_display.as_deref()
+        //         ))
+        //         .green()
+        //     );
+        // }
         println!(
             "  {} {}",
             style("resolved workspace root:").dim(),
@@ -2989,42 +2995,42 @@ For safety and policy compliance, workspace must be under $HOME."
             ))
             .dim()
         );
-        if desired_cfg.shims.bin_dir == base_cfg.shims.bin_dir {
-            println!(
-                "  {} {}",
-                style("shims.bin_dir:").dim(),
-                style(display_path_with_home(
-                    Path::new(&desired_cfg.shims.bin_dir),
-                    home_for_display.as_deref()
-                ))
-                .dim()
-            );
-        } else {
-            println!(
-                "  {} {} {} {}",
-                style("shims.bin_dir:").dim(),
-                style(display_path_with_home(
-                    Path::new(&base_cfg.shims.bin_dir),
-                    home_for_display.as_deref()
-                ))
-                .dim(),
-                style("->").dim(),
-                style(display_path_with_home(
-                    Path::new(&desired_cfg.shims.bin_dir),
-                    home_for_display.as_deref()
-                ))
-                .green()
-            );
-        }
-        println!(
-            "  {} {}",
-            style("resolved shims bin dir:").dim(),
-            style(display_path_with_home(
-                &resolved_policy_paths.shims_bin_dir,
-                home_for_display.as_deref()
-            ))
-            .dim()
-        );
+        // if desired_cfg.shims.bin_dir == base_cfg.shims.bin_dir {
+        //     println!(
+        //         "  {} {}",
+        //         style("shims.bin_dir:").dim(),
+        //         style(display_path_with_home(
+        //             Path::new(&desired_cfg.shims.bin_dir),
+        //             home_for_display.as_deref()
+        //         ))
+        //         .dim()
+        //     );
+        // } else {
+        //     println!(
+        //         "  {} {} {} {}",
+        //         style("shims.bin_dir:").dim(),
+        //         style(display_path_with_home(
+        //             Path::new(&base_cfg.shims.bin_dir),
+        //             home_for_display.as_deref()
+        //         ))
+        //         .dim(),
+        //         style("->").dim(),
+        //         style(display_path_with_home(
+        //             Path::new(&desired_cfg.shims.bin_dir),
+        //             home_for_display.as_deref()
+        //         ))
+        //         .green()
+        //     );
+        // }
+        // println!(
+        //     "  {} {}",
+        //     style("resolved shims bin dir:").dim(),
+        //     style(display_path_with_home(
+        //         &resolved_policy_paths.shims_bin_dir,
+        //         home_for_display.as_deref()
+        //     ))
+        //     .dim()
+        // );
 
         println!("\n{}", style("Provider Auth").bold());
         for (provider_name, provider) in &desired_cfg.providers {
@@ -3373,6 +3379,15 @@ For safety and policy compliance, workspace must be under $HOME."
             println!("  Re-run: lux doctor --strict");
         }
     }
+
+    println!();
+    println!("{}", style("Helpful hints").bold().cyan());
+    println!("{} {}", style("- ever stuck?").bold().yellow(), style("run ```lux help``` for all CLI commands."));
+    println!("{} {}", style("- want more info?").bold().yellow(), style("run ```lux info``` for a deeper dive on the program."));
+    println!("{} {}", style("- if shims enabled").bold().yellow(), style("run ```lux shim disable``` to run claude/codex normally."));
+    println!("{}", style("- Docker Desktop might ask for permissions for protected directories (this is normal)."));
+    println!("{} {}", style("- The docker containers are always directly in"), style("view in Docker Desktop."));
+    println!("{}", style("- the first agent startup session will take a few minutes.").bold().yellow());
 
     Ok(())
 }
