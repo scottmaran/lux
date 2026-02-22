@@ -8622,32 +8622,47 @@ fn handle_info(ctx: &Context) -> Result<(), LuxError> {
     //     return output(ctx, serde_json::to_value(&info)?);
     // }
     // print_info_text(&info);
-    println!("
-What Lux Is:
-Lux runs any agent in an isolated docker container to attach
-OS-level auditing programs to logs the processes they emit.
-It's composed of four containers: a collector, a UI, an
-agent container, and a harness container (to capture 
-command I/O artifacts and write attribution markers).
-This produces attributable evidence in logs + UI.
+    let _ = ctx;
+    println!();
+    println!("{}", style("What Lux Is:").bold().cyan());
+    println!("  Lux runs any agent in an isolated docker container to attach");
+    println!("  OS-level auditing programs to logs the processes they emit.");
+    println!("  It's composed of four containers: a collector, a UI, an");
+    println!("  agent container, and a harness container (to capture");
+    println!("  command I/O artifacts and write attribution markers).");
+    println!("  This produces attributable evidence in logs + UI.");
 
-Quickstart:
-    lux up --collector-only --wait
-    lux ui up --wait
-    lux up --provider <provider> --wait
-    lux tui --provider <provider>
+    println!();
+    println!("{}", style("Quickstart:").bold().cyan());
+    println!("  {}", style("lux up --collector-only --wait").bold());
+    println!("  {}", style("lux ui up --wait").bold());
+    println!("  {}", style("lux up --provider <provider> --wait").bold());
+    println!("  {}", style("lux tui --provider <provider>").bold());
 
-Core Concepts: 
-  - runtime control plane: one local daemon to broker lifecycle requests (up, down, status)
-  - collector-only: Starts only the collector container and creates the active run that stores logs.
-  - provider plane: The provider execution stack (`agent` + `harness`) for one selected provider.
-  - shims: Optional PATH wrappers that let running a provider CLI (for example `codex`) enter Lux-managed execution.
+    println!();
+    println!("{}", style("Core Concepts:").bold().cyan());
+    println!(
+        "  - runtime control plane: one local daemon to broker lifecycle requests (up, down, status)"
+    );
+    println!(
+        "  - collector-only: Starts only the collector container and creates the active run that stores logs."
+    );
+    println!(
+        "  - provider plane: The provider execution stack (`agent` + `harness`) for one selected provider."
+    );
+    println!(
+        "  - shims: Optional PATH wrappers that let running a provider CLI (for example `codex`) enter Lux-managed execution."
+    );
 
-Logs:
-  - Can either view the logs directly in the folders or in the UI (http://localhost:8090)
-  - With Lux still in beta, the filtered logs are still very unrefined. The current primary usecase
-is to point an agent to to summarize.
-");
+    println!();
+    println!("{}", style("Logs:").bold().cyan());
+    println!(
+        "  - Can either view the logs directly in the folders or in the UI (http://localhost:8090)"
+    );
+    println!(
+        "  - With Lux still in beta, the filtered logs are still very unrefined. The current primary usecase is to point an agent to to summarize."
+    );
+    println!();
     Ok(())
 }
 
