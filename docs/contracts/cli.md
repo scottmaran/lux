@@ -15,7 +15,6 @@ provider execution.
 
 ```bash
 lux setup
-lux shim enable
 codex
 ```
 
@@ -23,16 +22,41 @@ Equivalent explicit flow:
 
 ```bash
 lux up --collector-only --wait
-lux up --provider codex --wait
-lux tui --provider codex
+lux ui up --wait
+lux shim enable
+codex
 ```
 
 ## Core Commands
 
 ### `setup`
 
-Interactive setup wizard that updates `config.yaml` and can create provider
-secrets files.
+Interactive setup wizard that updates `config.yaml`, can create provider
+secrets files, supports optional shim enablement, and supports optional safer
+auto-start.
+
+Interactive wizard steps:
+- Paths
+- Provider Auth
+- Secrets
+- Shims
+- Startup
+- Review
+
+Startup option behavior (interactive only):
+- optional safer auto-start refreshes collector and starts UI
+  - preflight: fails if provider plane is active
+  - collector refresh: stop collector when running, then `up --collector-only --wait --pull missing`
+  - UI: `ui up --wait --pull missing`
+- provider plane is not auto-started.
+
+Defaults-mode behavior:
+- `lux setup --defaults` is non-interactive
+- startup auto-actions are disabled by default
+
+Failure semantics:
+- if post-setup shim/startup actions fail, setup exits non-zero
+- config/secrets writes already completed by setup are preserved (no rollback)
 
 Path policy enforced by setup:
 - `paths.trusted_root` must be outside `$HOME`.

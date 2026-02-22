@@ -1,6 +1,6 @@
 # Spec: Setup Wizard Shims Step And Optional Safer Auto-Start
 
-Status: draft
+Status: implemented
 Owner: codex
 Created: 2026-02-21
 Last updated: 2026-02-22

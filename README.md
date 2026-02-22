@@ -16,7 +16,7 @@ VERSION=vX.Y.Z
 curl -fsSL "https://raw.githubusercontent.com/scottmaran/lux/${VERSION}/install_lux.sh" | bash -s -- --version "${VERSION}" --setup
 ```
 
-If you install the shim, then you're done! Just run ```codex``` or ```claude``` like you normally would and all your agent sessions will be logged in the directory you choose in the setup. 
+`lux setup` can optionally enable shims and optionally start collector + UI right away. If shims are enabled, just run `codex` or `claude` like you normally would and sessions will be logged to the directory chosen in setup.
 
 If `lux` is "command not found" after install, ensure `~/.local/bin` is in your `PATH`.
 

@@ -682,6 +682,37 @@ fn setup_dry_run_writes_nothing() {
 }
 
 #[test]
+fn setup_defaults_does_not_autostart_services() {
+    let dir = tempdir().unwrap();
+    let home = dir.path().join("home");
+    let config_dir = dir.path().join("config");
+    let trusted_root = dir.path().join("trusted");
+    fs::create_dir_all(&home).unwrap();
+    fs::create_dir_all(&config_dir).unwrap();
+    let _config_path = write_default_template_config(&config_dir, &trusted_root);
+
+    // `--defaults` should not attempt collector/UI startup; this must succeed even without docker in PATH.
+    let output = bin()
+        .env("HOME", &home)
+        .env("PATH", "")
+        .env("LUX_CONFIG_DIR", &config_dir)
+        .env("OPENAI_API_KEY", "defaults-no-autostart-key")
+        .arg("--json")
+        .arg("setup")
+        .arg("--defaults")
+        .arg("--yes")
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+
+    let value = parse_json(&output);
+    assert!(value["ok"].as_bool().unwrap());
+    assert!(value["result"]["apply"].as_bool().unwrap());
+}
+
+#[test]
 fn uninstall_requires_yes_without_dry_run() {
     let dir = tempdir().unwrap();
     let config_path = dir.path().join("config.yaml");

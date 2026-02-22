@@ -133,12 +133,14 @@ lux setup
 ```
 
 This updates `~/.config/lux/config.yaml` in place and can optionally create
-provider secrets files (API-key mode).
+provider secrets files (API-key mode). In interactive mode, setup also offers:
+- optional shim enablement
+- optional safer auto-start (collector refresh + UI up; no provider auto-start)
 
-2) Start stack:
+2) If you skipped startup/shims in setup, start stack manually:
 
 ```bash
-lux runtime up
+lux up --collector-only --wait
 lux ui up --wait
 lux shim enable
 codex
