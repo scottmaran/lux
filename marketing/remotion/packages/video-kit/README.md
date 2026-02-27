@@ -50,10 +50,31 @@ Exports:
 - `AudioCue` (type)
 - `EMPTY_AUDIO_LIBRARY`
 
+### `codex-session`
+
+Components:
+- `CodexSession`
+
+Types:
+- `CodexSessionProps`
+- `CodexSessionPreset`
+- `CodexSessionCommandStep`
+- `CodexSessionRow`
+- `CodexSessionRowPart`
+- `CodexSessionCardConfig`
+- `CodexSessionTheme`
+
+Theme export:
+- `DEFAULT_CODEX_SESSION_THEME`
+
+Preset exports:
+- `CODEX_SESSION_SOURCE_REPLICA` (translation of `codex_session_source.mp4`)
+
 ## Top-Level Exports
 
 `src/index.ts` re-exports:
 - `audio`
+- `codex-session`
 - `lux-ui`
 - `terminal`
 

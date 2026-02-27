@@ -19,6 +19,10 @@ projects.
   - `TimelineEvent`
   - `RunsPanel`
   - dashboard types and theme tokens
+- `codex-session/`
+  - `CodexSession`
+  - source-replica preset for `codex_session_source.mp4`
+  - typed row/timeline configuration for reusable Codex session visuals
 
 ## Scope Rules
 

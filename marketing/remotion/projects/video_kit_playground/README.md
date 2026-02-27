@@ -6,6 +6,8 @@ Remotion playground project for visual QA of `@lux/video-kit` components.
 
 - `VideoKitTerminalShowcase`
 - `VideoKitLuxUiShowcase`
+- `VideoKitCodexSessionReplica`
+- `VideoKitCodexSessionComparison`
 
 ## Commands
 
