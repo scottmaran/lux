@@ -10,7 +10,11 @@ export const CodexSessionReplica: React.FC = () => {
       rows={CODEX_SESSION_SOURCE_REPLICA.rows}
       scroll={CODEX_SESSION_SOURCE_REPLICA.scroll}
       topBarTitle={CODEX_SESSION_SOURCE_REPLICA.topBarTitle}
+      topBarTitleSteps={CODEX_SESSION_SOURCE_REPLICA.topBarTitleSteps}
       bottomRightLabel={CODEX_SESSION_SOURCE_REPLICA.bottomRightLabel}
+      bottomRightAtSec={CODEX_SESSION_SOURCE_REPLICA.bottomRightAtSec}
+      footerAtSec={CODEX_SESSION_SOURCE_REPLICA.footerAtSec}
+      footerLines={CODEX_SESSION_SOURCE_REPLICA.footerLines}
     />
   );
 };

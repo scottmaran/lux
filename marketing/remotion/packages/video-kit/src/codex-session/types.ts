@@ -14,6 +14,7 @@ export type CodexSessionRowGlyph = 'dot' | 'hollow' | 'arrow' | 'none';
 
 export type CodexSessionRow = {
   atSec: number;
+  untilSec?: number;
   parts?: CodexSessionRowPart[];
   glyph?: CodexSessionRowGlyph;
   indent?: number;
@@ -45,18 +46,32 @@ export type CodexSessionScrollKeyframe = {
   offset: number;
 };
 
+export type CodexSessionTopBarTitleStep = {
+  atSec: number;
+  title: string;
+};
+
+export type CodexSessionFooterLine = {
+  glyph: string;
+  text: string;
+};
+
 export type CodexSessionPreset = {
   durationInFrames: number;
   width: number;
   height: number;
   title: string;
   topBarTitle?: string;
+  topBarTitleSteps?: CodexSessionTopBarTitleStep[];
   bottomRightLabel?: string;
+  bottomRightAtSec?: number;
   commandSteps: CodexSessionCommandStep[];
   cardAtSec: number;
   card?: CodexSessionCardConfig;
   rows: CodexSessionRow[];
   scroll?: CodexSessionScrollKeyframe[];
+  footerAtSec?: number;
+  footerLines?: CodexSessionFooterLine[];
 };
 
 export type CodexSessionProps = {
@@ -67,6 +82,10 @@ export type CodexSessionProps = {
   scroll?: CodexSessionScrollKeyframe[];
   backgroundColor?: string;
   topBarTitle?: string;
+  topBarTitleSteps?: CodexSessionTopBarTitleStep[];
   bottomRightLabel?: string;
+  bottomRightAtSec?: number;
+  footerAtSec?: number;
+  footerLines?: CodexSessionFooterLine[];
   theme?: Partial<CodexSessionTheme>;
 };

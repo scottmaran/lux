@@ -21,6 +21,11 @@ const defaultCard: CodexSessionCardConfig = {
   tipLabel: 'Tip: New 2x rate limits until April 2nd.',
 };
 
+const defaultFooterLines = [
+  {glyph: '>', text: 'Improve documentation in @filename'},
+  {glyph: '?', text: 'for shortcuts'},
+];
+
 const blockCursor = '|';
 
 const partToneStyle = (tone: CodexSessionPartTone, theme: CodexSessionTheme): React.CSSProperties => {
@@ -127,6 +132,27 @@ const actionParts = (text: string): {lead: string; tail: string} => {
   };
 };
 
+const topBarTitleAtTime = (
+  sec: number,
+  fallbackTitle: string,
+  titleSteps: {atSec: number; title: string}[] | undefined,
+): string => {
+  if (!titleSteps || titleSteps.length === 0) {
+    return fallbackTitle;
+  }
+
+  let activeTitle = fallbackTitle;
+  for (const step of titleSteps) {
+    if (step.atSec > sec) {
+      break;
+    }
+
+    activeTitle = step.title;
+  }
+
+  return activeTitle;
+};
+
 export const CodexSession: React.FC<CodexSessionProps> = ({
   commandSteps,
   cardAtSec,
@@ -134,18 +160,25 @@ export const CodexSession: React.FC<CodexSessionProps> = ({
   rows,
   scroll,
   backgroundColor,
-  topBarTitle = 'lux_workspace - docker-compose < lux shim exec codex --- 82x24',
+  topBarTitle = 'lux_workspace --zsh -- 82x24',
+  topBarTitleSteps,
   bottomRightLabel = '100% context left',
+  bottomRightAtSec = 0,
+  footerAtSec = 0,
+  footerLines = defaultFooterLines,
   theme,
 }) => {
   const frame = useCurrentFrame();
   const {fps} = useVideoConfig();
   const currentSec = frame / fps;
-  const activeRows = rows.filter((row) => row.atSec <= currentSec);
+  const activeRows = rows.filter((row) => row.atSec <= currentSec && (row.untilSec === undefined || currentSec < row.untilSec));
   const cardConfig = card ?? defaultCard;
   const contentScroll = scrollOffsetAt(currentSec, scroll);
   const palette = {...DEFAULT_CODEX_SESSION_THEME, ...theme};
   const cardAction = cardConfig.modelAction ? actionParts(cardConfig.modelAction) : null;
+  const activeTopBarTitle = topBarTitleAtTime(currentSec, topBarTitle, topBarTitleSteps);
+  const showBottomRight = currentSec >= bottomRightAtSec;
+  const showFooter = currentSec >= footerAtSec;
 
   return (
     <AbsoluteFill
@@ -171,7 +204,7 @@ export const CodexSession: React.FC<CodexSessionProps> = ({
         <span style={{width: 12, height: 12, borderRadius: 999, backgroundColor: palette.dotRed}} />
         <span style={{width: 12, height: 12, borderRadius: 999, backgroundColor: palette.dotYellow}} />
         <span style={{width: 12, height: 12, borderRadius: 999, backgroundColor: palette.dotGreen}} />
-        <span style={{marginLeft: 10}}>{topBarTitle}</span>
+        <span style={{marginLeft: 10}}>{activeTopBarTitle}</span>
       </div>
 
       <div
@@ -179,7 +212,7 @@ export const CodexSession: React.FC<CodexSessionProps> = ({
           position: 'absolute',
           inset: '44px 0 0 0',
           overflow: 'hidden',
-          padding: '16px 12px 14px 12px',
+          padding: '16px 12px 68px 12px',
           color: palette.bodyText,
         }}
       >
@@ -195,9 +228,14 @@ export const CodexSession: React.FC<CodexSessionProps> = ({
             .map((step, index, visibleSteps) => {
               const typedText = typedCommandAtTime(step, currentSec, fps);
               const isLastVisible = index === visibleSteps.length - 1;
-              const showCursor = isLastVisible;
+              const isPlaceholder = !step.command;
+              const showCursor = isLastVisible && currentSec < cardAtSec;
               const fullCommand = step.command ?? '';
               const displayCommand = isLastVisible ? typedText : fullCommand;
+
+              if (isPlaceholder && !isLastVisible) {
+                return null;
+              }
 
               if (step.bracketed) {
                 return (
@@ -294,30 +332,46 @@ export const CodexSession: React.FC<CodexSessionProps> = ({
             );
           })}
 
-          <div style={{height: 20}} />
-          <div style={{display: 'flex', gap: 10, color: palette.mutedText, marginBottom: 8}}>
-            <span style={{width: 20}}>{'>'}</span>
-            <span>Improve documentation in @filename</span>
-          </div>
-          <div style={{display: 'flex', gap: 10, color: palette.mutedText}}>
-            <span style={{width: 20}}>{'?'}</span>
-            <span>for shortcuts</span>
-          </div>
         </div>
       </div>
 
-      <div
-        style={{
-          position: 'absolute',
-          right: 12,
-          bottom: 8,
-          color: palette.mutedText,
-          fontSize: 14,
-          fontWeight: 600,
-        }}
-      >
-        {bottomRightLabel}
-      </div>
+      {showFooter ? (
+        <div
+          style={{
+            position: 'absolute',
+            left: 12,
+            bottom: 8,
+            color: palette.mutedText,
+            fontSize: 18,
+            lineHeight: 1.28,
+          }}
+        >
+          {footerLines.map((line, index) => (
+            <div
+              key={`${line.glyph}-${line.text}`}
+              style={{display: 'flex', gap: 10, marginBottom: index === footerLines.length - 1 ? 0 : 8}}
+            >
+              <span style={{width: 20}}>{line.glyph}</span>
+              <span>{line.text}</span>
+            </div>
+          ))}
+        </div>
+      ) : null}
+
+      {showBottomRight ? (
+        <div
+          style={{
+            position: 'absolute',
+            right: 12,
+            bottom: 8,
+            color: palette.mutedText,
+            fontSize: 14,
+            fontWeight: 600,
+          }}
+        >
+          {bottomRightLabel}
+        </div>
+      ) : null}
     </AbsoluteFill>
   );
 };
