@@ -9,7 +9,7 @@ For when you want to:
 - provide your current agent session a comprehensive ledger of state changes
 
 <video
-  src="https://raw.githubusercontent.com/scottmaran/lux/lux_marketing/marketing/remotion/projects/kalshi_demo/out/LuxFullTerminal.mp4"
+  src="https://raw.githubusercontent.com/scottmaran/lux/lux_marketing/assets/LuxDemo.mp4"
   controls
   muted
   playsinline
