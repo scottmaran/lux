@@ -298,7 +298,7 @@ export const ChaosScene: React.FC<ChaosSceneProps> = ({
               opacity={terminalOpacity('t1', entry)}
               focused={focusId === 't1' && !discoveryDim}
             >
-              <div style={{fontSize: 18, lineHeight: 1.4}}>
+              <div style={{fontSize: 46, lineHeight: 1.4}}>
                 <span style={{color: colors.terminalText}}>&gt; </span>
                 <TypingText
                   text={promptText}

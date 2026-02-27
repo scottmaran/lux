@@ -93,7 +93,7 @@ export const ScrollingTerminal: React.FC<ScrollingTerminalProps> = ({
           <div
             key={`${line.text}-${idx}`}
             style={{
-              fontSize: 15,
+              fontSize: 26,
               lineHeight: 1.25,
               color: danger ? palette.terminalRed : palette.terminalText,
               fontWeight: danger ? 700 : 400,

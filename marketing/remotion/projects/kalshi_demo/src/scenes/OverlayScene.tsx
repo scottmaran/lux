@@ -55,9 +55,9 @@ export const OverlayScene: React.FC<OverlaySceneProps> = ({
         <div
           style={{
             fontFamily: interFontFamily,
-            fontSize: 64,
+            fontSize: 68,
             fontWeight: 800,
-            color: '#FFFFFF',
+            color: '#ffffff',
             textAlign: 'center',
             maxWidth: 1450,
             lineHeight: 1.1,

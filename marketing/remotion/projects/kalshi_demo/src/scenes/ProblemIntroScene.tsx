@@ -57,7 +57,7 @@ export const ProblemIntroScene: React.FC = () => {
           }}
         >
           As agents get better, <br></br>
-          we're giving them more access
+          we're giving them more responsibility
         </div>
       </div>
     </AbsoluteFill>
