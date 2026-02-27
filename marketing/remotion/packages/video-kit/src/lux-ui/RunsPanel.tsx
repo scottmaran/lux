@@ -8,6 +8,7 @@ export type RunsPanelProps = {
   selectedRunId: string;
   pulseRunId?: string;
   title?: string;
+  typographyScale?: number;
   theme?: Partial<LuxUiTheme>;
 };
 
@@ -16,11 +17,13 @@ export const RunsPanel: React.FC<RunsPanelProps> = ({
   selectedRunId,
   pulseRunId,
   title = 'Runs',
+  typographyScale = 1,
   theme,
 }) => {
   const frame = useCurrentFrame();
   const {fps} = useVideoConfig();
   const palette = {...DEFAULT_LUX_UI_THEME, ...theme};
+  const textSize = (value: number): number => Math.round(value * typographyScale);
 
   const kindStyles = {
     session: {
@@ -42,10 +45,10 @@ export const RunsPanel: React.FC<RunsPanelProps> = ({
         overflow: 'hidden',
         height: 640,
       }}
-    >
+      >
       <div style={{padding: '16px 18px', borderBottom: `1px solid ${palette.border}`}}>
-        <div style={{fontSize: 24, fontWeight: 600, color: palette.text}}>{title}</div>
-        <div style={{fontSize: 14, color: palette.mutedText, marginTop: 4}}>{runs.length} total</div>
+        <div style={{fontSize: textSize(24), fontWeight: 600, color: palette.text}}>{title}</div>
+        <div style={{fontSize: textSize(14), color: palette.mutedText, marginTop: 4}}>{runs.length} total</div>
       </div>
 
       <div>
@@ -76,7 +79,7 @@ export const RunsPanel: React.FC<RunsPanelProps> = ({
               <div style={{display: 'flex', gap: 8, alignItems: 'center', marginBottom: 6}}>
                 <span
                   style={{
-                    fontSize: 11,
+                    fontSize: textSize(11),
                     fontWeight: 600,
                     borderRadius: 999,
                     padding: '2px 8px',
@@ -85,21 +88,30 @@ export const RunsPanel: React.FC<RunsPanelProps> = ({
                 >
                   {run.kind}
                 </span>
-                <span style={{fontSize: 14, fontWeight: 600, color: palette.text}}>{run.name}</span>
+                <span style={{fontSize: textSize(14), fontWeight: 600, color: palette.text}}>{run.name}</span>
               </div>
 
-              <div style={{fontSize: 12, color: palette.mutedText, fontFamily: 'monospace', marginBottom: 4}}>
+              <div
+                style={{
+                  fontSize: textSize(12),
+                  color: palette.mutedText,
+                  fontFamily: 'monospace',
+                  marginBottom: 4,
+                }}
+              >
                 {run.id}
               </div>
 
-              <div style={{fontSize: 12, color: palette.rowText, marginBottom: 4}}>
+              <div style={{fontSize: textSize(12), color: palette.rowText, marginBottom: 4}}>
                 {run.mode
                   ? run.mode
                   : `${run.status ?? 'unknown'}${run.exitCode !== undefined ? ` (${run.exitCode})` : ''}`}
               </div>
 
-              <div style={{fontSize: 12, color: palette.mutedText}}>Started: {run.started}</div>
-              {run.ended ? <div style={{fontSize: 12, color: palette.mutedText}}>Ended: {run.ended}</div> : null}
+              <div style={{fontSize: textSize(12), color: palette.mutedText}}>Started: {run.started}</div>
+              {run.ended ? (
+                <div style={{fontSize: textSize(12), color: palette.mutedText}}>Ended: {run.ended}</div>
+              ) : null}
             </div>
           );
         })}

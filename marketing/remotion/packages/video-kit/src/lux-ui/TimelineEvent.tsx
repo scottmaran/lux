@@ -4,6 +4,7 @@ import type {DashboardTimelineEvent} from './types';
 
 export type TimelineEventProps = {
   event: DashboardTimelineEvent;
+  typographyScale?: number;
   theme?: Partial<LuxUiTheme>;
 };
 
@@ -23,8 +24,9 @@ const getEventTagColor = (eventType: string, palette: LuxUiTheme): string => {
   return 'rgba(107, 114, 128, 0.16)';
 };
 
-export const TimelineEvent: React.FC<TimelineEventProps> = ({event, theme}) => {
+export const TimelineEvent: React.FC<TimelineEventProps> = ({event, typographyScale = 1, theme}) => {
   const palette = {...DEFAULT_LUX_UI_THEME, ...theme};
+  const textSize = (value: number): number => Math.round(value * typographyScale);
 
   return (
     <div
@@ -43,10 +45,12 @@ export const TimelineEvent: React.FC<TimelineEventProps> = ({event, theme}) => {
           flexWrap: 'wrap',
         }}
       >
-        <span style={{fontSize: 12, color: palette.mutedText, fontFamily: 'monospace'}}>{event.timestamp}</span>
+        <span style={{fontSize: textSize(12), color: palette.mutedText, fontFamily: 'monospace'}}>
+          {event.timestamp}
+        </span>
         <span
           style={{
-            fontSize: 11,
+            fontSize: textSize(11),
             fontWeight: 600,
             color: palette.sourceBadgeText,
             backgroundColor: palette.sourceBadgeBg,
@@ -58,7 +62,7 @@ export const TimelineEvent: React.FC<TimelineEventProps> = ({event, theme}) => {
         </span>
         <span
           style={{
-            fontSize: 11,
+            fontSize: textSize(11),
             fontWeight: 600,
             color: palette.secondaryText,
             backgroundColor: getEventTagColor(event.eventType, palette),
@@ -71,7 +75,7 @@ export const TimelineEvent: React.FC<TimelineEventProps> = ({event, theme}) => {
       </div>
       <div
         style={{
-          fontSize: 14,
+          fontSize: textSize(14),
           color: event.danger ? palette.dangerText : palette.text,
           fontWeight: event.danger ? 600 : 500,
           marginBottom: 6,
@@ -79,7 +83,7 @@ export const TimelineEvent: React.FC<TimelineEventProps> = ({event, theme}) => {
       >
         {event.target}
       </div>
-      <div style={{fontSize: 12, color: palette.rowText}}>
+      <div style={{fontSize: textSize(12), color: palette.rowText}}>
         Process: <span style={{fontFamily: 'monospace'}}>{event.process}</span> PID:{' '}
         <span style={{fontFamily: 'monospace'}}>{event.pid}</span>
       </div>

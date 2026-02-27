@@ -4,6 +4,7 @@ import {colors} from '../config/colors';
 import {interFontFamily} from '../config/fonts';
 import {DashboardLayout} from '../../../../packages/video-kit/src';
 import {DASHBOARD_RUNS, DASHBOARD_STATE_C} from '../config/terminalContent';
+import {DASHBOARD_TYPOGRAPHY_SCALE} from '../config/layout';
 
 export const DifferentiatorScene: React.FC = () => {
   const frame = useCurrentFrame();
@@ -43,6 +44,7 @@ export const DifferentiatorScene: React.FC = () => {
         events={DASHBOARD_STATE_C.events}
         opacity={dashboardOpacity}
         scale={1}
+        typographyScale={DASHBOARD_TYPOGRAPHY_SCALE}
       />
 
       <AbsoluteFill style={{backgroundColor: colors.darkBg, opacity: darkBgOpacity}} />

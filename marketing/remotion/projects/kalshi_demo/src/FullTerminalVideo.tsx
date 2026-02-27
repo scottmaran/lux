@@ -70,7 +70,7 @@ export const FullTerminalVideo: React.FC = () => {
               kicker="Lux"
               title="Lux records and organizes all of your agents"
               durationInFrames={150}
-              position={{right: 780, bottom: 670}}
+              position={{right: 740, bottom: 600}}
               // position={{right: 140, bottom: 230}}
             />
           </Sequence>
@@ -79,7 +79,7 @@ export const FullTerminalVideo: React.FC = () => {
               kicker=""
               title={'so when an agent goes rogue and starts blowing up your machine'}
               durationInFrames={200}
-              position={{right: 780, bottom: 640}}
+              position={{right: 750, bottom: 570}}
             />
           </Sequence>
           <Sequence from={395} durationInFrames={200}>
@@ -87,7 +87,7 @@ export const FullTerminalVideo: React.FC = () => {
               kicker=""
               title={"you'll have the record of what happened"}
               durationInFrames={200}
-              position={{right: 780, bottom: 610}}
+              position={{right: 750, bottom: 540}}
             />
           </Sequence>
         </AbsoluteFill>

@@ -13,6 +13,7 @@ import {
 } from '../config/terminalContent';
 import {DashboardLayout, MouseCursor, TERMINAL_HEADER_HEIGHT, TerminalWindow} from '../../../../packages/video-kit/src';
 import {HEIGHT, WIDTH} from '../config/timing';
+import {DASHBOARD_TYPOGRAPHY_SCALE} from '../config/layout';
 import {colors} from '../config/colors';
 import {MouseClickSfx} from '../components/MouseClickSfx';
 
@@ -40,13 +41,20 @@ const switchDuration = 26;
 const clickFrames = [switchAToB, switchBToC] as const;
 
 const path: CursorPoint[] = [
-  {frame: 0, x: 1516, y: 475},
-  {frame: 30, x: 1516, y: 475},
-  {frame: switchAToB, x: 1516, y: 700},
-  {frame: (switchAToB+switchBToC)/2, x: 1000, y: 600},
+  {frame: 0, x: 1600, y: 675},
+  {frame: 30, x: 1600, y: 675},
+  {frame: switchAToB, x: 1700, y: 1035},
+  {frame: (switchAToB+switchBToC)/2, x: 900, y: 820},
   {frame: switchBToC, x: 1516, y: 812},
   {frame: switchBToC+50, x: 1000, y: 800},
   {frame: switchBToC+110, x: 1150, y: 800},
+  // {frame: 0, x: 1900, y: 2275},
+  // {frame: 30, x: 1516, y: 475},
+  // {frame: switchAToB, x: 1516, y: 700},
+  // {frame: (switchAToB+switchBToC)/2, x: 1000, y: 600},
+  // {frame: switchBToC, x: 1516, y: 812},
+  // {frame: switchBToC+50, x: 1000, y: 800},
+  // {frame: switchBToC+110, x: 1150, y: 800},
 ];
 
 const getCursorPosition = (frame: number): {x: number; y: number} => {
@@ -145,6 +153,7 @@ export const DashboardScene: React.FC<DashboardSceneProps> = ({
         incomingEvents={incomingEvents}
         timelineBlend={timelineBlend}
         pulseRunId={pulseRunId}
+        typographyScale={DASHBOARD_TYPOGRAPHY_SCALE}
       />
       {showCursor && enableClickSfx ? <MouseClickSfx frames={clickFrames} /> : null}
       {showCursor ? <MouseCursor x={cursor.x} y={cursor.y} clickStrength={getClickStrength(frame)} /> : null}

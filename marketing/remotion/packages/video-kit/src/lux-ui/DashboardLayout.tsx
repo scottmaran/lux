@@ -27,6 +27,7 @@ export type DashboardLayoutProps = {
   activeDataSources?: string[];
   showAutoRefresh?: boolean;
   autoRefreshLabel?: string;
+  typographyScale?: number;
   theme?: Partial<LuxUiTheme>;
 };
 
@@ -46,18 +47,20 @@ export const DashboardLayout: React.FC<DashboardLayoutProps> = ({
   opacity = 1,
   scale = 1,
   fontFamily,
-  title = 'Lasso',
+  title = 'Lux',
   subtitle = 'The black box for your AI agents',
-  description = 'A dedicated harness for OS-level tracking of everything your agents do',
+  description = 'An OS-level harness for tracking everything your agents do',
   selectedTimeRange = '1 hour',
   timeRanges,
   dataSources,
   activeDataSources,
   showAutoRefresh = true,
   autoRefreshLabel,
+  typographyScale = 1,
   theme,
 }) => {
   const palette = {...DEFAULT_LUX_UI_THEME, ...theme};
+  const textSize = (value: number): number => Math.round(value * typographyScale);
 
   return (
     <AbsoluteFill
@@ -78,17 +81,18 @@ export const DashboardLayout: React.FC<DashboardLayoutProps> = ({
             padding: '16px 18px',
           }}
         >
-          <div style={{fontSize: 34, fontWeight: 700, color: palette.text}}>{title}</div>
-          <div style={{fontSize: 15, color: palette.mutedText, marginTop: 4}}>{subtitle}</div>
-          <div style={{fontSize: 15, color: palette.mutedText, marginTop: 2}}>{description}</div>
+          <div style={{fontSize: textSize(34), fontWeight: 700, color: palette.text}}>{title}</div>
+          <div style={{fontSize: textSize(15), color: palette.mutedText, marginTop: 4}}>{subtitle}</div>
+          <div style={{fontSize: textSize(15), color: palette.mutedText, marginTop: 2}}>{description}</div>
         </header>
 
-        <StatsBar metrics={metrics} theme={palette} />
+        <StatsBar metrics={metrics} typographyScale={typographyScale} theme={palette} />
         <FilterBar
           selectedTimeRange={selectedTimeRange}
           timeRanges={timeRanges}
           dataSources={dataSources}
           activeDataSources={activeDataSources}
+          typographyScale={typographyScale}
           theme={palette}
         />
 
@@ -100,9 +104,16 @@ export const DashboardLayout: React.FC<DashboardLayoutProps> = ({
             selectedRunName={getRunLabel(runs, selectedRunId)}
             showAutoRefresh={showAutoRefresh}
             autoRefreshLabel={autoRefreshLabel}
+            typographyScale={typographyScale}
             theme={palette}
           />
-          <RunsPanel runs={runs} selectedRunId={selectedRunId} pulseRunId={pulseRunId} theme={palette} />
+          <RunsPanel
+            runs={runs}
+            selectedRunId={selectedRunId}
+            pulseRunId={pulseRunId}
+            typographyScale={typographyScale}
+            theme={palette}
+          />
         </div>
       </div>
     </AbsoluteFill>

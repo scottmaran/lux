@@ -4,6 +4,7 @@ import type {DashboardMetrics} from './types';
 
 export type StatsBarProps = {
   metrics: DashboardMetrics;
+  typographyScale?: number;
   theme?: Partial<LuxUiTheme>;
 };
 
@@ -15,8 +16,9 @@ const cardStyle: React.CSSProperties = {
   alignItems: 'center',
 };
 
-export const StatsBar: React.FC<StatsBarProps> = ({metrics, theme}) => {
+export const StatsBar: React.FC<StatsBarProps> = ({metrics, typographyScale = 1, theme}) => {
   const palette = {...DEFAULT_LUX_UI_THEME, ...theme};
+  const textSize = (value: number): number => Math.round(value * typographyScale);
 
   const cards = [
     {
@@ -54,8 +56,8 @@ export const StatsBar: React.FC<StatsBarProps> = ({metrics, theme}) => {
           }}
         >
           <div>
-            <div style={{fontSize: 15, color: palette.mutedText, marginBottom: 6}}>{card.label}</div>
-            <div style={{fontSize: 36, lineHeight: 1, fontWeight: 700, color: palette.text}}>{card.value}</div>
+            <div style={{fontSize: textSize(15), color: palette.mutedText, marginBottom: 6}}>{card.label}</div>
+            <div style={{fontSize: textSize(36), lineHeight: 1, fontWeight: 700, color: palette.text}}>{card.value}</div>
           </div>
           <div
             style={{
@@ -67,6 +69,7 @@ export const StatsBar: React.FC<StatsBarProps> = ({metrics, theme}) => {
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
+              fontSize: textSize(16),
               fontWeight: 700,
             }}
           >

@@ -6,7 +6,11 @@ import {DashboardScene} from './DashboardScene';
 import {DashboardLayout, TerminalWindow, TypingText} from '../../../../packages/video-kit/src';
 import {DASHBOARD_RUNS, DASHBOARD_STATE_A} from '../config/terminalContent';
 import {SCENE_FRAMES} from '../config/timing';
-import {COMMAND_TERMINAL_WINDOW, INSET_DASHBOARD_WINDOW} from '../config/layout';
+import {
+  COMMAND_TERMINAL_WINDOW,
+  DASHBOARD_TYPOGRAPHY_SCALE,
+  INSET_DASHBOARD_WINDOW,
+} from '../config/layout';
 import {jetBrainsMonoFamily} from '../config/fonts';
 import {TerminalPopSfx} from '../components/TerminalPopSfx';
 
@@ -42,6 +46,7 @@ export const TransitionScene: React.FC<TransitionSceneProps> = ({
             runs={DASHBOARD_RUNS}
             selectedRunId={DASHBOARD_STATE_A.selectedRunId}
             events={DASHBOARD_STATE_A.events}
+            typographyScale={DASHBOARD_TYPOGRAPHY_SCALE}
           />
         )}
       </AbsoluteFill>

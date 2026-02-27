@@ -7,6 +7,7 @@ export type FilterBarProps = {
   timeRanges?: DashboardTimeRange[];
   dataSources?: string[];
   activeDataSources?: string[];
+  typographyScale?: number;
   theme?: Partial<LuxUiTheme>;
 };
 
@@ -15,10 +16,12 @@ export const FilterBar: React.FC<FilterBarProps> = ({
   timeRanges = ['15 min', '1 hour', '24 hours', '7 days'],
   dataSources = ['Commands', 'Network'],
   activeDataSources,
+  typographyScale = 1,
   theme,
 }) => {
   const palette = {...DEFAULT_LUX_UI_THEME, ...theme};
   const selectedSources = new Set(activeDataSources ?? dataSources);
+  const textSize = (value: number): number => Math.round(value * typographyScale);
 
   return (
     <div
@@ -32,7 +35,7 @@ export const FilterBar: React.FC<FilterBarProps> = ({
       }}
     >
       <div>
-        <div style={{fontSize: 14, color: palette.secondaryText, fontWeight: 600, marginBottom: 8}}>
+        <div style={{fontSize: textSize(14), color: palette.secondaryText, fontWeight: 600, marginBottom: 8}}>
           Data Source
         </div>
         <div style={{display: 'flex', gap: 8}}>
@@ -47,7 +50,7 @@ export const FilterBar: React.FC<FilterBarProps> = ({
                   border: 0,
                   backgroundColor: selected ? palette.primaryBlue : palette.border,
                   color: selected ? '#FFFFFF' : palette.secondaryText,
-                  fontSize: 14,
+                  fontSize: textSize(14),
                   fontWeight: 600,
                   padding: '8px 14px',
                 }}
@@ -60,7 +63,7 @@ export const FilterBar: React.FC<FilterBarProps> = ({
       </div>
 
       <div>
-        <div style={{fontSize: 14, color: palette.secondaryText, fontWeight: 600, marginBottom: 8}}>
+        <div style={{fontSize: textSize(14), color: palette.secondaryText, fontWeight: 600, marginBottom: 8}}>
           Time Range
         </div>
         <div style={{display: 'flex', gap: 8}}>
@@ -75,7 +78,7 @@ export const FilterBar: React.FC<FilterBarProps> = ({
                   border: 0,
                   backgroundColor: selected ? palette.successGreen : palette.border,
                   color: selected ? '#FFFFFF' : palette.secondaryText,
-                  fontSize: 14,
+                  fontSize: textSize(14),
                   fontWeight: 600,
                   padding: '8px 14px',
                 }}

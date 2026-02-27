@@ -40,6 +40,11 @@ raw video reference and cannot be reused parametrically in future projects.
   - `CodexSessionReplica.tsx`
   - `CodexSessionComparison.tsx`
 - Copy source mp4 into playground public assets for side-by-side preview.
+- Follow-up parity enhancements:
+  - Cursor blink behavior in typed terminal commands.
+  - Animated thinking-state emphasis (`scan-bold`) for status words.
+  - Event-driven row pushes (line-burst motion) to replace smooth continuous
+    scroll in the source preset.
 
 ## Data / Schema Changes
 - Adds a new reusable UI module and preset contract in `video-kit`.
@@ -59,14 +64,24 @@ raw video reference and cannot be reused parametrically in future projects.
 - Source replica preset is available in `video-kit`.
 - Playground includes replica and comparison compositions.
 - `npm run lint` passes in `video_kit_playground`.
+- Replica shows cursor blinking during active command typing.
+- Thinking status rows support moving bold emphasis in the source preset.
+- Thinking status emphasis can sweep across full status-row text (not only the
+  first token).
+- Source preset transcript motion occurs in discrete row pushes tied to output
+  events (no continuous drift between events).
+- Source preset supports a footer input cursor state after session start.
 
 ## Test Plan
 - Manual/static verification:
   - Run `npm run lint` in `projects/video_kit_playground`.
+  - Run `npx tsc -p tsconfig.json --noEmit` in `packages/video-kit`.
   - Run `npm run dev` and load:
     - `VideoKitCodexSessionReplica`
     - `VideoKitCodexSessionComparison`
   - Confirm source and replica both render for full preset duration.
+  - Render targeted stills for parity checks (for example frames around cursor
+    blink, thinking-state emphasis, and line-push windows).
 
 ## Rollout
 - Land as a reusable building block in the current branch.

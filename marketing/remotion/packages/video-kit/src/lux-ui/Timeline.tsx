@@ -11,10 +11,15 @@ export type TimelineProps = {
   title?: string;
   showAutoRefresh?: boolean;
   autoRefreshLabel?: string;
+  typographyScale?: number;
   theme?: Partial<LuxUiTheme>;
 };
 
-const EventList: React.FC<{events: DashboardTimelineEvent[]; theme: LuxUiTheme}> = ({events, theme}) => {
+const EventList: React.FC<{
+  events: DashboardTimelineEvent[];
+  typographyScale: number;
+  theme: LuxUiTheme;
+}> = ({events, typographyScale, theme}) => {
   return (
     <div
       style={{
@@ -24,7 +29,12 @@ const EventList: React.FC<{events: DashboardTimelineEvent[]; theme: LuxUiTheme}>
       }}
     >
       {events.map((event, index) => (
-        <TimelineEvent key={`${event.timestamp}-${event.target}-${index}`} event={event} theme={theme} />
+        <TimelineEvent
+          key={`${event.timestamp}-${event.target}-${index}`}
+          event={event}
+          typographyScale={typographyScale}
+          theme={theme}
+        />
       ))}
     </div>
   );
@@ -38,10 +48,12 @@ export const Timeline: React.FC<TimelineProps> = ({
   title = 'Timeline',
   showAutoRefresh = true,
   autoRefreshLabel = 'Auto-refresh active',
+  typographyScale = 1,
   theme,
 }) => {
   const palette = {...DEFAULT_LUX_UI_THEME, ...theme};
   const hasBlend = incomingEvents && blend > 0;
+  const textSize = (value: number): number => Math.round(value * typographyScale);
 
   return (
     <div
@@ -63,13 +75,21 @@ export const Timeline: React.FC<TimelineProps> = ({
         }}
       >
         <div>
-          <div style={{fontSize: 24, fontWeight: 600, color: palette.text}}>{title}</div>
-          <div style={{fontSize: 14, color: palette.mutedText, marginTop: 4}}>
+          <div style={{fontSize: textSize(24), fontWeight: 600, color: palette.text}}>{title}</div>
+          <div style={{fontSize: textSize(14), color: palette.mutedText, marginTop: 4}}>
             {events.length} events - Filtered by {selectedRunName}
           </div>
         </div>
         {showAutoRefresh ? (
-          <div style={{display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, color: palette.mutedText}}>
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 8,
+              fontSize: textSize(12),
+              color: palette.mutedText,
+            }}
+          >
             <span
               style={{
                 width: 8,
@@ -85,11 +105,11 @@ export const Timeline: React.FC<TimelineProps> = ({
 
       <div style={{position: 'relative'}}>
         <div style={{opacity: 1 - blend}}>
-          <EventList events={events} theme={palette} />
+          <EventList events={events} typographyScale={typographyScale} theme={palette} />
         </div>
         {hasBlend ? (
           <div style={{position: 'absolute', inset: 0, opacity: blend}}>
-            <EventList events={incomingEvents} theme={palette} />
+            <EventList events={incomingEvents} typographyScale={typographyScale} theme={palette} />
           </div>
         ) : null}
       </div>

@@ -1,5 +1,7 @@
 import {HEIGHT, WIDTH} from './timing';
 
+export const DASHBOARD_TYPOGRAPHY_SCALE = 2.0;
+
 const insetWidth = Math.round(WIDTH * 0.75);
 const insetHeight = Math.round(HEIGHT * 0.8);
 const commandWidth = Math.round(WIDTH * 0.62);
