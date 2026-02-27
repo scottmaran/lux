@@ -40,3 +40,5 @@ templates/project-base/
 3. `npm run dev`
 4. Read shared Remotion guidance from:
    - `skills/remotion-best-practices/SKILL.md`
+5. Optionally import reusable visuals from:
+   - `packages/video-kit/`

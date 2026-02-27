@@ -17,6 +17,7 @@
 - Place shared Remotion skills in `skills/` as the canonical location.
 - Do not create long-lived project-local skill copies unless they are truly
   project-specific.
+- Do not move campaign-specific copy, scenes, or assets into `video-kit`.
 
 ## Template Discipline
 

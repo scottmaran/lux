@@ -24,3 +24,5 @@ This directory contains Lux marketing video projects built with Remotion.
 - New projects are independent by default and are not forced to use `video-kit`.
 - Shared skills should be read from `skills/` (canonical location).
 - Existing projects in `projects/` may be legacy references.
+- `video-kit` currently includes reusable terminal and Lux UI visual primitives.
+- See `docs/video-kit.md` for module-level scope and boundaries.

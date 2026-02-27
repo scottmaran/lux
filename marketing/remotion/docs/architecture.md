@@ -10,6 +10,8 @@ with repeatable project setup and optional reusable building blocks.
 - `projects/`: each video has its own isolated Remotion project directory.
 - `templates/project-base/`: canonical source used to create new projects.
 - `packages/video-kit/`: shared primitives that projects may import if useful.
+  - terminal visuals: window, scrolling terminal, typing text, cursor.
+  - Lux UI visuals: dashboard layout, stats/filter/timeline/runs panels.
 - `skills/`: canonical shared skill library for Remotion workflows.
 - `scripts/new-video.ts`: scaffolds a new project from template.
 - `docs/`: durable guidance for users and agents.
