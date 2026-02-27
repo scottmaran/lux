@@ -44,23 +44,92 @@ const rowKey = (row: CodexSessionRow, index: number): string => {
   return `${row.atSec}-${index}-${text}`;
 };
 
-const renderAnimatedScanBold = (
-  text: string,
+const isWordGlyph = (char: string): boolean => /[A-Za-z0-9@._:/-]/.test(char);
+
+const scanBoldIndexForRow = (
   frame: number,
   fps: number,
   rowAtSec: number,
+  glyphCount: number,
+): number => {
+  if (glyphCount <= 0) {
+    return 0;
+  }
+
+  const rowStartFrame = Math.floor(rowAtSec * fps);
+  const elapsedFrames = Math.max(0, frame - rowStartFrame);
+  const stepFrames = Math.max(1, Math.round(fps * 0.05));
+  return Math.floor(elapsedFrames / stepFrames) % glyphCount;
+};
+
+const scanBoldRangeForRow = (
+  frame: number,
+  fps: number,
+  rowAtSec: number,
+  rowText: string,
+): {start: number; end: number} | null => {
+  if (rowText.length === 0) {
+    return null;
+  }
+
+  const activeIndex = scanBoldIndexForRow(frame, fps, rowAtSec, rowText.length);
+  let wordIndex = -1;
+
+  if (isWordGlyph(rowText[activeIndex] ?? '')) {
+    wordIndex = activeIndex;
+  } else {
+    for (let delta = 1; delta < rowText.length; delta += 1) {
+      const forward = activeIndex + delta;
+      if (forward < rowText.length && isWordGlyph(rowText[forward] ?? '')) {
+        wordIndex = forward;
+        break;
+      }
+
+      const backward = activeIndex - delta;
+      if (backward >= 0 && isWordGlyph(rowText[backward] ?? '')) {
+        wordIndex = backward;
+        break;
+      }
+    }
+  }
+
+  if (wordIndex === -1) {
+    return null;
+  }
+
+  let start = wordIndex;
+  let end = wordIndex + 1;
+
+  while (start > 0 && isWordGlyph(rowText[start - 1] ?? '')) {
+    start -= 1;
+  }
+
+  while (end < rowText.length && isWordGlyph(rowText[end] ?? '')) {
+    end += 1;
+  }
+
+  return {start, end};
+};
+
+const renderAnimatedScanBoldSegment = (
+  text: string,
+  highlightStart: number,
+  highlightEnd: number,
   baseWeight: number,
+  highlightColor: string,
 ): React.ReactNode => {
   if (!text) {
     return text;
   }
 
-  const glyphCount = Math.max(1, text.length);
-  const rowStartFrame = Math.floor(rowAtSec * fps);
-  const elapsedFrames = Math.max(0, frame - rowStartFrame);
-  const stepFrames = Math.max(1, Math.round(fps * 0.05));
-  const activeIndex = Math.floor(elapsedFrames / stepFrames) % glyphCount;
-  const boldWidthChars = Math.min(3, glyphCount);
+  const segmentLength = text.length;
+  const clampedStart = Math.max(0, Math.min(segmentLength, highlightStart));
+  const clampedEnd = Math.max(clampedStart, Math.min(segmentLength, highlightEnd));
+  const highlightWidth = Math.max(0, clampedEnd - clampedStart);
+
+  if (highlightWidth === 0) {
+    return text;
+  }
 
   return (
     <span style={{position: 'relative', display: 'inline-block', whiteSpace: 'pre'}}>
@@ -68,15 +137,16 @@ const renderAnimatedScanBold = (
       <span
         style={{
           position: 'absolute',
-          left: `${activeIndex}ch`,
+          left: `${clampedStart}ch`,
           top: 0,
-          width: `${boldWidthChars}ch`,
+          width: `${highlightWidth}ch`,
           overflow: 'hidden',
           whiteSpace: 'pre',
           fontWeight: 760,
+          color: highlightColor,
         }}
       >
-        <span style={{display: 'inline-block', transform: `translateX(-${activeIndex}ch)`}}>
+        <span style={{display: 'inline-block', transform: `translateX(-${clampedStart}ch)`}}>
           {text}
         </span>
       </span>
@@ -91,6 +161,7 @@ const renderRowParts = ({
   fps,
   rowAtSec,
   rowAnimation,
+  animationEnabled,
 }: {
   parts: CodexSessionRowPart[];
   theme: CodexSessionTheme;
@@ -98,12 +169,32 @@ const renderRowParts = ({
   fps: number;
   rowAtSec: number;
   rowAnimation?: 'none' | 'scan-bold';
+  animationEnabled: boolean;
 }): React.ReactNode => {
+  const partAnimations = parts.map((part) => (animationEnabled ? part.animation ?? rowAnimation ?? 'none' : 'none'));
+  const animatedRowText = parts
+    .map((part, index) => (partAnimations[index] === 'scan-bold' ? part.text : ''))
+    .join('');
+  const rowScanRange = scanBoldRangeForRow(frame, fps, rowAtSec, animatedRowText);
+  let animatedSegmentStart = 0;
+
   return parts.map((part, index) => {
     const tone = part.tone ?? 'normal';
-    const animation = part.animation ?? rowAnimation ?? 'none';
+    const animation = partAnimations[index];
     const staticWeight = part.bold ? 700 : 500;
     const animatedBaseWeight = 460;
+    const segmentEnd = animatedSegmentStart + part.text.length;
+    const hasAnimation = animation === 'scan-bold';
+    const overlapStart =
+      hasAnimation && rowScanRange !== null ? Math.max(animatedSegmentStart, rowScanRange.start) : animatedSegmentStart;
+    const overlapEnd =
+      hasAnimation && rowScanRange !== null ? Math.min(segmentEnd, rowScanRange.end) : animatedSegmentStart;
+    const hasOverlap = hasAnimation && overlapEnd > overlapStart;
+    const highlightStartInSegment = hasOverlap ? overlapStart - animatedSegmentStart : 0;
+    const highlightEndInSegment = hasOverlap ? overlapEnd - animatedSegmentStart : 0;
+    if (hasAnimation) {
+      animatedSegmentStart += part.text.length;
+    }
 
     return (
       <span
@@ -116,7 +207,13 @@ const renderRowParts = ({
         }}
       >
         {animation === 'scan-bold'
-          ? renderAnimatedScanBold(part.text, frame, fps, rowAtSec, animatedBaseWeight)
+          ? renderAnimatedScanBoldSegment(
+              part.text,
+              highlightStartInSegment,
+              highlightEndInSegment,
+              animatedBaseWeight,
+              theme.bodyText,
+            )
           : part.text}
       </span>
     );
@@ -214,9 +311,10 @@ const rowPushOffsetAt = (
   }, 0);
 };
 
-const blinkCursorVisibleAt = (frame: number, fps: number): boolean => {
+const blinkCursorVisibleAt = (frame: number, fps: number, anchorFrame = 0): boolean => {
   const blinkFrames = Math.max(1, Math.round(fps * 0.5));
-  return Math.floor(frame / blinkFrames) % 2 === 0;
+  const normalizedFrame = Math.max(0, frame - anchorFrame);
+  return Math.floor(normalizedFrame / blinkFrames) % 2 === 0;
 };
 
 const topBarTitleAtTime = (
@@ -253,6 +351,7 @@ export const CodexSession: React.FC<CodexSessionProps> = ({
   bottomRightLabel = '100% context left',
   bottomRightAtSec = 0,
   footerAtSec = 0,
+  footerInputAtSec,
   footerLines = defaultFooterLines,
   theme,
 }) => {
@@ -270,7 +369,21 @@ export const CodexSession: React.FC<CodexSessionProps> = ({
   const activeTopBarTitle = topBarTitleAtTime(currentSec, topBarTitle, topBarTitleSteps);
   const showBottomRight = currentSec >= bottomRightAtSec;
   const showFooter = currentSec >= footerAtSec;
-  const cursorBlinkVisible = blinkCursorVisibleAt(frame, fps);
+  const commandCursorBlinkVisible = blinkCursorVisibleAt(frame, fps);
+  const footerCursorAnchorFrame = footerInputAtSec !== undefined ? Math.floor(footerInputAtSec * fps) : 0;
+  const footerCursorBlinkVisible = blinkCursorVisibleAt(frame, fps, footerCursorAnchorFrame);
+  const showFooterInput = footerInputAtSec !== undefined && currentSec >= footerInputAtSec;
+  const latestAnimatedRowIndex = (() => {
+    for (let i = activeRows.length - 1; i >= 0; i -= 1) {
+      const row = activeRows[i];
+      const hasScanBoldPart = row.parts?.some((part) => (part.animation ?? row.animation ?? 'none') === 'scan-bold') ?? false;
+      if (hasScanBoldPart) {
+        return i;
+      }
+    }
+
+    return -1;
+  })();
 
   return (
     <AbsoluteFill
@@ -321,7 +434,7 @@ export const CodexSession: React.FC<CodexSessionProps> = ({
               const typedText = typedCommandAtTime(step, currentSec, fps);
               const isLastVisible = index === visibleSteps.length - 1;
               const isPlaceholder = !step.command;
-              const showCursor = isLastVisible && currentSec < cardAtSec && cursorBlinkVisible;
+              const showCursor = isLastVisible && currentSec < cardAtSec && commandCursorBlinkVisible;
               const fullCommand = step.command ?? '';
               const displayCommand = isLastVisible ? typedText : fullCommand;
 
@@ -428,6 +541,7 @@ export const CodexSession: React.FC<CodexSessionProps> = ({
                         fps,
                         rowAtSec: row.atSec,
                         rowAnimation: row.animation,
+                        animationEnabled: index === latestAnimatedRowIndex,
                       })
                     : null}
                 </span>
@@ -455,7 +569,16 @@ export const CodexSession: React.FC<CodexSessionProps> = ({
               style={{display: 'flex', gap: 10, marginBottom: index === footerLines.length - 1 ? 0 : 8}}
             >
               <span style={{width: 20}}>{line.glyph}</span>
-              <span>{line.text}</span>
+              <span style={{color: palette.bodyText}}>
+                {showFooterInput && index === 0 && footerCursorBlinkVisible ? (
+                  <>
+                    <span style={{color: palette.cursor, fontWeight: 700}}>{blockCursor}</span>
+                    {line.text.slice(1)}
+                  </>
+                ) : (
+                  line.text
+                )}
+              </span>
             </div>
           ))}
         </div>

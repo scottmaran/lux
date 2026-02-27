@@ -23,6 +23,9 @@ projects.
   - `CodexSession`
   - source-replica preset for `codex_session_source.mp4`
   - typed row/timeline configuration for reusable Codex session visuals
+  - optional cursor blink, thinking-state emphasis animation, and event-driven
+    row-push motion controls
+  - optional footer input cursor controls for post-session typing state
 
 ## Scope Rules
 

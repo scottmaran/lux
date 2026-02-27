@@ -80,6 +80,7 @@ export type CodexSessionPreset = {
   scroll?: CodexSessionScrollKeyframe[];
   rowPushes?: CodexSessionRowPush[];
   footerAtSec?: number;
+  footerInputAtSec?: number;
   footerLines?: CodexSessionFooterLine[];
 };
 
@@ -96,6 +97,7 @@ export type CodexSessionProps = {
   bottomRightLabel?: string;
   bottomRightAtSec?: number;
   footerAtSec?: number;
+  footerInputAtSec?: number;
   footerLines?: CodexSessionFooterLine[];
   theme?: Partial<CodexSessionTheme>;
 };

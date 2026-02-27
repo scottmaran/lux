@@ -15,6 +15,7 @@ export const CODEX_SESSION_SOURCE_REPLICA: CodexSessionPreset = {
   bottomRightLabel: '100% context left',
   bottomRightAtSec: 12.6,
   footerAtSec: 12.6,
+  footerInputAtSec: 12.6,
   commandSteps: [
     {
       atSec: 0,
@@ -57,9 +58,10 @@ export const CODEX_SESSION_SOURCE_REPLICA: CodexSessionPreset = {
       atSec: 15.6,
       untilSec: 21.9,
       glyph: 'dot',
+      animation: 'scan-bold',
       parts: [
-        {text: 'Working', bold: true, animation: 'scan-bold'},
-        {text: ' (0s * esc to interrupt)', tone: 'muted'},
+        {text: 'Working', bold: true},
+        {text: ' (0s * esc to interrupt)', tone: 'muted', animation: 'none'},
       ],
       style: {color: '#9B9B9D'},
     }),
@@ -67,10 +69,11 @@ export const CODEX_SESSION_SOURCE_REPLICA: CodexSessionPreset = {
     row({
       atSec: 21.9,
       glyph: 'hollow',
+      animation: 'scan-bold',
       parts: [
-        {text: 'Starting', bold: true, animation: 'scan-bold'},
+        {text: 'Starting', bold: true},
         {text: ' ESPN Celtics game lookup', bold: true},
-        {text: ' (6s * esc to interrupt)', tone: 'muted'},
+        {text: ' (6s * esc to interrupt)', tone: 'muted', animation: 'none'},
       ],
     }),
 
@@ -94,10 +97,11 @@ export const CODEX_SESSION_SOURCE_REPLICA: CodexSessionPreset = {
     row({
       atSec: 27,
       glyph: 'hollow',
+      animation: 'scan-bold',
       parts: [
-        {text: 'Querying', bold: true, animation: 'scan-bold'},
+        {text: 'Querying', bold: true},
         {text: ' ESPN Celtics schedule ', tone: 'muted'},
-        {text: '(10s * esc to interrupt)', tone: 'muted'},
+        {text: '(10s * esc to interrupt)', tone: 'muted', animation: 'none'},
       ],
     }),
 
@@ -159,18 +163,22 @@ export const CODEX_SESSION_SOURCE_REPLICA: CodexSessionPreset = {
     row({
       atSec: 41.2,
       glyph: 'dot',
+      animation: 'scan-bold',
       parts: [
-        {text: 'Planning', bold: true, animation: 'scan-bold'},
-        {text: ' exact sentence quote (26s * esc to interrupt)', tone: 'muted'},
+        {text: 'Planning', bold: true},
+        {text: ' exact sentence quote', tone: 'muted'},
+        {text: ' (26s * esc to interrupt)', tone: 'muted', animation: 'none'},
       ],
       style: {color: '#9B9B9D'},
     }),
     row({
       atSec: 54,
       glyph: 'dot',
+      animation: 'scan-bold',
       parts: [
-        {text: 'Finalizing', bold: true, animation: 'scan-bold'},
-        {text: ' ESPN content and citations (44s * esc to interrupt)', tone: 'muted'},
+        {text: 'Finalizing', bold: true},
+        {text: ' ESPN content and citations', tone: 'muted'},
+        {text: ' (44s * esc to interrupt)', tone: 'muted', animation: 'none'},
       ],
       style: {color: '#9B9B9D'},
     }),
