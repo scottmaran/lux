@@ -30,3 +30,10 @@
 ## Skills
 
 - `skills/remotion-best-practices/` is the canonical shared skill directory.
+
+## Review Policy
+
+- Agent review should use Remotion-native commands by default.
+- `remotion still` is the primary method for visual inspection.
+- Do not install system-wide review tools unless explicitly approved.
+- See `docs/review-workflow.md` for the full review workflow policy.

@@ -26,3 +26,4 @@ This directory contains Lux marketing video projects built with Remotion.
 - Existing projects in `projects/` may be legacy references.
 - `video-kit` currently includes reusable terminal and Lux UI visual primitives.
 - See `docs/video-kit.md` for module-level scope and boundaries.
+- Agent review method policy lives in `docs/review-workflow.md`.
