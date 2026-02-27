@@ -7,7 +7,7 @@ export const RemotionRoot: React.FC = () => {
   return (
     <>
       <Composition
-        id="LassoFullTerminal"
+        id="LuxFullTerminal"
         component={FullTerminalVideo}
         durationInFrames={TOTAL_FRAMES}
         fps={FPS}

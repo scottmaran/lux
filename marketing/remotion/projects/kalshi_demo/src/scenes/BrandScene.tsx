@@ -4,6 +4,7 @@ import {
   Audio,
   Easing,
   interpolate,
+  Sequence,
   staticFile,
   useCurrentFrame,
   useVideoConfig,
@@ -23,10 +24,10 @@ const CLAMP_OPTIONS = {
 };
 
 type BrandSceneProps = {
-  enableWhoosh?: boolean;
+  enableChime?: boolean;
 };
 
-export const BrandScene: React.FC<BrandSceneProps> = ({enableWhoosh = true}) => {
+export const BrandScene: React.FC<BrandSceneProps> = ({enableChime = true}) => {
   const frame = useCurrentFrame();
   const {fps} = useVideoConfig();
 
@@ -54,14 +55,59 @@ export const BrandScene: React.FC<BrandSceneProps> = ({enableWhoosh = true}) => 
   const stripesOpacity = interpolate(frame, [logoStart, logoStart + stripesFadeFrames], [0, 1], {
     ...CLAMP_OPTIONS,
   });
+  const chimeStart = logoStart + 6;
+  const lightSweepOpacity = interpolate(frame, [logoStart - 6, logoStart + 18, logoStart + 98], [0, 0.55, 0], {
+    ...CLAMP_OPTIONS,
+    easing: Easing.inOut(Easing.cubic),
+  });
+  const lightSweepX = interpolate(frame, [logoStart - 6, logoStart + 98], [-65, 68], {
+    ...CLAMP_OPTIONS,
+    easing: Easing.inOut(Easing.cubic),
+  });
+  const haloOpacity = interpolate(frame, [logoStart, logoStart + 20, logoStart + 120], [0, 0.45, 0], {
+    ...CLAMP_OPTIONS,
+    easing: Easing.out(Easing.cubic),
+  });
+  const haloScale = interpolate(frame, [logoStart, logoStart + 116], [0.76, 1.26], {
+    ...CLAMP_OPTIONS,
+    easing: Easing.out(Easing.cubic),
+  });
 
   return (
     <AbsoluteFill style={{backgroundColor: '#030712'}}>
-      {enableWhoosh ? <Audio src={staticFile('rotate_whoosh_trimmed.m4a')} volume={0.05} /> : null}
+      {enableChime ? (
+        <Sequence from={chimeStart}>
+          <Audio src={staticFile('chime_trimmed.m4a')} volume={0.24} />
+        </Sequence>
+      ) : null}
       <AbsoluteFill
         style={{
           backgroundImage:
             'radial-gradient(circle at 50% 18%, rgba(59, 130, 246, 0.24), rgba(13, 17, 23, 0) 48%)',
+        }}
+      />
+      <AbsoluteFill
+        style={{
+          opacity: lightSweepOpacity,
+          transform: `translateX(${lightSweepX}%)`,
+          background:
+            'linear-gradient(108deg, rgba(125, 211, 252, 0) 30%, rgba(125, 211, 252, 0.3) 50%, rgba(125, 211, 252, 0) 70%)',
+          mixBlendMode: 'screen',
+        }}
+      />
+      <div
+        style={{
+          position: 'absolute',
+          left: '50%',
+          top: '35%',
+          width: 760,
+          height: 760,
+          borderRadius: '50%',
+          transform: `translate(-50%, -50%) scale(${haloScale})`,
+          opacity: haloOpacity,
+          background:
+            'radial-gradient(circle, rgba(147, 197, 253, 0.42) 0%, rgba(147, 197, 253, 0.14) 38%, rgba(147, 197, 253, 0) 72%)',
+          filter: 'blur(2px)',
         }}
       />
       <AbsoluteFill
@@ -104,7 +150,7 @@ export const BrandScene: React.FC<BrandSceneProps> = ({enableWhoosh = true}) => 
               lineHeight: 1,
             }}
           >
-            Lasso
+            Lux
           </span>
         </div>
 

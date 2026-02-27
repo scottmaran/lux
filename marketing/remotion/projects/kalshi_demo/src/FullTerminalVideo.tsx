@@ -7,6 +7,7 @@ import {TransitionScene} from './scenes/TransitionScene';
 import {DashboardScene} from './scenes/DashboardScene';
 // import {DifferentiatorScene} from './scenes/DifferentiatorScene';
 import {BrandScene} from './scenes/BrandScene';
+import {ProblemIntroScene} from './scenes/ProblemIntroScene';
 import {INSET_DASHBOARD_WINDOW} from './config/layout';
 import {Callout} from './components/Callout';
 import {TerminalPopSfx} from './components/TerminalPopSfx';
@@ -19,7 +20,8 @@ const TERMINAL_POP_SOUND_DURATION = 20;
 export const FullTerminalVideo: React.FC = () => {
   const {fps} = useVideoConfig();
 
-  const s1From = 0;
+  const introFrom = 0;
+  const s1From = introFrom + SCENE_FRAMES.intro;
   const s2From = s1From + SCENE_FRAMES.chaos;
   const s3From = s2From + SCENE_FRAMES.overlay;
   const s4From = s3From + SCENE_FRAMES.sceneTransition;
@@ -29,6 +31,10 @@ export const FullTerminalVideo: React.FC = () => {
 
   return (
     <AbsoluteFill>
+      <Sequence from={introFrom} durationInFrames={SCENE_FRAMES.intro}>
+        <ProblemIntroScene />
+      </Sequence>
+
       <Sequence from={s1From} durationInFrames={SCENE_FRAMES.chaos} premountFor={1 * fps}>
         <AbsoluteFill>
           <ChaosScene showDesktopBackground={false} enableClickSfx />
@@ -61,7 +67,7 @@ export const FullTerminalVideo: React.FC = () => {
           <DashboardScene insetWindow={INSET_DASHBOARD_WINDOW} />
           <Sequence from={20} durationInFrames={290}>
             <Callout
-              kicker="Lasso"
+              kicker="Lux"
               title="OS-level agent monitoring"
               durationInFrames={400}
               position={{right: 750, bottom: 330}}

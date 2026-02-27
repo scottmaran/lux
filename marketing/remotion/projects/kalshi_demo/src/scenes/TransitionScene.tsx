@@ -48,7 +48,7 @@ export const TransitionScene: React.FC<TransitionSceneProps> = ({
     );
   }
 
-  const commandText = 'lasso logs';
+  const commandText = 'lux logs';
   const commandWindowAppearFrame = 0;
   const commandStart = 30;
   const commandTypingSoundStart = 32;
@@ -154,7 +154,7 @@ export const TransitionScene: React.FC<TransitionSceneProps> = ({
                   color: colors.terminalGreen,
                 }}
               >
-                [lasso] Opening verified activity dashboard...
+                [lux] Opening verified activity dashboard...
               </div>
             ) : null}
 
@@ -168,7 +168,7 @@ export const TransitionScene: React.FC<TransitionSceneProps> = ({
                   color: colors.terminalText,
                 }}
               >
-                [lasso] Loading run context: session_main_2026
+                [lux] Loading run context: session_main_2026
               </div>
             ) : null}
           </TerminalWindow>
