@@ -65,21 +65,29 @@ export const FullTerminalVideo: React.FC = () => {
           />
           <AbsoluteFill style={{backgroundColor: 'rgba(0, 0, 0, 0.56)'}} />
           <DashboardScene insetWindow={INSET_DASHBOARD_WINDOW} />
-          <Sequence from={20} durationInFrames={290}>
+          <Sequence from={20} durationInFrames={175}>
             <Callout
               kicker="Lux"
-              title="OS-level agent monitoring"
-              durationInFrames={400}
-              position={{right: 750, bottom: 330}}
+              title="Lux records and organizes all of your agents"
+              durationInFrames={150}
+              position={{right: 780, bottom: 670}}
               // position={{right: 140, bottom: 230}}
             />
           </Sequence>
-          <Sequence from={120} durationInFrames={190}>
+          <Sequence from={195} durationInFrames={200}>
             <Callout
               kicker=""
-              title={'for when your Kalshi\n bots ignore their size limits'}
-              durationInFrames={300}
-              position={{left: 650, top: 760}}
+              title={'so when an agent goes rogue and starts blowing up your machine'}
+              durationInFrames={200}
+              position={{right: 780, bottom: 640}}
+            />
+          </Sequence>
+          <Sequence from={395} durationInFrames={200}>
+            <Callout
+              kicker=""
+              title={"you'll have the record of what happened"}
+              durationInFrames={200}
+              position={{right: 780, bottom: 610}}
             />
           </Sequence>
         </AbsoluteFill>

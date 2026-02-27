@@ -62,7 +62,7 @@ export const Callout: React.FC<CalloutProps> = ({
       <div
         style={{
           position: 'absolute',
-          width: 520,
+          width: 620,
           padding: '22px 26px',
           borderRadius: 22,
           background: 'rgba(16, 23, 37, 0.9)',

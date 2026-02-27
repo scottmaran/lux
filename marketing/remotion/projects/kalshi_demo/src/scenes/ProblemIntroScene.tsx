@@ -28,7 +28,7 @@ export const ProblemIntroScene: React.FC = () => {
       <AbsoluteFill
         style={{
           background:
-            'radial-gradient(circle at 50% 22%, rgba(59, 130, 246, 0.26), rgba(2, 6, 23, 0) 56%)',
+            'radial-gradient(circle at 50% 22%, rgba(20, 57, 117, 0.26), rgba(2, 6, 23, 0) 56%)',
         }}
       />
       <div
@@ -56,7 +56,8 @@ export const ProblemIntroScene: React.FC = () => {
             filter: `blur(${blur}px)`,
           }}
         >
-          Getting too hard to watch over all your agents?
+          As agents get better, <br></br>
+          we're giving them more access
         </div>
       </div>
     </AbsoluteFill>

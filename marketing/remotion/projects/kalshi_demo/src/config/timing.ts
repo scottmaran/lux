@@ -3,11 +3,11 @@ export const WIDTH = 1920;
 export const HEIGHT = 1080;
 
 export const SCENE_FRAMES = {
-  intro: 180,
+  intro: 230,
   chaos: 475,
   overlay: 110,
   sceneTransition: 180,
-  dashboard: 360,
+  dashboard: 520,
   // differentiator: 180,
   brand: 200,
 } as const;
