@@ -3,7 +3,7 @@ export const WIDTH = 1920;
 export const HEIGHT = 1080;
 
 export const SCENE_FRAMES = {
-  intro: 230,
+  intro: 240,
   chaos: 475,
   overlay: 110,
   sceneTransition: 180,
