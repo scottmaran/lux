@@ -61,6 +61,7 @@ Types:
 - `CodexSessionCommandStep`
 - `CodexSessionRow`
 - `CodexSessionRowPart`
+- `CodexSessionRowPush`
 - `CodexSessionCardConfig`
 - `CodexSessionTheme`
 

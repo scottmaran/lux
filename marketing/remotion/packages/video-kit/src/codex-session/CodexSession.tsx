@@ -44,20 +44,80 @@ const rowKey = (row: CodexSessionRow, index: number): string => {
   return `${row.atSec}-${index}-${text}`;
 };
 
-const renderRowParts = (parts: CodexSessionRowPart[], theme: CodexSessionTheme): React.ReactNode => {
+const renderAnimatedScanBold = (
+  text: string,
+  frame: number,
+  fps: number,
+  rowAtSec: number,
+  baseWeight: number,
+): React.ReactNode => {
+  if (!text) {
+    return text;
+  }
+
+  const glyphCount = Math.max(1, text.length);
+  const rowStartFrame = Math.floor(rowAtSec * fps);
+  const elapsedFrames = Math.max(0, frame - rowStartFrame);
+  const stepFrames = Math.max(1, Math.round(fps * 0.05));
+  const activeIndex = Math.floor(elapsedFrames / stepFrames) % glyphCount;
+  const boldWidthChars = Math.min(3, glyphCount);
+
+  return (
+    <span style={{position: 'relative', display: 'inline-block', whiteSpace: 'pre'}}>
+      <span style={{fontWeight: baseWeight}}>{text}</span>
+      <span
+        style={{
+          position: 'absolute',
+          left: `${activeIndex}ch`,
+          top: 0,
+          width: `${boldWidthChars}ch`,
+          overflow: 'hidden',
+          whiteSpace: 'pre',
+          fontWeight: 760,
+        }}
+      >
+        <span style={{display: 'inline-block', transform: `translateX(-${activeIndex}ch)`}}>
+          {text}
+        </span>
+      </span>
+    </span>
+  );
+};
+
+const renderRowParts = ({
+  parts,
+  theme,
+  frame,
+  fps,
+  rowAtSec,
+  rowAnimation,
+}: {
+  parts: CodexSessionRowPart[];
+  theme: CodexSessionTheme;
+  frame: number;
+  fps: number;
+  rowAtSec: number;
+  rowAnimation?: 'none' | 'scan-bold';
+}): React.ReactNode => {
   return parts.map((part, index) => {
     const tone = part.tone ?? 'normal';
+    const animation = part.animation ?? rowAnimation ?? 'none';
+    const staticWeight = part.bold ? 700 : 500;
+    const animatedBaseWeight = 460;
+
     return (
       <span
         key={`${part.text}-${index}`}
         style={{
           ...partToneStyle(tone, theme),
-          fontWeight: part.bold ? 700 : 500,
+          fontWeight: animation === 'scan-bold' ? animatedBaseWeight : staticWeight,
           fontStyle: part.italic ? 'italic' : 'normal',
           whiteSpace: 'pre-wrap',
         }}
       >
-        {part.text}
+        {animation === 'scan-bold'
+          ? renderAnimatedScanBold(part.text, frame, fps, rowAtSec, animatedBaseWeight)
+          : part.text}
       </span>
     );
   });
@@ -132,6 +192,33 @@ const actionParts = (text: string): {lead: string; tail: string} => {
   };
 };
 
+const rowPushOffsetAt = (
+  sec: number,
+  fps: number,
+  pushes: {atSec: number; offset: number; durationFrames?: number}[] | undefined,
+): number => {
+  if (!pushes || pushes.length === 0) {
+    return 0;
+  }
+
+  return pushes.reduce((acc, push) => {
+    const elapsedFrames = Math.max(0, (sec - push.atSec) * fps);
+    if (elapsedFrames <= 0) {
+      return acc;
+    }
+
+    const durationFrames = push.durationFrames ?? Math.max(1, Math.round(fps * 0.14));
+    const progress = Math.min(1, elapsedFrames / durationFrames);
+    const easedProgress = 1 - (1 - progress) * (1 - progress);
+    return acc + push.offset * easedProgress;
+  }, 0);
+};
+
+const blinkCursorVisibleAt = (frame: number, fps: number): boolean => {
+  const blinkFrames = Math.max(1, Math.round(fps * 0.5));
+  return Math.floor(frame / blinkFrames) % 2 === 0;
+};
+
 const topBarTitleAtTime = (
   sec: number,
   fallbackTitle: string,
@@ -159,6 +246,7 @@ export const CodexSession: React.FC<CodexSessionProps> = ({
   card,
   rows,
   scroll,
+  rowPushes,
   backgroundColor,
   topBarTitle = 'lux_workspace --zsh -- 82x24',
   topBarTitleSteps,
@@ -173,12 +261,16 @@ export const CodexSession: React.FC<CodexSessionProps> = ({
   const currentSec = frame / fps;
   const activeRows = rows.filter((row) => row.atSec <= currentSec && (row.untilSec === undefined || currentSec < row.untilSec));
   const cardConfig = card ?? defaultCard;
-  const contentScroll = scrollOffsetAt(currentSec, scroll);
+  const contentScroll =
+    rowPushes && rowPushes.length > 0
+      ? rowPushOffsetAt(currentSec, fps, rowPushes)
+      : scrollOffsetAt(currentSec, scroll);
   const palette = {...DEFAULT_CODEX_SESSION_THEME, ...theme};
   const cardAction = cardConfig.modelAction ? actionParts(cardConfig.modelAction) : null;
   const activeTopBarTitle = topBarTitleAtTime(currentSec, topBarTitle, topBarTitleSteps);
   const showBottomRight = currentSec >= bottomRightAtSec;
   const showFooter = currentSec >= footerAtSec;
+  const cursorBlinkVisible = blinkCursorVisibleAt(frame, fps);
 
   return (
     <AbsoluteFill
@@ -229,7 +321,7 @@ export const CodexSession: React.FC<CodexSessionProps> = ({
               const typedText = typedCommandAtTime(step, currentSec, fps);
               const isLastVisible = index === visibleSteps.length - 1;
               const isPlaceholder = !step.command;
-              const showCursor = isLastVisible && currentSec < cardAtSec;
+              const showCursor = isLastVisible && currentSec < cardAtSec && cursorBlinkVisible;
               const fullCommand = step.command ?? '';
               const displayCommand = isLastVisible ? typedText : fullCommand;
 
@@ -240,7 +332,7 @@ export const CodexSession: React.FC<CodexSessionProps> = ({
               if (step.bracketed) {
                 return (
                   <div key={`${step.atSec}-${index}`} style={{marginBottom: 10}}>
-                    <span style={{fontWeight: 500}}>[{step.prompt}% </span>
+                    <span style={{fontWeight: 500}}>[{step.prompt} % </span>
                     <span style={{fontWeight: 500}}>{displayCommand}</span>
                     {showCursor ? <span style={{color: palette.cursor, fontWeight: 700}}>{blockCursor}</span> : null}
                     <span style={{fontWeight: 500}}>]</span>
@@ -250,7 +342,7 @@ export const CodexSession: React.FC<CodexSessionProps> = ({
 
               return (
                 <div key={`${step.atSec}-${index}`} style={{marginBottom: 10}}>
-                  <span style={{fontWeight: 500}}>{step.prompt}% </span>
+                  <span style={{fontWeight: 500}}>{step.prompt} % </span>
                   <span style={{fontWeight: 500}}>{displayCommand}</span>
                   {showCursor ? <span style={{color: palette.cursor, fontWeight: 700}}>{blockCursor}</span> : null}
                 </div>
@@ -327,7 +419,18 @@ export const CodexSession: React.FC<CodexSessionProps> = ({
                 }}
               >
                 <span style={{width: 20, color: palette.mutedText}}>{glyph}</span>
-                <span>{row.parts ? renderRowParts(row.parts, palette) : null}</span>
+                <span>
+                  {row.parts
+                    ? renderRowParts({
+                        parts: row.parts,
+                        theme: palette,
+                        frame,
+                        fps,
+                        rowAtSec: row.atSec,
+                        rowAnimation: row.animation,
+                      })
+                    : null}
+                </span>
               </div>
             );
           })}

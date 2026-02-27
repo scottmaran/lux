@@ -8,6 +8,7 @@ export type CodexSessionRowPart = {
   tone?: CodexSessionPartTone;
   bold?: boolean;
   italic?: boolean;
+  animation?: 'none' | 'scan-bold';
 };
 
 export type CodexSessionRowGlyph = 'dot' | 'hollow' | 'arrow' | 'none';
@@ -19,6 +20,7 @@ export type CodexSessionRow = {
   glyph?: CodexSessionRowGlyph;
   indent?: number;
   kind?: 'text' | 'separator' | 'spacer';
+  animation?: 'none' | 'scan-bold';
   style?: React.CSSProperties;
 };
 
@@ -46,6 +48,12 @@ export type CodexSessionScrollKeyframe = {
   offset: number;
 };
 
+export type CodexSessionRowPush = {
+  atSec: number;
+  offset: number;
+  durationFrames?: number;
+};
+
 export type CodexSessionTopBarTitleStep = {
   atSec: number;
   title: string;
@@ -70,6 +78,7 @@ export type CodexSessionPreset = {
   card?: CodexSessionCardConfig;
   rows: CodexSessionRow[];
   scroll?: CodexSessionScrollKeyframe[];
+  rowPushes?: CodexSessionRowPush[];
   footerAtSec?: number;
   footerLines?: CodexSessionFooterLine[];
 };
@@ -80,6 +89,7 @@ export type CodexSessionProps = {
   card?: CodexSessionCardConfig;
   rows: CodexSessionRow[];
   scroll?: CodexSessionScrollKeyframe[];
+  rowPushes?: CodexSessionRowPush[];
   backgroundColor?: string;
   topBarTitle?: string;
   topBarTitleSteps?: CodexSessionTopBarTitleStep[];
