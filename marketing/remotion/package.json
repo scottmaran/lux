@@ -1,0 +1,15 @@
+{
+  "name": "lux-remotion-workspace",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "new-video": "tsx scripts/new-video.ts",
+    "new-video:help": "tsx scripts/new-video.ts --help"
+  },
+  "devDependencies": {
+    "@types/node": "^24.3.0",
+    "tsx": "^4.20.5",
+    "typescript": "^5.9.3"
+  }
+}
