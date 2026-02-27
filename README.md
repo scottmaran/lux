@@ -8,13 +8,8 @@ For when you want to:
 - figure out what your agent has done while you weren't watching
 - provide your current agent session a comprehensive ledger of state changes
 
-<video
-  src="https://raw.githubusercontent.com/scottmaran/lux/lux_marketing/assets/LuxDemo.mp4"
-  controls
-  muted
-  playsinline
-  width="900"
-></video>
+<video src="https://raw.githubusercontent.com/scottmaran/lux/lux_marketing/assets/LuxDemo.mp4" controls muted width="900"></video>
+
 
 ## About
 
