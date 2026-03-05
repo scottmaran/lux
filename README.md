@@ -8,7 +8,7 @@ For when you want to:
 - figure out what your agent has done while you weren't watching
 - provide your current agent session a comprehensive ledger of state changes
 
-<video src="assets/LuxDemo.mp4" autoplay loop muted playsinline></video>
+<video src="https://github.com/user-attachments/assets/f06fe036-fc78-4c14-807f-6e81adb02fe7" autoplay playsinline></video>
 
 
 ## About
