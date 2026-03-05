@@ -67,17 +67,16 @@ export const FullTerminalVideo: React.FC = () => {
           <DashboardScene insetWindow={INSET_DASHBOARD_WINDOW} />
           <Sequence from={20} durationInFrames={175}>
             <Callout
-              kicker="Lux"
-              title="Lux records and organizes all of your agents"
+              kicker=""
+              title="It deleted its own guardrails."
               durationInFrames={150}
               position={{right: 740, bottom: 600}}
-              // position={{right: 140, bottom: 230}}
             />
           </Sequence>
           <Sequence from={195} durationInFrames={200}>
             <Callout
               kicker=""
-              title={'so when an agent goes rogue and starts blowing up your machine'}
+              title="It exposed your credentials."
               durationInFrames={200}
               position={{right: 750, bottom: 570}}
             />
@@ -85,7 +84,7 @@ export const FullTerminalVideo: React.FC = () => {
           <Sequence from={395} durationInFrames={200}>
             <Callout
               kicker=""
-              title={"you'll have the record of what happened"}
+              title="Lux caught all of it."
               durationInFrames={200}
               position={{right: 750, bottom: 540}}
             />

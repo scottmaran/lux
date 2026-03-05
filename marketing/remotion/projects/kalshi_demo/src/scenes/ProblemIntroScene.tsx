@@ -56,8 +56,8 @@ export const ProblemIntroScene: React.FC = () => {
             filter: `blur(${blur}px)`,
           }}
         >
-          As agents get better, <br></br>
-          we're giving them more responsibility
+          Agents don't just write code anymore. <br></br>
+          They execute it.
         </div>
       </div>
     </AbsoluteFill>
