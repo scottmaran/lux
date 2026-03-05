@@ -8,6 +8,9 @@ For when you want to:
 - figure out what your agent has done while you weren't watching
 - provide your current agent session a comprehensive ledger of state changes
 
+<video src="https://github.com/user-attachments/assets/f06fe036-fc78-4c14-807f-6e81adb02fe7" autoplay playsinline></video>
+
+
 ## About
 
 Lux is an OS‑level observation system for third‑party agents: it runs the agent in a container, uses auditd + eBPF inside the Docker Desktop VM to capture exec/fs/network/IPC metadata, and correlates that into a session‑tagged timeline. The stack includes a harness (PTY + API), a collector pipeline (filter → summary → merge), a dedicated container to run the agent, and a UI for log review.

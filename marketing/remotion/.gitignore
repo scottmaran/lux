@@ -1,0 +1,9 @@
+node_modules/
+
+projects/*/node_modules/
+projects/*/out/
+projects/*/.remotion/
+
+packages/*/dist/
+
+*.log
