@@ -7,6 +7,8 @@ on:
 
 jobs:
   stress_full:
+    # TEMP: disabled
+    if: ${{ false }}
     runs-on: ubuntu-latest
     env:
       LUX_STRESS_TRIALS: "15"

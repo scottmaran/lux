@@ -7,7 +7,7 @@ on:
 
 jobs:
   contract:
-    # TEMP: disabled while repo is private
+    # TEMP: disabled
     if: ${{ false }}
     runs-on: ubuntu-latest
     steps:
@@ -33,7 +33,7 @@ jobs:
             --change-kind "refactor"
 
   unit_fixture:
-    # TEMP: disabled while repo is private
+    # TEMP: disabled
     if: ${{ false }}
     runs-on: ubuntu-latest
     steps:
