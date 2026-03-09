@@ -5,17 +5,13 @@ LABEL org.opencontainers.image.title="lux-harness" \
       org.opencontainers.image.licenses="AGPL-3.0-only"
 
 ENV DEBIAN_FRONTEND=noninteractive
-ARG CA_CERTS_VERSION=20240203~22.04.1
-ARG CURL_VERSION=7.81.0-1ubuntu1.21
-ARG OPENSSH_CLIENT_VERSION=1:8.9p1-3ubuntu0.13
-ARG PYTHON3_VERSION=3.10.6-1~22.04.1
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
-        ca-certificates=${CA_CERTS_VERSION} \
-        curl=${CURL_VERSION} \
-        openssh-client=${OPENSSH_CLIENT_VERSION} \
-        python3=${PYTHON3_VERSION} \
+        ca-certificates \
+        curl \
+        openssh-client \
+        python3 \
     && rm -rf /var/lib/apt/lists/*
 
 RUN useradd -m -u 1002 -s /bin/bash harness \

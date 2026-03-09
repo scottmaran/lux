@@ -5,22 +5,18 @@ LABEL org.opencontainers.image.title="lux-agent" \
       org.opencontainers.image.licenses="AGPL-3.0-only"
 
 ENV DEBIAN_FRONTEND=noninteractive
-ARG CA_CERTS_VERSION=20240203~22.04.1
-ARG CURL_VERSION=7.81.0-1ubuntu1.21
-ARG GIT_VERSION=1:2.34.1-1ubuntu1.15
-ARG OPENSSH_SERVER_VERSION=1:8.9p1-3ubuntu0.13
 ARG NODE_VERSION=20.11.1
 ARG NODE_SHA256_ARM64=e34ab2fc2726b4abd896bcbff0250e9b2da737cbd9d24267518a802ed0606f3b
 ARG NODE_SHA256_X64=bf3a779bef19452da90fb88358ec2c57e0d2f882839b20dc6afc297b6aafc0d7
 ARG CODEX_VERSION=0.104.0
-ARG CLAUDE_CODE_VERSION=2.1.49
+ARG CLAUDE_CODE_VERSION=2.1.71
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
-        ca-certificates=${CA_CERTS_VERSION} \
-        curl=${CURL_VERSION} \
-        git=${GIT_VERSION} \
-        openssh-server=${OPENSSH_SERVER_VERSION} \
+        ca-certificates \
+        curl \
+        git \
+        openssh-server \
     && rm -rf /var/lib/apt/lists/*
 
 RUN ARCH="$(dpkg --print-architecture)" \
